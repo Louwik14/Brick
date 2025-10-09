@@ -195,6 +195,31 @@ int main(void) {
 
 ### Rendu (`ui_renderer.c`)
 
+#### Cadre du **titre de menu** (coins ouverts, centrage interne)
+
+- Le titre de menu peut être affiché **dans un cadre** à **coins ouverts** (esthétique : **pas de pixel aux 4 coins**).  
+- Le **centrage du titre** se fait **à l’intérieur du cadre** (et non plus entre cart/tag et la zone note).
+- La position et la taille du cadre sont **pilotées par 4 constantes** pour faciliter le tâtonnement :
+  ```c
+  #define MENU_FRAME_X   34   /* position X du cadre titre */
+  #define MENU_FRAME_Y    0   /* position Y du cadre titre */
+  #define MENU_FRAME_W   60   /* largeur du cadre titre    */
+  #define MENU_FRAME_H   12   /* hauteur du cadre titre    */
+  ```
+- Rendu typique (extrait) :
+  ```c
+  /* 1) Cadre à coins ouverts */
+  draw_rect_open_corners(MENU_FRAME_X, MENU_FRAME_Y, MENU_FRAME_W, MENU_FRAME_H);
+
+  /* 2) Centrage du texte **dans** le cadre */
+  int tw = text_width_px(&FONT_5X7, title);
+  int x  = MENU_FRAME_X + (MENU_FRAME_W - tw) / 2;
+  int y  = MENU_FRAME_Y + (MENU_FRAME_H - FONT_5X7.height) / 2;
+  drv_display_draw_text_with_font(&FONT_5X7, (uint8_t)x, (uint8_t)y, title);
+  ```
+- **Invariant respecté** : ce comportement reste purement **rendu**, sans logique d’état dans le renderer.
+
+
 - Transforme l’état logique en pixels via `drv_display_*`.
 - **Source de vérité** : `ui_get_state()` et `ui_resolve_menu()` (si cycle BM actif, le menu résolu est celui du cycle).
 - **Bandeau supérieur — mis à jour** :
@@ -224,6 +249,18 @@ void    ui_backend_shadow_set(uint16_t id, uint8_t val);
 ---
 
 ## Cartouches : bus, link, proto, registry
+
+### Types neutres de spécification (`core/spec/cart_spec_types.h`)
+
+- Fourni par `core/spec/cart_spec_types.h`, ce header définit des **types purement descriptifs** et **neutres** pour les cartouches :  
+  `cart_param_spec_t`, `cart_page_spec_t`, `cart_menu_spec_t`, `cart_spec_t` ainsi que les bornes (`CART_MAX_*`).  
+- **Objectif** : servir de **pont de types** entre la couche **Cart** (registry/link) et la couche **UI** (ui_spec/ui_renderer) **sans dépendance circulaire** ni logique embarquée.
+- **Contenu** : uniquement des **structures** et **constantes** ; **aucune logique** ni dépendance fonctionnelle.
+- **Utilisation attendue** :
+  - côté Cart : déclare les **specs runtime** (menus, pages, paramètres) remontées par `cart_registry` ;
+  - côté UI : `ui_spec.h` peut **mapper/convertir** ces types neutres vers les structures UI si nécessaire, ou les consommer directement pour construire les menus/pages.
+- **Doxygen** : le fichier appartient au groupe `@ingroup cart` et expose le sous-groupe `@defgroup cart_spec_types`.
+
 
 - **`cart_bus.[ch]`** : configuration UART (CART1..CART4), **file d’envoi asynchrone** (mailbox + pool), **un thread TX par cartouche** (`cart_tx_thread`) à **`NORMALPRIO+2`** (macro configurée).
 - **`cart_proto.[ch]`** : sérialisation **compacte et déterministe** :
