@@ -28,7 +28,8 @@ jobs:
       - name: Préparer les fichiers
         run: |
           mkdir _site
-          cp -r html/* _site/
+          cp -r docs/html/* _site/
+
 
       - name: Déployer sur GitHub Pages
         uses: actions/deploy-pages@v4
