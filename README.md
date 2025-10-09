@@ -24,11 +24,16 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 
 ```
 [ Application / Modes customs (futur) ]
-│
+│                 (ex: ui_overlay.* publie le tag actif vers ui_model)
 ▼
 [ UI Layer (task, input, controller, renderer, widgets) ]
-│           ▲
-│           └─────── ui_backend (pont neutre)
+│     ├─ ui_model  (état courant UI, tag custom persistant "SEQ"/"ARP", etc.)
+│     ├─ ui_spec   (adaptation/consommation des cart_spec_* neutres)
+│     └─ ui_backend (pont neutre de routage vers cart / MIDI / interne)
+│
+▼
+[ core/spec/cart_spec_types.h ]   ← types neutres (menus/pages/params, bornes)
+│
 ▼
 [ Cart Link & Bus (shadow, UART, proto, registry) ]
 │
@@ -37,6 +42,7 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 │
 ▼
 [ ChibiOS HAL 21.11.x ]
+
 ```
 
 **Règle d’or :** chaque couche ne dépend que de **celle du dessous**.
@@ -74,19 +80,23 @@ Cela corrige le comportement des encodeurs sur les paramètres non discrets.
 ## Pipeline d’exécution
 
 ```
-[ Entrées physiques : boutons / encodeurs / pots ]
+                 [ core/spec/cart_spec_types.h ]  ← types neutres (specs Cart)
+                               │
+                               └──(activation cart / build des menus via ui_spec)──┐
+                                                                                    │
+[ Entrées physiques : boutons / encodeurs / pots ]                                  │
+│                                                                                   │
+▼                                                                                   │
+ui_task  (tick: scan entrées + logique périodique + 60 FPS rendu)                   │
+│                                                                                   │
+├─ ui_input  ── events ──►  ui_controller  ──►  (ui_backend)  ──►  cart_link/shadow/registry ──► cart_bus (UART)
+│                         │                    (routage Cart/MIDI/interne)
+│                         └── écrit l’état UI (ui_model : menu/page/vals, tag custom persistant "SEQ"/"ARP")
 │
-▼
-ui_input
-│ évènements
-▼
-ui_controller ──→ (ui_backend) → cart_link → cart_bus (UART)
-│ état UI (ui_model)
-▼
-ui_renderer → drv_display
-│
-▼
-OLED
+└─ ui_renderer  ──►  drv_display  ──►  OLED
+      (lit ui_model + ui_spec ; bandeau : #ID inversé à gauche,
+       cart name + mode 4×6 empilés, titre centré dans le cadre à coins ouverts)
+
 ```
 
 - **Aucun accès bus/UART depuis l’UI** : tout passe par `ui_backend`.
@@ -534,9 +544,9 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 
 ### 5. Rendu (`ui_renderer`) — **implémenté**
 
-- Affichage d’un **label capsule** à droite du `cart_name` indiquant le **mode custom actif** (`overlay_tag`).
+- Affichage du **mode custom actif** (*overlay_tag*) **en 4×6 non inversé**, sous le **nom de cartouche** (4×6 non inversé).
 - Si la spec active ne fournit pas de `overlay_tag`, le renderer utilise `ui_model_get_active_overlay_tag()` (dernier mode actif persistant, **par défaut "SEQ"** au démarrage).
-- Le **titre du menu** est **centré** **entre** la fin du bloc `cart_name + overlay_tag` et la zone note (fenêtrage). 
+- Le **titre du menu** est **centré dans un cadre** à coins ouverts (voir *Rendu (`ui_renderer.c`)*). 
 - Invariants respectés : aucune logique d’état dans le renderer ; pas d’accès bus/driver hors `drv_display`/primitives.
 
 ---
