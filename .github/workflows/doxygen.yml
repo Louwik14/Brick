@@ -23,12 +23,12 @@ jobs:
           sudo apt-get install -y doxygen graphviz
 
       - name: Générer la doc
-        run: doxygen docs/Doxyfile
+        run: doxygen Doxyfile
 
       - name: Préparer les fichiers
         run: |
           mkdir _site
-          cp -r docs/html/* _site/
+          cp -r html/* _site/
 
-      - name: Envoyer vers GitHub Pages
+      - name: Déployer sur GitHub Pages
         uses: actions/deploy-pages@v4
