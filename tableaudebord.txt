@@ -1,0 +1,1577 @@
+Dernière mise à jour: {now}
+
+## Objectif
+Construire un séquenceur MIDI (esprit Elektron) sur STM32F429ZI (Nucleo-144) avec ChibiOS 21.11.x, capable d’émettre et de recevoir du MIDI via :
+- USB MIDI device (Audio/MIDI 1.0),
+- DIN MIDI (UART2 @ 31250 bauds),
+- Horloge musicale précise 24 PPQN pilotée par timer matériel (GPT),
+- Architecture extensible style Ksoloti/Axoloti (router périphériques, parsers robustes, SysEx, multi-ports).
+
+Ce document décrit EXACTEMENT l’état du projet, ce qui est validé sur hardware, et la suite. L’assistant doit pouvoir agir immédiatement sans reposer de questions tranchées.
+
+---
+
+## État ACTUEL (validé sur hardware)
+- **USB stable & ré-énumération** au boot : déconnexion → pause → `usbStart()` → mode device forcé (désactivation VBUS sensing) → `usbConnect()`. L’hôte voit un device **USB‑MIDI**.
+- **Descripteurs USB** : IF0 = AudioControl, IF1 = MIDIStreaming. **EP1 OUT (Bulk, 64)** + **EP2 IN (Bulk, 64)**. Device class au niveau **interface** (0x00).
+- **API MIDI unifiée** : `midi_note_on/off`, `midi_cc`, `midi_pitchbend`, `midi_start/stop/continue/clock` avec `midi_dest_t {{ NONE, UART, USB, BOTH }}`.
+- **USB TX non bloquant (voie normale)** : messages MIDI (1–3 octets) → paquet USB‑MIDI 4 octets (CIN correct) → **mailbox** (msg 32 bits) → **thread TX** agrège jusqu’à 64 octets (16 paquets) et **flushe** au plus tard à **1 ms**. Fin de transfert : **`ep2_in_cb()`** → **`chBSemSignalI(&tx_sem)`** → relance (LED4).
+- **Flush immédiat non bloquant des realtime** :
+  - `0xF8` (**Clock**) : envoi immédiat si `usb_midi_tx_ready` + EP libre, sinon **drop** (sans bloquer) et **crédit** de rattrapage.
+  - `FA/FB/FC/FE/FF` (**Start/Continue/Stop/ActiveSense/Reset**) : **micro‑timeout** (200 µs, configurable) pour attraper l’EP ; à défaut, **fallback mailbox** (non bloquant, avec *drop‑oldest* local pour FA/FB/FC).
+- **Coalescence / rattrapage Clock F8** : si des F8 ont été droppées, le prochain flush immédiat F8 expédie **un petit burst** (jusqu’à 4 F8 supplémentaires, configurable) **dans la même transaction USB**. Objectif : compenser proprement sans saturer l’hôte.
+- **Packaging USB‑MIDI correct** : mapping CIN (NoteOff=0x8, NoteOn=0x9, CC=0xB, PB=0xE, Realtime=0xF) + **zéro‑padding** pour les messages 1 octet.
+- **DIN OUT** : en parallèle via `sdWrite(&SD2, ...)` (UART2 @ 31250 bauds).
+- **Horloge 24 PPQN hardware** : **GPT TIM3** base 1 MHz (résolution 1 µs), ISR courte qui `signalI` un sémaphore ; **thread `midi_clk`** (prio `NORMALPRIO+1`) bascule LED1 et appelle `midi_clock(MIDI_DEST_BOTH)`.
+- **`midi_set_bpm(float)`** : recalcule la période et **reprogramme** le GPT (stop→start). Validé sur 60/90/120/150 BPM (Ableton en esclave clock).
+- **LEDs debug** : LED1 (PG10) : tick clock ; LED2 (PG9) : enqueue USB ; LED3 (PD7) : départ transfert USB ; LED4 (PD6) : ACK host.
+- **Robustesse USB** : en état UNCONFIGURED/RESET/SUSPEND → **garanties non‑blocantes** (garde `usb_midi_tx_ready`, `usb_not_ready_drops`).
+
+**Résultat utilisateur** : Ableton reçoit clock + notes. BPM correct, transport fiable, pas de blocage si l’USB tombe.
+
+---
+
+## Fichiers PERTINENTS
+- `main.c` : init HAL/RT, init USB (déco/reco + mode device forcé), `midi_init()`, attente `USB_ACTIVE`, smoke test non bloquant, init horloge (`midi_clock_init()`, `midi_set_bpm()`, `midi_clock_start()`), thread démo notes.
+- `usbcfg.c/h` : descripteurs Audio/MIDI 1.0, EP configs, `USB_EVENT_CONFIGURED` → `usbInitEndpointI(EP1 OUT/EP2 IN)` + `usbStartReceiveI(EP1 OUT, ...)` + **prime `tx_sem`**, gestion **`usb_midi_tx_ready`**.
+- `midi.c/h` : API + **mailbox non bloquante** + **thread TX** + **sémaphore** + mapping CIN + **flush immédiat non bloquant realtime** + **coalescence F8** + **micro‑timeout FA/FB/FC** + envoi DIN + **compteurs stats**.
+- `midi_clock.c/h` : GPT TIM3 1 MHz, ISR minimaliste, thread `midi_clk`, `midi_set_bpm()`, `midi_clock_{{start,stop}}`, `midi_get_bpm()`.
+
+**Constantes** :
+
+```c
+#define MIDI_EP_OUT  1U
+#define MIDI_EP_IN   2U
+#define MIDI_EP_SIZE 64U
+typedef enum {{ MIDI_DEST_NONE, MIDI_DEST_UART, MIDI_DEST_USB, MIDI_DEST_BOTH }} midi_dest_t;
+
+Hypothèses config :
+
+Toujours afficher les détails
+
+// halconf.h
+#define HAL_USE_USB  TRUE
+#define HAL_USE_GPT  TRUE
+
+// mcuconf.h
+#define STM32_USB_USE_OTG1        TRUE
+#define STM32_SERIAL_USE_USART2   TRUE   // PA2 TX, PA3 RX
+#define STM32_GPT_USE_TIM3        TRUE
+
+Détails d’implémentation (clés)
+(1) USB — émission
+
+    send_usb() construit packet[4] :
+
+        packet[0] = (cable<<4) | CIN ; packet[1..3] = status / data (zéro‑pad si <3).
+
+    Realtime :
+
+        0xF8 : flush direct si possible ; sinon drop + s_f8_credit++ (borne) → burst au prochain flush.
+
+        FA/FB/FC/FE/FF : micro‑timeout (200 µs par défaut) pour obtenir tx_sem. À défaut → mailbox non bloquante (FA/FB/FC forcées en drop‑oldest local).
+
+    Non‑realtime : mailbox → thread TX → flush ≤ 1 ms (plein 64 ou timeout).
+
+(2) USB — endpoints & événements
+
+    USB_EVENT_CONFIGURED : init EP1 OUT + EP2 IN, armer usbStartReceiveI(EP1 OUT, rx_pkt, 4), primer tx_sem, usb_midi_tx_ready = true.
+
+    USB_EVENT_RESET/UNCONFIGURED/SUSPEND : usb_midi_tx_ready = false (évite tout envoi).
+
+    ep2_in_cb() : palToggleLine(LED4) + chBSemSignalI(&tx_sem).
+
+(3) GPT 24 PPQN
+
+    Base 1 MHz ; ticks = 60e6 / (BPM * 24) ; borne 1..65535 (TIM3 16 bits).
+
+    ISR : chBSemSignalI(&clk_sem) seulement.
+
+    Thread midi_clk : chBSemWait() → toggle LED1 → midi_clock(BOTH).
+
+Garanties temps‑réel / Sécurité
+
+    Jamais de blocage si l’USB tombe ou si l’EP est occupé.
+
+    Clock prioritaire : F8 peut être droppée (puis rattrapée par burst), jamais bloquante.
+
+    Transport prioritaire : FA/FB/FC privilégient le flush direct (micro‑timeout), sinon mailbox avec drop‑oldest local (garantie de livraison).
+
+Instrumentation & Statistiques
+
+Structure midi_tx_stats_t (globale) :
+
+    tx_sent_immediate, tx_sent_batched,
+
+    rt_f8_drops, rt_f8_burst_sent,
+
+    rt_other_enq_fallback,
+
+    tx_mb_drops,
+
+    usb_not_ready_drops.
+
+Fonction midi_stats_reset() pour remise à zéro. Possibilité de chprintf périodique (UART debug) ou lecture en debugger.
+Scénarios de test rapide
+
+    Clock seule : MIDI‑OX → TIMING CLOCK (F8) à 24 PPQN (48/s @120 BPM). LED1/3 très actives.
+
+    Transport sous charge : flood de notes/CC + midi_start() → FA visible quasi immédiat ; si EP occupé, rt_other_enq_fallback++.
+
+    USB débranché : pas de deadlock ; DIN continue ; usb_not_ready_drops++.
+
+    Rattrapage : sous surcharge, observer de petits paquets de F8 (burst) côté host ; rt_f8_burst_sent++.
+
+Limitations restantes
+
+    RX non implémentée (USB OUT + DIN IN avec running status + realtime interleavé).
+
+    SysEx non implémenté (CIN 0x4/0x5/0x6/0x7).
+
+    Multi‑câbles USB non implémentés.
+
+    Pas encore de thread debug UART inclus par défaut (optionnel).
+
+Roadmap IMMÉDIATE
+
+    Réception MIDI :
+
+        USB OUT (EP1) : parse paquets 4 octets selon CIN → mailbox RX → callback appli.
+
+        DIN IN (UART2) : parser running status + realtime interleavé ; filtrage Active Sensing.
+
+    Options pro : Multi‑câbles USB, SysEx chunké, device composite CDC+MIDI, router Ksoloti‑like.
+
+    Clock : option limite 1 burst max par trame USB ; paramétrage dynamique des macros (MIDI_RT_MICROWAIT_US, MIDI_F8_BURST_LIMIT).
+
+    Diagnostics : thread chprintf (UART debug) pour midi_tx_stats + commande shell pour reset/print.
+
+Données hardware (rappel)
+
+STM32F429ZI (Nucleo‑144) — USB OTG FS (USBD1, device forcé), UART2 PA2/PA3, LEDs : PG10/PG9/PD7/PD6.
+EP OUT=1 (64), IN=2 (64).
+Mailbox TX=64 msg (4 octets).
+Flush TX : batch 64 ou timeout 1 ms (sauf realtime : flush immédiat avec coalescence/micro‑timeout).
+"""
+
+readme_text = f"""# STM32F429 USB‑MIDI Sequencer — ChibiOS 21.11.x (Étape 5)
+
+    Mise à jour {now}. Cette version intègre : mailbox non bloquante, coalescence Clock F8, micro‑timeout Start/Stop/Continue, garde USB (usb_midi_tx_ready) et compteurs de stats.
+
+1) Aperçu
+
+    USB MIDI device stable, ré‑énumération au boot, mode device forcé (NOVBUSSENS).
+
+    API MIDI : Note On/Off, CC, Pitchbend, Start/Stop/Continue/Clock ; destination : USB, DIN, BOTH.
+
+    USB TX non bloquant (voie normale) : mailbox → thread TX → flush ≤ 1 ms (plein 64 ou timeout), tx_sem primé à la config USB.
+
+    Realtime prioritaire :
+
+        F8 : flush immédiat si possible ; sinon drop + crédit → burst de rattrapage (jusqu’à 4 F8 supplémentaires) au prochain flush.
+
+        FA/FB/FC/FE/FF : micro‑timeout (200 µs) pour obtenir l’EP ; sinon fallback mailbox non bloquant (FA/FB/FC en drop‑oldest local).
+
+    DIN OUT (UART2) en parallèle.
+
+    Clock 24 PPQN hardware (GPT TIM3 @ 1 MHz) + midi_set_bpm() dynamique.
+
+    Validé : Ableton reçoit clock + notes ; comportement confirmé avec MIDI‑OX.
+
+2) Matériel & Pinout
+
+    Carte : Nucleo‑144 STM32F429ZI
+
+    USB : OTG FS (USBD1)
+
+    DIN MIDI OUT : UART2 (SD2) — PA2 TX, PA3 RX
+
+    LEDs : PG10 (LED1), PG9 (LED2), PD7 (LED3), PD6 (LED4)
+
+3) Arborescence
+
+    main.c : init système + USB + smoke test non bloquant + horloge GPT + thread démo.
+
+    usbcfg.c/.h : descripteurs USB‑MIDI, endpoints, callbacks, événements, usb_midi_tx_ready.
+
+    midi.c/.h : API MIDI + mailbox non bloquante + thread TX + coalescence F8 + micro‑timeout FA/FB/FC + voie DIN + stats.
+
+    midi_clock.c/.h : GPT TIM3 1 MHz, ISR légère, thread clock, midi_set_bpm().
+
+4) Configuration ChibiOS
+
+halconf.h
+
+Toujours afficher les détails
+
+#define HAL_USE_USB  TRUE
+#define HAL_USE_GPT  TRUE
+
+mcuconf.h
+
+Toujours afficher les détails
+
+#define STM32_USB_USE_OTG1        TRUE
+#define STM32_SERIAL_USE_USART2   TRUE   /* SD2 (PA2/PA3) */
+#define STM32_GPT_USE_TIM3        TRUE
+
+Séquence USB au boot (main.c) :
+
+Toujours afficher les détails
+
+usbDisconnectBus(&USBD1);
+chThdSleepMilliseconds(1000);
+usbStart(&USBD1, &usbcfg);
+USBD1.otg->GCCFG |= USB_OTG_GCCFG_NOVBUSSENS;
+USBD1.otg->GCCFG &= ~(USB_OTG_GCCFG_VBUSBSEN | USB_OTG_GCCFG_VBUSASEN);
+usbConnectBus(&USBD1);
+
+5) USB‑MIDI : descripteurs & endpoints
+
+    IF0 : AudioControl ; IF1 : MIDIStreaming.
+
+    EP1 OUT Bulk 64 ; EP2 IN Bulk 64.
+
+    USB_EVENT_CONFIGURED : init EPs + armer RX (usbStartReceiveI(EP1, rx, 4)) + primer tx_sem + usb_midi_tx_ready = true.
+
+    ep2_in_cb() : chBSemSignalI(&tx_sem) (ACK → LED4).
+
+    Format paquet USB‑MIDI 4 octets : [CABLE<<4|CIN, b0, b1, b2] ; CIN : NoteOff=0x8, NoteOn=0x9, CC=0xB, PB=0xE, Realtime=0xF ; Realtime zéro‑pad.
+
+6) API MIDI publique
+
+Toujours afficher les détails
+
+typedef enum { MIDI_DEST_NONE, MIDI_DEST_UART, MIDI_DEST_USB, MIDI_DEST_BOTH } midi_dest_t;
+
+void midi_init(void);
+
+void midi_note_on(midi_dest_t d, uint8_t ch, uint8_t note, uint8_t vel);
+void midi_note_off(midi_dest_t d, uint8_t ch, uint8_t note, uint8_t vel);
+void midi_cc(midi_dest_t d, uint8_t ch, uint8_t cc, uint8_t val);
+void midi_pitchbend(midi_dest_t d, uint8_t ch, int16_t value14b);
+
+void midi_start(midi_dest_t d);
+void midi_stop(midi_dest_t d);
+void midi_continue(midi_dest_t d);
+void midi_clock(midi_dest_t d);
+
+7) Chemin des données (émission)
+Voie USB
+
+    Realtime F8 → flush immédiat si possible ; sinon drop + crédit ; prochain flush immédiat enverra F8 + burst (≤4) dans la même transaction.
+
+    Realtime FA/FB/FC/FE/FF → micro‑timeout (200 µs) pour saisir tx_sem ; sinon mailbox non bloquante (FA/FB/FC drop‑oldest local).
+
+    Autres → mailbox → thread TX → flush ≤ 1 ms (plein 64 ou timeout).
+
+Voie DIN
+
+    sdWrite(&SD2, msg, len) en parallèle et en temps réel.
+
+8) Horloge 24 PPQN (GPT)
+
+    TIM3 (GPTD3) à 1 MHz (résolution 1 µs).
+
+    Tick = 60 / (BPM * 24) s → ticks = 1e6 * tick, borné 1..65535.
+
+    ISR : chBSemSignalI(&clk_sem) uniquement.
+
+    Thread midi_clk (prio NORMALPRIO+1) : chBSemWait() → LED1 toggle → midi_clock(MIDI_DEST_BOTH).
+
+    midi_set_bpm(float) : recalcule la période et redémarre le GPT si en marche.
+
+9) LEDs de debug
+
+    LED1 PG10 : tick 24 PPQN (très rapide).
+
+    LED2 PG9 : enqueue mailbox USB.
+
+    LED3 PD7 : départ transfert USB (flush immédiat/batch).
+
+    LED4 PD6 : ACK host (fin transfert).
+
+10) Paramètres de tuning (macros)
+
+Toujours afficher les détails
+
+// Mailbox pleine: 0 = drop nouveau (défaut), 1 = drop ancien + reposte
+#define MIDI_MB_DROP_OLDEST    0
+
+// Micro-attente (µs) pour Start/Stop/Continue avant fallback mailbox
+#define MIDI_RT_MICROWAIT_US   200
+
+// Rattrapage F8: nombre de clocks supplémentaires envoyées d’un coup
+#define MIDI_F8_BURST_LIMIT    4
+
+11) Statistiques runtime
+
+midi_tx_stats_t :
+
+    tx_sent_immediate, tx_sent_batched
+
+    rt_f8_drops, rt_f8_burst_sent
+
+    rt_other_enq_fallback, tx_mb_drops, usb_not_ready_drops
+
+midi_stats_reset() pour tout remettre à zéro.
+Option : thread chprintf (UART) pour afficher chaque seconde.
+12) Build & Test
+
+    Vérifier halconf.h / mcuconf.h (USB, GPT, USART2).
+
+    Flasher.
+
+    Windows : ouvrir MIDI‑OX → Options → MIDI Devices… → sélectionner le device en Input → View → Input Monitor.
+
+    Attendus :
+
+        clock F8 régulière (48/s @120 BPM),
+
+        FA/FC visibles sous charge,
+
+        LED1/3 très actives, LED4 pulse à chaque ACK.
+
+13) Diagnostics rapides
+
+    LED1 OK, LED2/3/4 muettes → problème voie USB (init/prime/toggle).
+
+    LED2 OK, LED3 muette → thread TX ne flushe pas (sémaphore jamais libéré).
+
+    LED3 OK, LED4 muette → host ne répond pas / EP IN mal initialisé.
+
+    Pas de clock dans DAW → vérifier zéro‑pad realtime + flush immédiat actif + usb_midi_tx_ready.
+
+14) Limitations
+
+    Pas encore de réception USB/DIN (parsing CIN / running status).
+
+    SysEx non géré.
+
+    Multi‑câbles non gérés.
+
+15) Roadmap
+
+    Réception MIDI : EP1 OUT (USB) + UART2 RX (running status + realtime interleavé).
+
+    Options pro : multi‑câbles, SysEx chunké, CDC+MIDI composite, router Ksoloti‑like.
+
+    Clock : option limiter à 1 burst F8 par trame ; macros runtime.
+
+    Debug : thread UART + commandes shell pour stats.
+    
+---
+
+## ✅ Bring-up OLED + ADC + Métronome (mise à jour : 26/09/2025)
+
+### Écran (SSD1309 SPI) — état actuel
+
+* **Driver minimal maison** pour SSD1309 128×64, SPI1 en **mode 0**, lignes: **SCK=PA5, MOSI=PA7, CS=PB4, DC=PB5**, RESET optionnelle sur PB8 (désactivable côté board). La config SPI active un **baudrate ≈ APB2/8** (sur F429, ~10,5 MHz par défaut), via `SPIConfig` → `.cr1 = SPI_CR1_BR_2`. Le flux est command/data via DC et `spiSelect/Unselect` sur **SPID1**. 
+* **Init SSD1309** : OFF, clock divide, mux=0x3F (64 lignes), offset=0, start line, charge pump, **page addressing (0x20,0x02)**, orientation **A1/C8** (miroir H/V), COM pins=0x12, contraste=0x7F, precharge=0xF1, Vcomh=0x40, full display ON. Correction d’adresse colonnes **0x00–0x7F** puis ON. Clear framebuffer (1024 octets), prêt à dessiner. 
+* **Framebuffer + primitives** :
+
+  * `display_clear()`, `display_update()` (envoi page par page: `0xB0 + page`, `0x00/0x10`, plage colonnes 0x00–0x7F). 
+  * Texte 5×7 (ASCII 32–126) via `display_draw_text()`, caractère via `display_draw_char()`, et entiers via `display_draw_number()` (s’appuie sur `chsnprintf`). Police **externalisée** `font5x7.h`. 
+* **Thread d’affichage dédié** : `display_start()` crée un thread qui pousse le framebuffer ~**30 FPS** (`display_update()` + `sleep 33 ms`). Ça décorrèle l’UI de l’acquisition pots. 
+
+### Pots (4 × potentiomètres sur PC0..PC3) — état actuel
+
+* **ADC multi-canaux en DMA circulaire**, groupe de **4 canaux** (IN10..IN13), **profondeur 8** pour un moyennage logiciel simple. Un thread `PotReader` calcule toutes les **20 ms** la moyenne des 8 échantillons pour chaque pot et met à jour un cache `pot_values[4]`. Accès lecture via `pots_get(index)` (valeurs **0..4095**). 
+* **API** :
+
+  * `void pots_start(void);` — démarre ADC1 en conversion circulaire + thread de lecture.
+  * `int  pots_get(int index);` — lit la valeur moyenne filtrée (0..4095).
+  * `#define NUM_POTS 4` — mapping actuel **PC0, PC1, PC2, PC3**. 
+
+### Métronome (bpm piloté par pot) — état actuel
+
+* Thread `Metronome` autonome : calcule **BPM = 60 + (pot3 * 180 / 4095)**, donc plage ~**60–240 BPM**, et dort `period_ms = 60000/BPM`. (TODO dans ce thread : blink LED / produire une vraie clock MIDI/Timer). 
+* Démarrage via `metronome_start()` (header minimal `metronome.h`). 
+
+### Boucle `main` de debug — état actuel
+
+* **Initialisation** : HAL/RT, `display_init()` puis **`display_start()`** (rafraîchissement auto), **`pots_start()`** (ADC DMA + thread), **`metronome_start()`**. 
+* **Rendu debug** à l’écran (30 FPS) :
+
+  * Ligne “Pots:” + **affichage des 4 valeurs** (0..4095) sous forme numérique (une ligne par pot).
+  * **BPM calculé** (d’après pot 3) affiché à droite (“BPM: xxx”).
+  * La boucle UI dort **33 ms** (~30 FPS), l’écran est fluide, l’acquisition pots est indépendante (thread séparé). 
+
+### Interface publique ajoutée (récapitulatif headers)
+
+* **display.h** :
+  `display_init()`, `display_clear()`, `display_update()`, `display_draw_text()`, `display_draw_char()`, `display_draw_number()`, `display_get_buffer()`, **`display_start()`**. 
+* **pots.h** :
+  `pots_start()`, `pots_get(int)`, `NUM_POTS`. 
+* **metronome.h** :
+  `metronome_start()`. 
+
+### Notes pratiques / comportements observés
+
+* **OLED** : le sens d’affichage a été fixé via **A1/C8** (miroirs), et l’adressage **page** garantit un envoi linéaire du framebuffer. Les tests initiaux « plein écran » puis texte ont confirmé la bonne init; des bandes observées au début ont été corrigées par la **plage colonnes 0x00–0x7F** et la font 5×7 propre. 
+* **Réactivité UI** : la perception de lag provenait de la **moyenne sur 8 échantillons** + **période 20 ms** du thread pots ; l’usage d’un thread d’affichage dédié évite de coupler affichage et acquisition (l’écran rafraîchit indépendamment à ~30 FPS). 
+* **BPM en temps réel** : la valeur affichée en haut à droite évolue en continu avec **pot3** (PC3), conforme au mapping actuel et à la formule du thread Métronome. 
+
+---
+
+
+
+## Boutons (SN74HC165 ×5 en cascade) — bring-up, API et état exact (26/09/2025)
+
+### Matériel & pins (confirmé sur board)
+
+* **74HC165 x5** en cascade → **40 entrées** lues en série.
+* **Lignes STM32** :
+
+  * `SR_LOAD` (PL / SH/LD) → **PB0** (sortie push-pull, niveau repos HIGH).
+  * `SR_CLK`  (CP)         → **PB1** (sortie push-pull, repos LOW).
+  * `SR_DATA` (QH)         → **PG11** (entrée **pull-up**).
+* **Attention logique** : les entrées des 165 sont **actives bas** (bouton pressé ⇒ 0 sur QH) → le firmware **inverse** la lecture.
+
+### Module fichiers
+
+* `buttons.h`
+
+  ```c
+  #define NUM_BUTTONS 40
+
+  typedef enum { BUTTON_EVENT_PRESS = 0, BUTTON_EVENT_RELEASE } button_event_type_t;
+
+  typedef struct {
+      int id;
+      button_event_type_t type;
+  } button_event_t;
+
+  void buttons_start(void);
+  bool button_is_pressed(int id);
+  bool buttons_poll(button_event_t *evt, systime_t timeout);
+  ```
+* `buttons.c` (implémentation)
+
+  * **Thread** `Buttons` (prio `NORMALPRIO`) qui :
+
+    1. **latch** : `palClear(PB0)` → 1 µs → `palSet(PB0)`
+    2. **scan 40 bits** : pour i=0..39
+
+       * lit `SR_DATA` (PG11), **inverse** (`!palReadLine`) → `button_states[i]`
+       * **pulse** clock : `PB1=HIGH` → 1 µs → `PB1=LOW`
+    3. compare `button_states[i]` vs `last_states[i]` → si changement, **poste un event** (`PRESS`/`RELEASE`) dans une **mailbox**.
+    4. dort **5 ms** (anti-rebonds léger + charge CPU faible).
+  * **Mailbox** : `mailbox_t evt_mb; msg_t evt_queue[16];`
+
+    * **ChibiOS 21.11.x** ⇒ on utilise **`chMBPostTimeout()`** / **`chMBFetchTimeout()`** (pas `chMBPost/chMBFetch`).
+    * Event packé dans un `msg_t` : `msg = id | (type<<8)` ; dépack dans `buttons_poll()`.
+  * **API** :
+
+    * `button_is_pressed(id)` : accès direct au cache (binaire, sans locker, lecture immédiate).
+    * `buttons_poll(evt, timeout)` : non bloquant si `timeout = TIME_IMMEDIATE`.
+
+> Décision clé : on **garde une lecture “simple” indexée (i=0..39)** et on **inverse au fil de l’eau**, car c’est ce qui garantit l’alignement exact des indices avec ton câblage. Les essais de packing `uint64_t` + MSB/LSB avaient introduit des décalages.
+
+### Mapping **observé sur hardware** (IDs réels)
+
+```
+Boutons spéciaux :
+  REGLAGE = 37
+  SHIFT   = 36
+  +       = 39
+  -       = 38
+  REC     = 11
+  PLAY    = 9
+  STOP    = 10
+
+Pages :
+  PAGE1 = 35
+  PAGE2 = 34
+  PAGE3 = 33
+  PAGE4 = 32
+  PAGE5 = 12
+
+Param menus (BM1..BM8) :
+  PARAM1 = 5
+  PARAM2 = 4
+  PARAM3 = 3
+  PARAM4 = 2
+  PARAM5 = 6
+  PARAM6 = 7
+  PARAM7 = 0
+  PARAM8 = 1
+
+Séquenceur (BS1..BS16) :
+  SEQ1  = 29
+  SEQ2  = 28
+  SEQ3  = 27
+  SEQ4  = 26
+  SEQ5  = 21
+  SEQ6  = 20
+  SEQ7  = 19
+  SEQ8  = 18
+  SEQ9  = 30
+  SEQ10 = 31
+  SEQ11 = 24
+  SEQ12 = 25
+  SEQ13 = 22
+  SEQ14 = 23
+  SEQ15 = 16
+  SEQ16 = 17
+```
+
+* Fichier **`buttons_map.h`** expose ces IDs en macros lisibles :
+
+  ```c
+  #define BTN_REGLAGE 37
+  #define BTN_SHIFT   36
+  #define BTN_PLUS    39
+  #define BTN_MINUS   38
+  #define BTN_REC     11
+  #define BTN_PLAY    9
+  #define BTN_STOP    10
+  #define BTN_PAGE1   35
+  #define BTN_PAGE2   34
+  #define BTN_PAGE3   33
+  #define BTN_PAGE4   32
+  #define BTN_PAGE5   12
+  #define BTN_PARAM1  5
+  #define BTN_PARAM2  4
+  #define BTN_PARAM3  3
+  #define BTN_PARAM4  2
+  #define BTN_PARAM5  6
+  #define BTN_PARAM6  7
+  #define BTN_PARAM7  0
+  #define BTN_PARAM8  1
+  #define BTN_SEQ1    29
+  #define BTN_SEQ2    28
+  #define BTN_SEQ3    27
+  #define BTN_SEQ4    26
+  #define BTN_SEQ5    21
+  #define BTN_SEQ6    20
+  #define BTN_SEQ7    19
+  #define BTN_SEQ8    18
+  #define BTN_SEQ9    30
+  #define BTN_SEQ10   31
+  #define BTN_SEQ11   24
+  #define BTN_SEQ12   25
+  #define BTN_SEQ13   22
+  #define BTN_SEQ14   23
+  #define BTN_SEQ15   16
+  #define BTN_SEQ16   17
+  ```
+
+### Comportement visé (conforme à la vision Elektron-like)
+
+* **Logique binaire** côté driver (pas de double-tap / long-press au niveau bas) :
+
+  * le module fournit **`PRESS`/`RELEASE`** + l’état binaire instantané (`button_is_pressed()`),
+  * toute la **sémantique UI** (Shift actif, cyclage de menus, modes custom, copier/clear/record…) se fait **au dessus** (UI/Sequencer).
+* **Raisons** :
+
+  * simplifie le driver,
+  * évite de figer une ergonomie,
+  * rend l’UI libre de définir ses propres timings (double-tap, hold, repeat) par **mesure de temps** entre deux `PRESS` si nécessaire.
+
+### Tests & debug réalisés
+
+* **Affichage OLED** : rendu “Pots + BPM” + dernière touche appuyée.
+* Mode **diagnostic** (temporaire) : affichage de toutes les touches **pressées en temps réel** en scannant `button_is_pressed(i)`.
+* **Problèmes rencontrés & fixes** (chronologie) :
+
+  1. **Bouton “38” toujours actif** ⇒ cause : pas de pull-up / inversion manquante.
+
+     * **Fix** : `SR_DATA` en **`PAL_MODE_INPUT_PULLUP`** + **`!palReadLine()`**.
+  2. **Un seul bit varie / indices qui bougent** ⇒ cause : erreur d’ordre **MSB/LSB** lors de l’assemblage 64 bits.
+
+     * **Fix** : abandon du packing fragile, retour à la **lecture indexée i=0..39** (fiable) ou lecture inversée correctement testée.
+  3. **Liens (“undefined reference”) sur mailbox** ⇒ `chMBPost/chMBFetch` non présents en **ChibiOS 21.11**.
+
+     * **Fix** : utiliser **`chMBPostTimeout`** / **`chMBFetchTimeout`**.
+  4. **Lenteur perçue** (events uniquement) ⇒ l’UI rafraîchissait toutes les 50 ms et ne lisait que les transitions.
+
+     * **Fix** : UI à 20–33 ms pour l’affichage + accès direct `button_is_pressed()` quand on veut du “continu”.
+
+### Paramètres, perfs & contraintes
+
+* **Période de scan** : 5 ms (défaut).
+* **Anti-rebonds** : “naturel” par la période ; si besoin, on pourra ignorer un changement si < 10 ms (non nécessaire pour l’instant).
+* **CPU** : négligeable (40 lectures GPIO + 40 pulses clock / 5 ms).
+* **RT-safety** : aucune attente bloquante ; mailbox non bloquante (timeout immédiat).
+* **Écran** : thread séparé (≈30 FPS) pour ne pas coupler affichage et scan boutons.
+
+### Intégration actuelle (UI de debug)
+
+* `UIThread` affiche :
+
+  * 4 pots (`pots_get()`),
+  * BPM calculé (pot 4),
+  * dernier bouton appuyé via `buttons_poll()` **ou** liste des boutons actuellement pressés via `button_is_pressed()`.
+* **Découplage** confirmé : l’affichage reste fluide même si on spamme les boutons.
+
+### Ce qui reste à faire (côté UI/ergonomie, **au-dessus** du driver)
+
+* **Gestion Shift** : `if (button_is_pressed(BTN_SHIFT)) …` pour commuter les fonctions **pages/menus/modes**.
+* **Cyclage BM** : compter les `PRESS` successifs d’un `BTN_PARAMx` pour tourner sur les sous-menus (selon la cartouche).
+* **Modes custom (Pattern/Keyboard/Sequencer/Random)** :
+
+  * déclenchés par `SHIFT + BSx`,
+  * param UI au **double-tap** (à faire au niveau UI en mesurant Δt entre deux `PRESS` du même bouton).
+* **Transport Elektron-like** : interprétation combos `REC/PLAY/STOP + SHIFT` (copy/clear/live rec/TR-style), **toujours** au niveau UI.
+
+---
+
+**Résumé** :
+
+* Driver **boutons stable** (lecture 5×74HC165 avec inversion active-bas, mapping réel documenté, mailbox d’événements prête).
+* **Aucun comportement d’ergonomie figé** dans le driver : tout se décide dans l’UI → parfaitement aligné avec ta vision “Elektron-like” et l’approche modulaire.
+* La base est **propre et maintenable** pour brancher ensuite l’état UI, le séquenceur, le MIDI et l’affichage avancé (pages & vues custom).
+
+
+---
+
+## LEDs adressables (WS2812 / SK6812) — bring-up, driver ASM et API logique (27/09/2025)
+
+### Matériel & pins (confirmé sur board)
+
+* **Chaîne de 17 LEDs adressables** (WS2812B ou équivalent, datasheet C5378731 confirmée).
+* **Ligne DATA** → **PD3** via un **level shifter 3.3V → 5V**.
+* L’ordre physique est documenté et mappé sur les boutons :
+
+  * **LED0** = bouton REC,
+  * **LED1..LED8** = boutons SEQ8..SEQ1 (dans cet ordre),
+  * **LED9..LED16** = boutons SEQ9..SEQ16.
+
+### Driver bas niveau
+
+* Fichiers : `adress_leds.c` / `adress_leds.h`.
+* Implémentation **bit-banging optimisée en assembleur** (inline ASM ARMv7-M) calibrée pour **168 MHz** :
+
+  * `send_bit_asm()` → génère le timing **T0H ≈ 0.35µs / T0L ≈ 0.9µs / T1H ≈ 0.7µs / T1L ≈ 0.6µs**.
+  * Boucles `.rept` calibrées avec `nop`.
+  * Usage direct du registre **BSRR** pour pousser HIGH/LOW sans latence.
+  * Stable et reproductible, **indépendant du reste du code** (pas de perturbation quand on ajoute d’autres modules).
+* API bas niveau :
+
+  ```c
+  void adress_leds_init(void);
+  void adress_leds_update(void);
+  void adress_leds_set(int index, uint8_t r, uint8_t g, uint8_t b);
+  void adress_leds_set_color(int index, led_color_t color);
+  void adress_leds_clear(void);
+  ```
+* Données stockées dans un buffer `led_buffer[NUM_ADRESS_LEDS]` puis transmises d’un coup avec `adress_leds_update()`.
+* **Reset time** respecté : `chThdSleepMicroseconds(300)` après flush.
+
+### Couleurs prédéfinies & mapping
+
+* `led_color_t` (GRB, comme WS2812/SK6812).
+* Palette de couleurs prêtes à l’emploi :
+
+  * `COLOR_RED`, `COLOR_GREEN`, `COLOR_BLUE`, `COLOR_YELLOW`, `COLOR_CYAN`, `COLOR_MAGENTA`, `COLOR_WHITE`,
+  * extras : `COLOR_ORANGE`, `COLOR_PINK`, `COLOR_PURPLE`, `COLOR_TURQUOISE`, `COLOR_OFF`.
+* **Mapping boutons ↔ LEDs** défini par macros (`LED_REC`, `LED_SEQ1`..`LED_SEQ16`) directement dans `adress_leds.h`.
+
+### API logique (Elektron-like)
+
+* Extension haut niveau pour gérer des **modes d’affichage** (fixe, blink, playhead).
+* Types :
+
+  ```c
+  typedef enum {
+      LED_MODE_OFF,
+      LED_MODE_ON,
+      LED_MODE_BLINK,
+      LED_MODE_PLAYHEAD
+  } led_mode_t;
+
+  typedef struct {
+      led_color_t color;
+      led_mode_t mode;
+  } led_state_t;
+
+  extern led_state_t leds[NUM_ADRESS_LEDS];
+  ```
+* Fonctions :
+
+  ```c
+  void leds_set(int index, led_color_t color, led_mode_t mode);
+  void leds_render(void);
+  ```
+* `leds_set()` définit l’état logique d’une LED (couleur + mode).
+* `leds_render()` applique ces états :
+
+  * **ON** : couleur fixe,
+  * **OFF** : LED éteinte,
+  * **BLINK** : clignote ~2 Hz (toggle toutes les 500 ms),
+  * **PLAYHEAD** : effet pulsé/rapide (~40 Hz).
+* Rendu rafraîchi par un thread (période 25 ms) → animations fluides et découplées de la logique séquenceur.
+
+### Tests réalisés
+
+* **Main test** :
+
+  * SEQ1 = vert fixe (`LED_MODE_ON`),
+  * SEQ5 = jaune clignotant (`LED_MODE_BLINK`),
+  * REC = rouge clignotant (`LED_MODE_BLINK`).
+    → Fonctionne parfaitement sur hardware.
+* Vérifié : ajout d’autres modules (USB, boutons, ADC, écran) **n’affecte pas le timing** → les LEDs restent stables.
+
+### Intégration future (séquenceur Elektron-like)
+
+* Le **séquenceur** (BPM, steps, playhead, notes actives) pilotera les LEDs via `leds_set()`.
+* Exemples prévus :
+
+  * **Playhead** → avance sur SEQ1..SEQ16 (`LED_MODE_PLAYHEAD`).
+  * **Step actif** → couleur fixe (ex : vert si note présente).
+  * **REC** → rouge blink si en enregistrement.
+  * **Pattern mode** → toutes les LEDs SEQ allumées en jaune, active en bleu.
+* La logique BPM/notes reste dans le **module Séquenceur**, le module LEDs ne fait que **rendre l’état visuel**.
+
+---
+
+
+## Encodeurs (TIM HW + soft IRQ via EXT) — bring-up et état exact (27/09/2025)
+
+### Contexte
+
+* Carte STM32F429ZI + ChibiOS **21.11.x**.
+* Encodeurs matériels : reliés directement à des timers en mode quadrature.
+* Encodeur logiciel (ENC3) : pas de timer dédié → décodage quadrature **logiciel** via interruptions GPIO (driver **EXT**, pas EXTI).
+
+### État initial
+
+* **ENC1 (TIM8 PC6/PC7)**, **ENC2 (TIM4 PB6/PB7)**, **ENC4 (TIM2 PA15/PB3)** fonctionnels avec configuration directe des registres (SMCR=EncoderMode3, CC1S/CC2S, ARR=0xFFFF, CNT=0).
+* **ENC3 (PD12/PD13)** : implémenté en pur polling logiciel → très lent, valeurs 0–3 seulement, sens de lecture aléatoire.
+
+### Problèmes rencontrés
+
+1. **Affichage** : l’OLED incrémentait parfois les dizaines au lieu des unités → cause : rafraîchissement couplé directement à l’acquisition → corrigé en insérant un **thread d’affichage dédié** (framerate stable ~30 FPS).
+2. **Confusion EXT/EXTI** :
+
+   * Sur ChibiOS 21.11.x, l’API valide est **EXT** (`extStart`, `EXTConfig`, `EXTDriver`, `EXT_CH_MODE_*`).
+   * Les symboles **EXTI** (ex: `EXTI_MODE_BOTH_EDGES`) appartiennent à la branche ChibiOS-mainline postérieure (API renommée). → **Erreur de compile** si utilisés.
+   * Preuve : fichier `os/hal/include/ext.h` (fourni dans 21.11.x) définit bien `EXTDriver`, `EXTConfig`, `EXT_CH_MODE_*`.
+3. **Board mapping** :
+
+   * `LINE_ENC3_A = PAL_LINE(GPIOD, 12U)`.
+   * `LINE_ENC3_B = PAL_LINE(GPIOD, 13U)`.
+   * Donc EXT doit être configuré **sur les canaux 12 et 13** (port D). → Problème initial venait du fait qu’on utilisait directement `LINE_ENC3_A/B` comme indices, ce qui ne marchait pas.
+
+### Modifications appliquées
+
+Parfait 👍 merci pour ton retour. Tu as raison : ton README est **extrêmement détaillé** (style carnet de bord technique), donc il faut que je garde ce niveau de granularité, pas juste une synthèse.
+
+👉 Voilà une version **beaucoup plus détaillée et pointilleuse**, qui remplace l’ancienne section `test_encoders`. Elle reprend :
+
+* la genèse (expérimentation avec `test_encoders`),
+* le portage vers un vrai module `encoders`,
+* les choix techniques (timers, EXTI, table quadrature),
+* les problèmes rencontrés (EXT vs EXTI, rebonds, latence),
+* l’ajout progressif (delta, accélération, macros réglables),
+* les validations sur écran SPI.
+
+---
+
+## Encodeurs
+
+### Historique
+
+Initialement, les encodeurs avaient été testés via un module temporaire **`test_encoders`**.
+Ce code servait uniquement de validation de principe :
+
+* lecture brute des timers matériels (TIM8, TIM4, TIM2),
+* décodage logiciel rudimentaire pour l’encodeur 3 (PD12/PD13),
+* affichage des valeurs sur écran SPI pour valider le câblage.
+
+Ce module a permis de confirmer le **fonctionnement électrique et logiciel de base** des 4 encodeurs, mais il était monolithique, peu réutilisable, et sans abstraction claire.
+
+À partir de là, il a été entièrement réécrit sous forme de **module dédié `encoders`**, propre, modulable et extensible, destiné à s’intégrer dans le firmware final.
+
+---
+
+### Architecture matérielle
+
+* **ENC1 (PC6/PC7)** → décodage matériel par **TIM8** en mode quadrature.
+* **ENC2 (PB6/PB7)** → décodage matériel par **TIM4** en mode quadrature.
+* **ENC4 (PA15/PB3)** → décodage matériel par **TIM2** en mode quadrature.
+* **ENC3 (PD12/PD13)** → **pas relié à un timer matériel** → implémentation par décodage logiciel via interruptions EXTI.
+
+Tous les timers sont configurés en **mode encodeur quadrature X4**.
+Le comptage est ensuite **divisé par 4 en lecture** afin d’exposer à l’API un comptage en **X1 logique** (1 tick = 1 cran mécanique), garantissant l’uniformité entre les encodeurs matériels et l’encodeur logiciel.
+
+---
+
+### Décodage logiciel (ENC3)
+
+ENC3 est particulier : il n’est pas câblé sur un timer matériel.
+Il est donc géré intégralement en **logiciel** via deux interruptions PAL/EXTI sur PD12 et PD13.
+
+* Les lignes A et B déclenchent des IRQ sur **les deux fronts (rising/falling)**.
+* Chaque changement d’état (A,B) est mémorisé et comparé à l’état précédent.
+* Une **table de transitions quadrature (16 entrées)** est utilisée pour déterminer +1, -1 ou 0 à chaque tick.
+* Le résultat est cohérent avec les autres encodeurs (même X1 logique).
+
+Ce mécanisme a remplacé une tentative initiale d’utilisation du driver **EXT** de ChibiOS, qui s’est révélée inadaptée (erreurs de type `EXTDriver` non reconnu). La solution finale s’appuie donc sur **EXTI via PAL**, plus simple et portable.
+
+---
+
+### API publique
+
+Le module expose une API claire et compacte :
+
+```c
+void     encoders_start(void);
+int16_t  encoder_get(encoder_id_t id);
+void     encoder_reset(encoder_id_t id);
+int16_t  encoder_get_delta(encoder_id_t id);
+int16_t  encoder_get_delta_accel(encoder_id_t id);
+```
+
+* **`encoder_get`** : valeur absolue courante (en ticks X1).
+* **`encoder_reset`** : remise à zéro d’un encodeur.
+* **`encoder_get_delta`** : incrément depuis le dernier appel (valeur relative).
+* **`encoder_get_delta_accel`** : idem, mais avec **accélération dynamique**.
+
+Les encodeurs sont identifiés via l’énumération :
+
+```c
+typedef enum {
+    ENC1 = 0,
+    ENC2,
+    ENC3,
+    ENC4,
+    NUM_ENCODERS
+} encoder_id_t;
+```
+
+---
+
+### Gestion du delta
+
+Un cache interne `last_values[]` conserve la dernière valeur lue pour chaque encodeur.
+Lorsqu’on appelle `encoder_get_delta()`, le module :
+
+1. Lit la valeur absolue courante.
+2. Soustrait la valeur précédente.
+3. Met à jour le cache.
+4. Retourne la différence (positive ou négative).
+
+Cette logique garantit que **chaque tick est comptabilisé une seule fois**, quelle que soit la fréquence d’appel.
+
+---
+
+### Accélération (ergonomie Elektron)
+
+Afin de retrouver la **sensation Elektron** (édition fine lente, sauts rapides à grande vitesse), une logique d’accélération a été implémentée.
+
+Principe :
+
+* On mesure le temps `dt` écoulé depuis le dernier tick.
+* On calcule une vitesse en ticks/s.
+* En fonction de seuils (`LOW_SPEED`, `MID_SPEED`), on applique un **facteur multiplicatif** plus ou moins élevé.
+* Le facteur est borné par `MAX_FACTOR` pour éviter les débordements.
+
+Macros de configuration dans `encoders.h` :
+
+```c
+#define ENC_ACCEL_LOW_SPEED     17.0f
+#define ENC_ACCEL_MID_SPEED     18.5f
+#define ENC_ACCEL_MID_GAIN       5.5f
+#define ENC_ACCEL_BASE           6.5f
+#define ENC_ACCEL_HIGH_GAIN     10.0f
+#define ENC_ACCEL_MAX_FACTOR   100.0f
+```
+
+Ces réglages permettent :
+
+* À **vitesse lente**, un incrément = 1 tick (édition fine).
+* À **vitesse moyenne**, une croissance déjà sensible.
+* À **vitesse rapide**, une accélération très forte (0 → 127 en une seule rotation).
+
+L’algorithme a été testé et validé en conditions réelles, affichage sur écran SPI à l’appui.
+
+---
+
+### Gestion des rebonds
+
+Les encodeurs mécaniques présentent parfois des **rebonds de contact**, amplifiés par l’accélération.
+Un filtrage logiciel simple a été ajouté :
+
+```c
+#define ENC_DEBOUNCE_MS   15
+```
+
+* Tout tick survenant à moins de 15 ms du précédent est **ignoré** (considéré comme rebond).
+* Valeur ajustable (2–5 ms pour encodeurs de qualité, 10–15 ms pour encodeurs plus « bruyants »).
+* Aucun impact perceptible sur la latence.
+
+Une future amélioration matérielle (condensateur RC entre A/GND et B/GND) pourra compléter ce filtrage dans une révision de PCB.
+
+---
+
+### Validation et debug
+
+* Les valeurs absolues, delta et delta accéléré ont été affichées en temps réel sur l’**écran SPI**.
+* Les variations se comportent comme attendu :
+
+  * incréments progressifs et réguliers en rotation lente,
+  * accélérations exponentielles en rotation rapide,
+  * absence de parasites notables grâce au filtrage 15 ms.
+
+---
+
+### État actuel
+
+* ✅ Décodage hardware (TIM8/TIM4/TIM2) et software (EXTI sur PD12/PD13) fonctionnels.
+* ✅ Normalisation en X1 logique pour cohérence.
+* ✅ API stable et compacte, utilisable dans tout le firmware.
+* ✅ Gestion des deltas relative/absolue.
+* ✅ Accélération dynamique inspirée Elektron, macros réglables.
+* ✅ Anti-rebond logiciel optionnel et efficace.
+* ✅ Debug et validation terrain via écran SPI.
+
+👉 Le module `encoders` est désormais **mature** et remplace définitivement `test_encoders`. Il est prêt à être intégré dans les threads **UI** et **Sequencer** du projet principal.
+
+---
+
+## UI / Rendu OLED — squelette initial (29/09/2025)
+
+### Objectif
+
+Mettre en place un **renderer générique** permettant d’afficher les différents menus Elektron-like sur OLED, avec séparation claire :
+
+* **Cartouche (cart name)** en haut,
+* **Nom du menu** (et numéro de cycle 1/4, 2/4, etc.),
+* **Titres de pages** (ligne horizontale),
+* **Paramètres** (label + valeur),
+* **Valeurs dynamiques** (pots, BPM, etc.).
+
+### Polices (état actuel)
+
+* **Implémentation unique active** : police 5×7 (ASCII 32–126), tirée de `font5x7.h`.
+* **API d’affichage** :
+
+  * `display_draw_text(x,y,string)` — écrit une chaîne,
+  * `display_draw_char(x,y,c)` — un caractère,
+  * `display_draw_number(x,y,n)` — un entier formatté.
+* La police courante est codée en dur (5×7).
+* L’idée (futur) : introduire une **sélection de police par zone** :
+
+  * 4×6 pour labels/pages/valeurs param,
+  * 6×10 pour titre cartouche + menu,
+  * 5×7 pour BPM / bank / pattern.
+
+### Menus & cartouches (premiers tests)
+
+* Ajout d’un **descripteur de cartouche** `ui_cart_desc_t`, regroupant plusieurs menus.
+* Exemple `CART_XVA1` avec 4 menus OSC1 cyclés :
+
+  * `OSC1 1/4`, `OSC1 2/4`, `OSC1 3/4`, `OSC1 4/4`.
+* Chaque menu contient un tableau `page_titles` (`"Struct"`, `"Timbre"`, `"Env"`, `"Mix"`, `"Mod"`) et des paramètres organisés par pages.
+* Paramètres : support **BOOL**, **ENUM**, **CONT** (range 0–127).
+* Labels `On/Off`, `Wave`, etc. gérés via `meta.en` ou `meta.range`.
+
+### Logo / éléments graphiques (prévu)
+
+* Souhait : afficher une **icône de note musicale** devant le BPM, inspirée du code Lopaka :
+
+  ```c
+  u8g2.drawLine(102, 0, 102, 6);
+  u8g2.drawXBM(98, 6, 4, 3, image_Layer_26_bits);
+  ```
+
+* Non encore porté dans le driver SSD1309 maison, mais noté dans la roadmap UI.
+
+### Menus cyclés (concept)
+
+* Principe : certains menus ne changent pas de page interne mais **cyclent sur plusieurs menus** avec le même bouton.
+* Exemple : appuyer plusieurs fois sur `OSC1` fait tourner `OSC1 1/4` → `OSC1 2/4` → etc.
+* C’est **indépendant des pages** (les pages sont internes à un menu).
+* La notation `1/4`, `2/4` affichée à côté du nom de menu reflète ce cyclage.
+
+### Threads impliqués
+
+* **displayThread** : rafraîchit l’OLED ~30 FPS, indépendant du reste.
+* **UIThread (debug)** : appelle le renderer avec `CART_XVA1` → dessine la cartouche, le menu et ses paramètres.
+
+### Limitations actuelles
+
+* Une seule police active (5×7).
+* Pas encore d’icône ou de symboles graphiques (note, barres, etc.).
+* Paramètres affichés mais sans interaction directe avec les pots/encodeurs.
+* Pas encore de logique “Elektron” (Shift, double-tap, etc.) intégrée dans l’UI.
+
+---
+
+=== Fonts / UI Rendering (état au 2025-09-29 avant debug glitch 4x6) ===
+
+Refonte des polices
+-------------------
+- Objectif : uniformiser le format des polices (éviter 1000 formats différents).
+- Mise en place :
+  * Nouveau fichier `font.c/.h` centralisant les polices disponibles.
+  * Fichiers de polices individuels conservés (`font5x7.c/h`, `font4x6.c/h`, `font5x8_elektron.c/h`).
+  * Enum `font_id_t` permettant de sélectionner une police :
+    - FONT_5X7
+    - FONT_4X6
+    - FONT_5X8_ELEKTRON
+  * Structure décrivant chaque font (`font_desc_t`) avec largeur, hauteur, pointeur sur les glyphes, etc.
+- API exposée dans `font.h` :
+  * font_get_desc(font_id) → retourne métadonnées de la police
+  * uniformisation des glyphes en tableaux binaires indexés par caractère ASCII.
+
+UI Renderer (multi-polices)
+---------------------------
+- `ui_renderer.c` modifié pour supporter plusieurs polices.
+- Politique d’affichage :
+  * Labels de pages = police 4x6 (plus compacte)
+  * Labels de paramètres = police 4x6
+  * Valeurs de paramètres = police 4x6
+  * Bandeau haut (cart name, BPM, pattern) = police 5x7
+  * Bandeau bas (cases Page1..5) = police 4x6
+- Mise en place d’un calcul de largeur texte (en pixels) pour centrer correctement les valeurs, selon la police active.
+- Cadres de paramètres : valeur centrée en bas du cadre avec police 4x6.
+
+Tests
+-----
+- Compilation OK avec les 3 polices intégrées (5x7, 4x6, 5x8 Elektron).
+- Affichage :
+  * La police 5x7 : stable et lisible.
+  * La police 5x8 Elektron : affichage correct.
+  * La police 4x6 : affichage "glitché" (bits mal alignés).
+    -> Hypothèse : erreur dans le décodage du packing (format spécial 3 octets/char).
+    -> Debug en cours.
+
+État global
+-----------
+- Tous les appels à l’affichage passent maintenant par `display_set_font()` et `display_draw_text()`.
+- Plus besoin de protocoles spécifiques par police → système unifié.
+- Prochaine étape (bloquée sur bug 4x6) : corriger le décodage de la police 4x6.
+
+---
+
+### UI / Rendu OLED — Ajustements polices & centrage (29/09/2025)
+
+* BPM et Bank/Pattern passent en **police 4x6** (plus compacte).
+* Le **titre de menu** est désormais centré horizontalement dans l’écran.
+* Le **nom de cartouche** est affiché avec un fond inversé (bloc noir + texte blanc).
+* La **page active** en bas est également affichée en inversé pour la mettre en valeur.
+* Correction de l’alignement : suppression des pixels noirs parasites entre caractères.
+
+---
+
+### UI / Paramètres — Cadres & valeurs (29/09/2025)
+
+* Les 4 cadres paramètres sont légèrement ajustés :
+
+  * Haut décalé de +1 px (plus d’air en haut).
+  * Bas décalé de –1 px (plus serré).
+* **Labels des paramètres** : centrés horizontalement dans chaque cadre.
+* **Valeurs des paramètres** : centrées horizontalement, **remontées de 1 px** pour équilibrer le visuel.
+
+---
+
+### UI — Cartouche & Pages inversées (29/09/2025)
+
+* Le **nom de cartouche** affiche désormais un fond rempli + texte inversé (lisibilité accrue).
+* Le bandeau bas a été retravaillé :
+
+  * La **page active** (ex. "Page3") est inversée.
+  * Les pages inactives restent affichées avec un petit cadre coins ouverts.
+  * Suppression du suffixe `/5` → n’affiche plus "1/5" mais simplement "PageX".
+
+---
+
+### UI — Icône Note + BPM inversé (29/09/2025)
+
+* Ajout d’une **icône Note** (bitmap 5x9, personnalisable).
+* Icône positionnée dans le bandeau haut, juste avant la valeur BPM.
+* Création d’un **cadre inversé avec marge 1 px** :
+
+  * Quand `clock_external = true`, le BPM est affiché en inversé à l’intérieur de ce cadre.
+  * Sinon, BPM affiché normalement (texte simple).
+* Ce mécanisme permet de différencier visuellement la clock **interne vs externe**.
+
+---
+
+## 📂 Réorganisation du projet et Makefile
+
+### 🔹 Objectif
+Mieux structurer le projet en regroupant les fichiers `.c` et `.h` par thématique dans des sous-répertoires (`ui`, `drivers`, `midi`, `usb`, `apps`, `cart`, etc.), plutôt que d’avoir tout à la racine.  
+
+### 🔹 Changements effectués
+- Tous les fichiers `ui_*.c` et `ui_*.h` déplacés dans `ui/`.
+- Idem pour les fichiers `drivers/`, `midi/`, `usb/`, `apps/`, `cart/`.
+- Le `Makefile` a été adapté pour compiler automatiquement tous les `.c` de ces dossiers.
+
+### 🔹 Makefile : correction des includes
+Au lieu d’utiliser `CFLAGS += -I...` (qui est écrasé par ChibiOS), il faut utiliser la variable prévue par le système de build :
+
+```make
+UINCDIR = usb midi drivers ui apps cart cfg
+
+---
+
+## UI Controller & Renderer — Implémentation complète (30/09/2025)
+
+### Contexte
+
+Après avoir stabilisé l’affichage de base sur OLED (SSD1309 SPI) et les drivers boutons/encodeurs, l’étape suivante a été la mise en place d’une **infrastructure UI complète**, inspirée des workflows Elektron :
+
+* gestion d’un **état UI global** (menu/page courante),
+* prise en charge des **cycles de menus** (un bouton peut tourner sur plusieurs menus),
+* gestion des **pages internes** (5 max par menu),
+* rendu complet sur OLED avec bandeaux haut/bas, cadres de paramètres, et centrage de labels/valeurs.
+
+Deux fichiers principaux structurent cette UI :
+
+* `ui_controller.c` (logique, état et événements),
+* `ui_renderer.c` (affichage graphique sur OLED).
+
+---
+
+### 🔹 Travaux réalisés (contexte complet)
+
+#### 1. Migration des appels `cart_link_shadow_get/set`
+
+* Ancienne API (1 paramètre) → remplacée par la nouvelle API (2 paramètres : `cid` + `param_id`).
+* Tous les appels dans `ui_controller.c` et `ui_renderer.c` corrigés pour passer par `cart_link_get_active()` afin de récupérer l’ID de cartouche actif.
+
+#### 2. Gestion des boutons menus (BM) avec cycles
+
+* Ajout d’un moteur de cycle par bouton (`s_cycles[8]`).
+* Chaque bouton peut cycler entre plusieurs menus prédéfinis.
+* Logique corrigée pour éviter les “sauts” intempestifs :
+
+  * Premier appui → sélection du cycle (retour à l’entrée du cycle si `resume=false`).
+  * Appuis suivants → avance dans le cycle uniquement si le bouton est déjà actif.
+* Variable globale `g_cycle_resume_mode` introduite :
+
+  * `true` → on revient au dernier menu cycle actif (par défaut).
+  * `false` → on revient toujours au premier menu du cycle.
+
+#### 3. Labels de pages dynamiques
+
+* Support ajouté pour `page_titles[]` dans chaque `ui_menu_spec_t`.
+* L’affichage en bas de l’écran ne montre plus `Page1…Page5` fixes, mais les titres spécifiques à chaque menu.
+* Fallback `"–"` si un label est absent.
+
+#### 4. Centrage du texte des labels de page
+
+* Les labels dans le bandeau bas sont maintenant **centrés par rapport à leur cadre**.
+* Calcul largeur texte avec `text_width_px`.
+* Fonctionne avec labels courts (“LFO”) comme longs (“Envelope Pitch”).
+
+#### 5. Shadow register (mémoire locale des paramètres)
+
+* Mise en place de `g_shadow_params[CART_COUNT][MAX_DEST_ID]`.
+* Chaque cartouche garde sa propre copie des paramètres.
+* Permet :
+
+  * Toggle des bits booléens (`UI_PARAM_BOOL` avec `is_bitwise=true`).
+  * Consultation de l’état sans relire la cartouche hardware.
+
+---
+
+### 🔹 `ui_controller.c` — état et logique UI
+
+* Structure `ui_state_t` centralise l’état courant (cart active, menu, page, valeurs).
+* **Cycles de menus** (`ui_cycle_t`) :
+
+  * chaque bouton BM1..BM8 peut être associé à un cycle de 1–4 menus,
+  * appui répété fait tourner sur les menus du cycle,
+  * option `g_cycle_resume_mode` choisit si on reprend là où on était ou si on repart du premier menu.
+* Fonctions principales :
+
+  * `ui_init(spec)` — initialise l’UI avec la cartouche donnée,
+  * `ui_switch_cart(spec)` — change de cartouche,
+  * `ui_on_button_menu(index)` — gestion appui bouton menu (cycle ou simple),
+  * `ui_on_button_page(index)` — sélection directe de page (1..5),
+  * `ui_on_encoder(enc, delta)` — incrémentation des paramètres (CONT, ENUM, BOOL) avec callback `cart_link_param_changed()`.
+* Particularité :
+
+  * gestion des **BOOL bitwise** (toggle d’un bit précis dans un registre shadow, puis sync via `cart_link_param_changed()`).
+
+---
+
+### 🔹 `ui_renderer.c` — affichage OLED complet
+
+#### Bandeau haut
+
+* Numéro de cartouche active (1..n),
+* Nom de la cartouche : texte inversé avec fond noir + marge,
+* Nom du menu courant : centré horizontalement,
+* Icône “Note” 5×9 ajoutée à droite,
+* Affichage BPM : normal ou inversé si clock externe,
+* Bank/Pattern affiché en haut à droite.
+
+#### Cadres paramètres
+
+* 4 cadres (31×37 px) affichés avec coins ouverts,
+* Pour chaque paramètre actif :
+
+  * **label** centré en haut (police 4×6),
+  * **valeur** centrée en bas (police 4×6),
+  * si `UI_PARAM_CONT` : rendu graphique en “knob” circulaire (`ui_draw_knob()`).
+
+#### Bandeau bas
+
+* 5 emplacements pour pages,
+* Pour chaque page :
+
+  * label texte dynamique (ex. "Struct", "Env", etc.),
+  * si actif → fond inversé (noir + texte blanc),
+  * sinon → cadre ouvert + texte normal,
+* centrage horizontal appliqué aux labels.
+
+#### Helpers graphiques
+
+* `draw_rect_open_corners`, `draw_filled_rect`, `draw_hline/vline`,
+* `text_width_px(font, string)` — calcul largeur pour centrage,
+* `display_draw_text_inverted_box` — fond noir + marge autour.
+
+---
+
+### 🔹 Problèmes rencontrés et fixes
+
+1. **Erreur compilation `page_labels`**
+   → correction : renommé en `page_titles` (aligné avec spec des menus).
+2. **Texte non centré**
+   → ajout de `text_width_px()` et calcul dynamique `(frame_w - tw)/2`.
+3. **Lisibilité faible bandeau haut/bas**
+   → ajout inversion (fond noir + texte blanc) pour cartouche + page active.
+4. **Icône musicale**
+   → ajouté un petit bitmap 5×9 (`note_icon[]`), affiché à côté du BPM.
+5. **Couplage UI / cycles menus**
+   → résolu par `ui_resolve_menu()` qui choisit dynamiquement le menu actif (cycle aware).
+
+---
+
+### 🔹 Validation hardware
+
+* Compilation et flash OK, écran SSD1309 rend :
+
+  * cartouche en haut inversée,
+  * nom de menu centré,
+  * 4 cadres avec labels centrés + valeurs centrées,
+  * knob dessiné pour paramètres continus,
+  * BPM + icône note,
+  * pages en bas avec surbrillance pour la page active.
+* Test interactif :
+
+  * boutons BM1..BM8 cyclent correctement,
+  * pages changent avec leurs labels en bas,
+  * encodeurs modifient valeurs avec rendu en temps réel.
+
+---
+
+### 🔹 État actuel (30/09/2025)
+
+✅ `ui_controller.c` : cycles menus, pages, encodeurs, toggle BOOL bitwise.
+✅ `ui_renderer.c` : rendu complet, centrage texte, inversion, icône BPM.
+✅ Architecture modulable : la logique “Elektron” (Shift, combos, modes) sera gérée au-dessus.
+✅ Code structuré et intégré dans `ui/` (Makefile mis à jour avec `UINCDIR`).
+
+---
+
+### 🔹 Notes pour debug futur
+
+#### A. `cart_link_param_changed()`
+
+* Point central de tous les envois vers la cartouche.
+* Cas couverts :
+
+  * `UI_PARAM_CONT` et `UI_PARAM_ENUM` → valeur brute,
+  * `UI_PARAM_BOOL` simple → toggle 0/1,
+  * `UI_PARAM_BOOL` bitwise → modif via shadow register, puis envoi complet du registre.
+* ⚠️ À tester dès que possible : vérifier que `cart_set_param()` reçoit bien la valeur attendue.
+
+#### B. Shadow register
+
+* Structure : `g_shadow_params[cid][param_id]`.
+* Initialisée à 0 au boot (`memset`).
+* Sert à gérer l’état local même si le hardware ne répond pas.
+* ⚠️ Attention : nécessite une étape de synchronisation si la cartouche contient déjà des valeurs ≠ 0.
+
+#### C. Stratégies de debug pratique
+
+* Ajouter un `printf` dans `cart_link_param_changed()` :
+
+  * affiche `cid`, `param_id`, `value`, `is_bitwise`, `bit_mask`.
+* Vérifier en parallèle les valeurs dans `g_shadow_params` et les envois sur le bus.
+
+---
+
+
+
+# Journal de session — UI & Cart XVA1 (30/09/2025)
+
+## Résumé opérationnel (ce qui marche maintenant)
+
+* **Affichage OLED** : squelette d’UI complet (bandeau haut, 4 cadres paramètres, bandeau bas avec labels de pages, centrages corrigés).
+* **Valeurs discrètes** : les paramètres **ENUM/BOOL** s’affichent avec **leurs libellés textes**, pas juste des nombres.
+* **Cartouche XVA1** : spec scindée proprement en **menus individuels** (OSC1..4, Filter, ENVx, LFOx, FXx) + une cartouche `CART_XVA1` qui ne contient que **8 menus** (design “8 boutons” + *cycles*).
+* **Compilation & Link** : OK. Les erreurs “sinf”, enums redéclarés, et init de la cartouche → **corrigées**.
+* **Makefile** : lien avec la lib maths **`-lm`** ajouté ⇒ `sinf()` OK.
+
+---
+
+## Détails exhaustifs (ce qu’on a changé / corrigé)
+
+### 1) Rendu OLED : centrage, inversions, icônes
+
+* Ajout d’outils de dessin **bas niveau** dans `ui_renderer.c` :
+
+  * `set_pixel`, `draw_hline`, `draw_vline`, `draw_rect_open_corners`, `draw_filled_rect`.
+  * calcul **largeur texte** par police : `text_width_px(font, str)` → centrages corrects.
+* **Bandeau haut :**
+
+  * numéro de cartouche active (1..n),
+  * **nom de cartouche** en **inversé** (fond plein + texte blanc),
+  * **nom de menu** centré,
+  * **icône note** 5×9 à droite,
+  * BPM affiché normal ou **inversé** (si clock externe).
+* **Cadres paramètres (x4)** :
+
+  * cadre 31×37 à “coins ouverts”,
+  * **label** centré en haut (police 4×6),
+  * **valeur** centrée en bas (police 4×6),
+  * pour `UI_PARAM_CONT` : rendu **knob circulaire** via `ui_draw_knob()`.
+* **Bandeau bas (pages)** :
+
+  * 5 cases ; **label de page dynamique** (vient de la spec du menu),
+  * **page active** affichée en inversé, les autres avec cadre.
+
+> Effet visible : les **enum/bool** montrent bien leurs **libellés textes** (ex. “On/Off”, “Plate/Hall”, etc.) au lieu d’un entier.
+
+---
+
+### 2) Tables de labels (discrets) — *Solution A : internes au .c*
+
+> Objectif : **éviter les doublons/extern** et économiser la RAM/flash.
+
+* **Décision** : toutes les tables de libellés **restent `static` dans `cart_xva1.c`** (une seule copie, non exportée).
+* Avantages :
+
+  * pas d’`extern` inutiles dans le `.h`,
+  * pas de symboles globaux → pas de collisions ni “follows non-static declaration”,
+  * le **linker** peut jeter ce qui n’est pas référencé (**LTO + GC**).
+
+Tables mises en place (repris/aligné sur tes fichiers Arduino) :
+
+* `waveLabels[9]`
+* `onOffLabels[2]`
+* `syncLabels[2]`
+* `keytrackLabels[2]`
+* `filterTypeLabels[22]`
+* `routingLabels[3]`
+* `lfoWaveLabels[10]`  *(⚠️ bien 10, pas 9 ; on avait eu un mismatch au début)*
+* `lfoSyncLabels[4]`
+* `egLoopLabels[2]`
+* `egLoopSegLabels[2]`
+* `egRstLabels[2]`
+* `legatoLabels[2]`
+* `portaModeLabels[3]`
+* `distTypeLabels[4]`
+* `gateCurveLabels[2]`
+* `gainLabels[4]`
+* `fxRoutingLabels[3]`
+* `reverbModeLabels[2]`
+* `delayModeLabels[3]`
+* `chorusModeLabels[4]`
+* `phaserModeLabels[3]`
+* `phaseLabels[4]`
+* `driveLabels[8]`
+* `bandwLabels[8]`
+
+> **Important** : on **n’exporte plus** ces tableaux dans `cart_xva1.h`. Ils sont **référencés** uniquement par les specs de paramètres (`.meta.en={labels, count}`) dans **le même fichier**.
+
+---
+
+### 3) Specs XVA1 : menus individuels + cartouche 8 emplacements
+
+* Chaque sous-menu est un `const ui_menu_spec_t` autonome :
+
+  * `XVA1_MENU_OSC1`, `XVA1_MENU_OSC2`, `XVA1_MENU_OSC3`, `XVA1_MENU_OSC4`,
+  * `XVA1_MENU_FILTER`,
+  * `XVA1_MENU_ENV_FILTER`, `XVA1_MENU_ENV_AMP`, `XVA1_MENU_ENV_PITCH`,
+  * `XVA1_MENU_LFO12`, `XVA1_MENU_LFO_MIDIMOD`, `XVA1_MENU_MIDI_GLOBAL`,
+  * `XVA1_MENU_FX1`, `XVA1_MENU_FX2`, `XVA1_MENU_FX3`, `XVA1_MENU_FX4`.
+* **Cartouche** `CART_XVA1` → **8 slots** (BM1..BM8) :
+  on **place 8 menus seulement** dedans, et **on accède aux autres via le *cyclage*** déjà prévu côté UI (ex. BM6: ENV Filt/Amp/Pitch, BM7: LFO1&2/LFO MidiMod/Midi Global, BM8: FX1/FX2/FX3/FX4).
+
+**Fix critique compilo** : auparavant on essayait naïvement d’initialiser la cartouche avec **tous** les menus → “excess elements” / initialisation incohérente.
+**Maintenant** : `CART_XVA1.menus = { 8 menus }` (conformes à l’UI *8 boutons*). Les autres sont **cyclés**.
+
+---
+
+### 4) Discrets vs continus : ce qui est affiché **avec labels** (déjà fait)
+
+* **BOOL** : tous les booléens (y compris **bitwise**) utilisent `onOffLabels` → affichage “Off/On”.
+* **Filter** : `Type` (22 types) & `Route` (3) → **ENUM** avec labels.
+* **LFO** :
+
+  * `Wave` (10) → **ENUM** `lfoWaveLabels[10]` (Tri, Sqr, SawU, SawD, …, Rnd).
+  * *Sync* : pour l’instant laissé **CONT** (valeur brute), on pourra basculer en `lfoSyncLabels[4]` si mappé exactement (cf. Arduino).
+* **FX** :
+
+  * FX1 : `DistTp` (4) + `FxRout` (3) → **ENUM**.
+  * FX2 : `Mode` (2) → **ENUM** (Plate/Hall).
+  * FX3 : `Mode` (3) → **ENUM** (Stereo/Cross/Bounce).
+  * FX4 : `Mode` Chorus (4) & Phaser (3) → **ENUM**.
+
+> **À noter** : **OSC “Wave”** est resté **CONT** chez toi pour le moment (0..127). On pourra le passer en **ENUM** avec `waveLabels[9]` si la cartouche mappe bien 0..8 sur ces formes. Dis-moi si c’est le cas et je bascule.
+
+---
+
+### 5) BOOL bitwise : gestion propre
+
+* Pour les booléens “bitwise” (ex. `Sync` des OSC via un registre partagé, `EgLp/EgRst/...`), on lit/écrit un **registre shadow** local puis on envoie la nouvelle valeur via `cart_link_param_changed()`.
+* Rendu UI : valeur affichée **Off/On** (ou labels dédiés si fournis) **et** bit correct envoyé sous-jacemment.
+
+---
+
+### 6) `ui_widgets.h` : conflit d’enum corrigé (alias)
+
+* Problème : on redéclarait `UI_PARAM_CONT/ENUM/BOOL` dans `ui_widgets.h` → **conflits** avec `ui_spec.h`.
+* **Fix** : `ui_widgets.h` inclut `ui_spec.h` et fait :
+
+  ```c
+  typedef ui_param_kind_t ui_param_kind_for_router_t;
+  ```
+
+  → plus aucune redéclaration, toutes les comparaisons `ps->kind == UI_PARAM_ENUM` etc. compilent proprement.
+
+---
+
+### 7) `sinf()` : include + linkage
+
+* `ui_widgets.c` utilisait `sinf()` (pour dessiner la sinusoïde), mais :
+
+  * **include manquant** → `#include <math.h>`,
+  * **link math** manquant → Makefile : `ULIBS += -lm`.
+* **Résultat** : plus d’“undefined reference to `sinf`”.
+
+---
+
+### 8) Stray `return` dans `ui_widgets.c`
+
+* Il y avait un `return 0;` **hors fonction** (ligne ~165) → **erreur de parse**.
+* **Supprimé**. Le fichier compile.
+
+---
+
+### 9) Warnings : ce qu’on laisse, ce qu’on supprime
+
+* `-Wunused-const-variable` sur certaines tables (ex. `legato`, `portaMode`) si pas encore utilisées par des params ENUM : **sans gravité**.
+  *On pourra soit les utiliser bientôt (quand on mappe ces paramètres), soit les retirer si finalement non utilisés.*
+* `excess elements in array initializer` sur `CART_XVA1` : **corrigé** en limitant à 8 menus.
+* “Options to '-Xassembler' do not match” (LTO) : **warning ld-wrapper** de GCC sous Windows ; sans impact fonctionnel sur le binaire.
+
+---
+
+## Points d’architecture clarifiés
+
+### A) Pourquoi **8 menus** dans `CART_XVA1` ?
+
+* Le hardware expose **8 boutons “banks/menus”** (BM1..BM8).
+* Le design UI est **Elektron-like** : **chaque bouton** peut **cycler** entre **plusieurs menus**.
+* Donc la cartouche **ne contient que 8** `ui_menu_spec_t` ; les **autres** sont accessibles par **cycle** (déjà câblé côté `ui_controller`).
+
+### B) Mémoire côté interface
+
+* Garder les **labels en `static const` dans le `.c`** est **le plus économe** :
+
+  * **une seule copie**,
+  * **pas d’extern** donc pas de références inutiles,
+  * le **linker** peut “garbage-collecter” ce qui n’est pas utilisé.
+* Passer `Wave/Type/etc.` en **ENUM** n’augmente pas la RAM ; ça **pointe** vers un tableau de `const char*` déjà en flash.
+
+---
+
+## Ce qui reste à faire (priorisé)
+
+1. **OSC Wave → ENUM (si mappage confirmé)**
+
+   * Passer `Wave` (OSC1..4) de `CONT` → `ENUM` avec `waveLabels[9]` si la cartouche mappe bien 0..8 (SawUp..Stk7s).
+   * Sinon : garder `CONT`, mais **afficher** un pseudo-label (ex. “Wxx”) → *moins bien*.
+
+2. **Tune/Transp → libellés musicaux**
+
+   * Aujourd’hui : valeurs brutes **0..127** affichées.
+   * À faire : affichage **±semitones** (ex. “-7 st”, “+3 st”), ou “C…B” si tu veux des **notes**.
+   * **Côté protocole XVA1** : on prépare la montée à **0..255** (8 bits) → on ajustera `.meta.range={0,255,1}` menu par menu.
+
+3. **LFO Sync → ENUM**
+
+   * Passer `Sync` des LFO en `ENUM` `lfoSyncLabels[4]` (1FR/1KS/MFR/MKS) si le mappage à 4 états est confirmé côté cartouche.
+
+4. **Autres discrets**
+
+   * Mapper le reste (porta mode, legato, phases, drive, bandwidth, etc.) dès qu’on branche les pages correspondantes.
+
+5. **Widgets “dessin” pour labels discrets**
+
+   * Icônes **waveforms** (sine/saw/square/tri/noise),
+   * **Switch** on/off,
+   * **Types de filtres** (pictos simplifiés LP/HP/BP/…),
+   * **Séq mode** (plus tard).
+   * On garde l’architecture **modulaire** : **picking** auto d’un widget par **type** (BOOL/ENUM/CONT) + **override** via une **binding table** (menu/page/slot → widget).
+
+6. **Protocole XVA1 8-bits (UART) — côté UI**
+
+   * Aujourd’hui, les ranges sont souvent `0..127`.
+   * Dès qu’on bascule la cartouche au **protocole XVA1 (0..255)**, je passe les `.meta.range` à `0..255` dans les menus concernés.
+
+---
+
+## Mode d’emploi rapide (ajouter un discret avec labels)
+
+1. Dans `cart_xva1.c`, **en haut** :
+
+   ```c
+   static const char* const myLabels[3] = { "A","B","C" };
+   ```
+
+2. Dans le menu concerné :
+
+   ```c
+   { "Mode", UI_PARAM_ENUM, <ID>, 0, .meta.en={ myLabels, 3 } },
+   ```
+
+3. **Recompiler**. Pas d’update `.h` nécessaire.
+
+---
+
+## Notes Build
+
+* **Makefile** : ajouter la lib maths pour `sinf()`
+
+  ```
+  ULIBS += -lm
+  ```
+* **Includes** :
+
+  * `ui_widgets.c` : `#include <math.h>`
+  * **ne pas** redéclarer les enums `UI_PARAM_*` ; inclure `ui_spec.h` et utiliser le typedef alias.
+
+---
+
+## Validation observée
+
+* Après corrections : `make -j8` → **OK** (0 error).
+* Warnings restants uniquement sur *const non utilisés* (normaux tant que tout n’est pas mappé).
+* **Affichage** : ENUM/BOOL montrent leurs **libellés** ; CONT montrent les **valeurs** ; **knob** pour CONT ; **pages dynamiques** OK ; **cart name/menu** OK.
+
+---
+
+## Prochaines sessions (plan)
+
+1. **Passage 0..255** (XVA1 UART) menu par menu (ranges + envoi).
+2. **Libellés musicaux** pour `Tune/Transp`.
+3. **Widgets graphiques** pour ENUM/BOOL (ondes, filtres, switch).
+4. **Binding table** (override par menu/page/slot).
+5. **Modes SEQ custom** (bouton SEQ) **reuse du squelette UI** → plug & play.
+
+---
+
+**TL;DR** :
+On a **fiabilisé** le rendu OLED, **corrigé** la toolchain (math, enums, cart init), **branché** des **libellés complets** pour les discrets importants, **nettoyé** l’export des labels (Solution A), et **retenu** l’architecture “8 boutons + cycles”.
+La base est prête pour **étendre** (0..255, widgets custom, labels musicaux) sans re-casser l’UI.
