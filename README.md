@@ -9,6 +9,15 @@ Les cartouches (ex. **XVA1**) sont pilotées via un bus série. Brick agit comme
 
 ---
 
+## 📘 Documentation en ligne
+
+La documentation complète du firmware (générée automatiquement avec **Doxygen**) est disponible ici :  
+👉 [https://Louwik14.github.io/Brick/](https://Louwik14.github.io/Brick/)
+
+---
+
+---
+
 ## Architecture générale
 
 ### Vue en couches (cible)
