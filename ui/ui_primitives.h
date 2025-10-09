@@ -131,3 +131,4 @@ static inline void ui_blit_mono(int x, int y, int w, int h,
         }
     }
 }
+#endif /* BRICK_UI_PRIMITIVES_H */

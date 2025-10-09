@@ -62,5 +62,5 @@ extern const font_t FONT_5X7;
  * Basée sur `font4x6[][3]`, couvre les caractères ASCII 32 à 126.
  */
 extern const font_t FONT_4X6;
-
+extern const font_t FONT_5X8_ELEKTRON;
 #endif /* BRICK_UI_FONT_H */

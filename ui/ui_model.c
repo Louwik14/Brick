@@ -54,7 +54,26 @@ void ui_model_init(const ui_cart_spec_t* initial_spec) {
     s_cart_last   = NULL;
     s_cart_active = initial_spec;
     ui_state_init(&s_ui_state, initial_spec);
+    /* Par défaut, les boutons step sont en mode SEQ → tag persistant "SEQ" */
+    ui_model_set_active_overlay_tag("SEQ");
+
 }
 
 const ui_cart_spec_t *ui_model_get_active_spec(void) { return s_cart_active; }
 ui_state_t *ui_model_get_state(void) { return &s_ui_state; }
+static char g_last_overlay_tag[8] = "";
+
+void ui_model_set_active_overlay_tag(const char *tag) {
+    if (tag && tag[0])
+        strncpy(g_last_overlay_tag, tag, sizeof(g_last_overlay_tag)-1);
+    else
+        g_last_overlay_tag[0] = '\0';
+}
+
+const char *ui_model_get_active_overlay_tag(void) {
+    if (g_last_overlay_tag[0] == '\0') {
+        /* Valeur par défaut au boot : SEQ */
+        strcpy(g_last_overlay_tag, "SEQ");
+    }
+    return g_last_overlay_tag;
+}

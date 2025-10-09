@@ -20,6 +20,7 @@
 #include "font.h"
 #include "font5x7.h"
 #include "font4x6.h"
+#include "font5x8_elektron.h"
 #include <stdbool.h>
 
 /* =======================================================================
@@ -50,6 +51,12 @@ static uint8_t get_col_5x7(char c, uint8_t col) {
 /** @internal Table décompressée : 95 glyphes (32..126), 4 colonnes chacune. */
 static uint8_t font4x6_expanded[95][4];
 static bool font4x6_ready = false;
+/* Colonne Elektron: on expose 5 colonnes "dessin" (0..4) ; la 6e est l'espace (gérée via spacing) */
+static uint8_t get_col_5x8_elektron(char c, uint8_t col) {
+    if ((uint8_t)c < FONT5X8_FIRST_CHAR || (uint8_t)c >= FONT5X8_LAST_CHAR) return 0;
+    if (col >= 5) return 0; /* width logique = 5 */
+    return font5x8_elektron[(uint8_t)c - FONT5X8_FIRST_CHAR][col];
+}
 
 /**
  * @brief Décompresse la table `font4x6` en RAM pour accès direct colonne/ligne.
@@ -113,4 +120,15 @@ const font_t FONT_4X6 = {
     .last     = 126,
     .get_col  = get_col_4x6,
     .spacing  = 0
+};
+
+/** @brief Police Elektron 5x8 (5 px + spacing 1 px) */
+const font_t FONT_5X8_ELEKTRON = {
+    .name    = "5x8_elektron",
+    .width   = 5,
+    .height  = 8,
+    .first   = FONT5X8_FIRST_CHAR,
+    .last    = FONT5X8_LAST_CHAR,
+    .spacing = 1,
+    .get_col = get_col_5x8_elektron
 };

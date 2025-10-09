@@ -104,6 +104,16 @@ const ui_cart_spec_t* ui_overlay_get_spec(void) {
 
 void ui_overlay_set_custom_mode(ui_custom_mode_t mode) {
     s_custom_mode_active = mode;
+    /* Publie aussi le tag texte persistant dans le modèle pour le renderer */
+    switch (mode) {
+        case UI_CUSTOM_SEQ: ui_model_set_active_overlay_tag("SEQ"); break;
+        case UI_CUSTOM_ARP: ui_model_set_active_overlay_tag("ARP"); break;
+        case UI_CUSTOM_NONE:
+        default:
+            /* On peut choisir de conserver le dernier tag (comportement demandé) */
+            /* ui_model_set_active_overlay_tag(""); // si tu voulais l’effacer */
+            break;
+    }
 }
 
 ui_custom_mode_t ui_overlay_get_custom_mode(void) {

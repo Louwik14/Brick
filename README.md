@@ -100,6 +100,8 @@ OLED
 
 Ordre d’initialisation recommandé (implémenté dans `main.c`) :
 
+> Remarque : `ui_model_init()` initialise l'état UI et **définit le mode custom par défaut** à "SEQ". En cas d'appel anticipé du renderer, `ui_model_get_active_overlay_tag()` renvoie aussi "SEQ" par **fail-safe**.
+
 ```c
 static void system_init(void) {
     halInit();
@@ -144,6 +146,17 @@ int main(void) {
 
 ## UI : task, input, controller, renderer, widgets
 
+#### État global du **mode custom actif** (tag persistant)
+
+- Le modèle maintient un **tag texte persistant** du **dernier mode custom actif** (ex.: "SEQ", "ARP").  
+  API :
+  ```c
+  void        ui_model_set_active_overlay_tag(const char *tag);
+  const char* ui_model_get_active_overlay_tag(void);
+  ```
+- **Valeur par défaut** : "SEQ". Le getter applique un **fail-safe** : si aucun tag n’a encore été défini lors du tout premier rendu, il retourne "SEQ".
+
+
 ### Thread UI (`ui_task.c`)
 
 - Lecture non bloquante des entrées (`ui_input`).
@@ -184,6 +197,11 @@ int main(void) {
 
 - Transforme l’état logique en pixels via `drv_display_*`.
 - **Source de vérité** : `ui_get_state()` et `ui_resolve_menu()` (si cycle BM actif, le menu résolu est celui du cycle).
+- **Bandeau supérieur — mis à jour** :
+  - Le **nom de cartouche** est suivi d’un **label capsule** pour le **mode custom actif**.
+  - L’ordre d’affichage est : `CartName` + *(éventuel)* `overlay_tag` → **Titre du menu centré** → Zone note/BPM/pattern.
+  - Le **centrage du titre** se fait **entre la fin du bloc** `CartName + overlay_tag` et le **début de la zone note** (fenêtrage dynamique, sans chevauchement).
+  - Le renderer **ne contient aucune logique d’état** : il lit `cart->overlay_tag` **ou**, à défaut, `ui_model_get_active_overlay_tag()` pour afficher le mode actif persistant (ex.: "SEQ").
 
 ### Widgets & primitives (`ui_widgets.c/.h`, `ui_primitives.h`, `ui_icons.*`, `font*`)
 
@@ -444,7 +462,7 @@ Cette phase introduit un **nouveau module** UI ainsi que des règles de navigati
 
 **Remarques d’implémentation :**
 - L’overlay est **exclusif** : activer un overlay **ferme** le précédent (avec restauration), puis entre dans le nouveau.
-- `ui_overlay_exit()` **ne réinitialise pas** le flag persistant du mode custom — il reste disponible pour le rendu et la logique des steps.
+- `ui_overlay_exit()` **ne réinitialise pas** le flag persistant du mode custom — il reste disponible pour le rendu et la logique des steps (le **label reste affiché** dans le bandeau, même hors écran du mode).
 
 ### 2. `ui_task` — Raccourcis overlay
 
@@ -477,10 +495,12 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 - Valeur `NULL` par défaut — les specs existantes restent **compatibles**.
 - Lors de l’utilisation d’un overlay, `ui_overlay_prepare_banner` **renseigne** ce champ pour que le renderer puisse afficher un **label** (ex. “SEQ”) **à droite du nom de cartouche**.
 
-### 5. Rendu (`ui_renderer`) — à venir
+### 5. Rendu (`ui_renderer`) — **implémenté**
 
-- Affichage du `overlay_tag` à droite du `cart_name` lorsque présent dans la spec active.  
-- L’API et les contrats **ne changent pas** ; seule la composition visuelle sera ajustée.
+- Affichage d’un **label capsule** à droite du `cart_name` indiquant le **mode custom actif** (`overlay_tag`).
+- Si la spec active ne fournit pas de `overlay_tag`, le renderer utilise `ui_model_get_active_overlay_tag()` (dernier mode actif persistant, **par défaut "SEQ"** au démarrage).
+- Le **titre du menu** est **centré** **entre** la fin du bloc `cart_name + overlay_tag` et la zone note (fenêtrage). 
+- Invariants respectés : aucune logique d’état dans le renderer ; pas d’accès bus/driver hors `drv_display`/primitives.
 
 ---
 

@@ -62,8 +62,14 @@ void ui_state_init(ui_state_t *st, const ui_cart_spec_t *spec);
 void ui_model_switch_cart(const ui_cart_spec_t *spec);
 void ui_model_restore_last_cart(void);
 void ui_model_init(const ui_cart_spec_t* initial_spec);
-
+const char *ui_model_get_active_overlay_tag(void);
 const ui_cart_spec_t *ui_model_get_active_spec(void);
 ui_state_t *ui_model_get_state(void);
+/**
+ * @brief Définit le tag texte du mode custom actif (persiste tant qu’on ne le remplace pas).
+ * @param tag Chaîne C (ex: "SEQ", "ARP"). NULL ou "" pour effacer.
+ * @ingroup ui
+ */
+void ui_model_set_active_overlay_tag(const char *tag);
 
 #endif /* BRICK_UI_UI_MODEL_H */

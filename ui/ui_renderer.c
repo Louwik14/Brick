@@ -6,15 +6,20 @@
  *
  * @details
  * Convertit l’état logique de l’UI (`ui_state_t`) en pixels :
- *  - Bandeau haut (cartouche, tempo, note)
+ *  - Bandeau haut (cartouche + **label de mode custom actif** accolé à droite,
+ *    titre/menu tel que défini actuellement, tempo, note, etc.)
  *  - 4 cadres param (un par encodeur)
  *  - Bandeau bas (pages)
  *
- * Architecture :
- *  - Aucune logique d’entrée — uniquement du rendu
- *  - Ne modifie jamais le modèle (`ui_state_t`)
- *  - Accès à l’état/cart via fonctions d’accès forward-déclarées
- *  - Rendu des widgets via `ui_widgets` (switch, icônes par TEXTE, knob)
+ * Invariants & architecture :
+ *  - Aucune logique d’état/entrée — uniquement du **rendu**.
+ *  - Ne modifie jamais le modèle (`ui_state_t`).
+ *  - Le label du **mode custom actif** est toujours affiché à droite du nom
+ *    de cartouche. Source de vérité :
+ *      1) `cart->overlay_tag` si présent pour la spec active ;
+ *      2) sinon `ui_model_get_active_overlay_tag()` (dernier mode custom actif, ex. "SEQ").
+ *  - Accès à l’état/cart via fonctions d’accès (forward-declarées).
+ *  - Rendu des widgets via `ui_widgets` (switch, icônes par TEXTE, knob).
  *
  * Hiérarchie (respectée) :
  *   ui_renderer  →  ui_widgets  →  ui_icons  →  drv_display
@@ -36,10 +41,23 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+/* === Frame titre de menu (tunable) ===================================== */
+#define MENU_FRAME_X   32   /* position X du cadre titre */
+#define MENU_FRAME_Y    0   /* position Y du cadre titre */
+#define MENU_FRAME_W   64   /* largeur du cadre titre    */
+#define MENU_FRAME_H   12   /* hauteur du cadre titre    */
+/* ======================================================================= */
+
+/* État et cartouche actuels (lecture seule) */
 const ui_state_t*     ui_get_state(void);
 const ui_cart_spec_t* ui_get_cart(void);
+
 /* Résolution de menu (cycles BMx) fournie par le contrôleur, utilisée en lecture seule. */
 const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index);
+
+/* Tag texte du mode custom actif global (persiste hors écran custom). */
+const char* ui_model_get_active_overlay_tag(void);
 #ifdef __cplusplus
 }
 #endif
@@ -168,31 +186,68 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     char buf[32];
 
     /* ===== Bandeau haut ===== */
-    snprintf(buf, sizeof(buf), "%d", (int)1); // ID cartouche (placeholder)
-    drv_display_draw_text_at_baseline(&FONT_5X7, 0, 8, buf);
 
-    if (cart->cart_name) {
-        int tw = text_width_px(&FONT_5X7, cart->cart_name);
-        int x0 = 7;
-        int y0 = 1;
-        draw_filled_rect(x0 - 1, y0 - 1, tw + 2, FONT_5X7.height + 2);
-        display_draw_text_inverted(&FONT_5X7, x0, y0, cart->cart_name);
+    /* 1) Numéro de cartouche, à GAUCHE en inversé */
+    snprintf(buf, sizeof(buf), "%d", (int)1); /* TODO: remplace par l'ID réel si dispo */
+    int tw_id = text_width_px(&FONT_5X7, buf);
+    int x_id  = 1;
+    display_draw_text_inverted_box(&FONT_5X7, (uint8_t)x_id, 1, buf);
+
+    /* 2) Bloc gauche : CartName (ligne haute) + Mode custom (ligne basse) en 4x6 non inversé */
+    const int x0_left = tw_id + 5;  /* petit espace après le numéro inversé */
+    int x_left_end    = x0_left;    /* fin horizontale du bloc (max des 2 lignes) */
+
+    /* 2a) Nom de cartouche : police 4x6, non inversé, ligne du haut (baseline = 8) */
+    int tw_cart = 0;
+    if (cart->cart_name && cart->cart_name[0]) {
+        drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)x0_left, 0, cart->cart_name);
+        tw_cart = text_width_px(&FONT_4X6, cart->cart_name);
     }
 
+    /* 2b) Mode custom actif persistant : police 4x6, non inversé, ligne du bas (baseline = 15) */
+    const char *tag = (cart->overlay_tag && cart->overlay_tag[0])
+                        ? cart->overlay_tag
+                        : ui_model_get_active_overlay_tag();   /* persistant (ex: "SEQ") */
+
+    int tw_tag = 0;
+    if (tag && tag[0]) {
+        drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)x0_left, 8, tag);
+        tw_tag = text_width_px(&FONT_4X6, tag);
+    }
+
+    /* 2c) La fenêtre de centrage part de la fin du bloc le plus large (cart vs tag) */
+    x_left_end = x0_left + (tw_cart > tw_tag ? tw_cart : tw_tag);
+
+    /* === Titre du menu : centré entre fin (cart+tag) et zone note (~100 px) === */
     snprintf(buf, sizeof(buf), "%s", menu->name ? menu->name : "");
-    int tw_menu = text_width_px(&FONT_4X6, buf);
-    int x_menu = (OLED_WIDTH - tw_menu) / 2;
-    drv_display_draw_text_at_baseline(&FONT_4X6, x_menu, 9, buf);
 
+    /* 1) Cadre à coins ouverts (esthétique : pas de pixels aux 4 coins) */
+    draw_rect_open_corners(MENU_FRAME_X, MENU_FRAME_Y, MENU_FRAME_W, MENU_FRAME_H);
+
+    /* 2) Centrage du texte DANS le cadre (indépendant de cart/tag/note) */
+    int tw_menu = text_width_px(&FONT_5X7, buf);
+
+    /* Centre horizontal : */
+    int x_menu = MENU_FRAME_X + (MENU_FRAME_W - tw_menu) / 2;
+    if (x_menu < MENU_FRAME_X) x_menu = MENU_FRAME_X;
+
+    /* Centre vertical : on utilise draw_text_with_font (coordonnée = top-left) */
+    int y_menu_top = MENU_FRAME_Y + (MENU_FRAME_H - FONT_5X7.height) / 2;
+    if (y_menu_top < MENU_FRAME_Y) y_menu_top = MENU_FRAME_Y;
+
+    drv_display_draw_text_with_font(&FONT_5X7, (uint8_t)x_menu, (uint8_t)y_menu_top, buf);
+    /* ======================================================================= */
+
+    /* Icône note + BPM/PTN (inchangés) */
     draw_note_icon(101, 1);
-
-    bool clock_external = false; // TODO: afficher selon état réel
+    bool clock_external = false; // TODO: état réel
     if (clock_external)
         display_draw_text_inverted_box(&FONT_4X6, 108, 1, "120.0");
     else
         drv_display_draw_text_at_baseline(&FONT_4X6, 109, 8, "120.0");
 
     drv_display_draw_text_at_baseline(&FONT_4X6, 113, 15, "A-12");
+
 
     /* ===== 4 cadres paramètres ===== */
     const int frame_w = 31, frame_h = 37;
