@@ -1,17 +1,23 @@
 /**
  * @file ui_controller.h
- * @brief Interface principale du contrôleur UI Brick (gestion menus/pages/encodeurs).
- *
+ * @brief Logique centrale de contrôle de l’interface utilisateur Brick.
  * @ingroup ui
  *
- * Fournit la logique d’état et les callbacks de l’interface utilisateur.
- * Gère les changements de menus, pages, et valeurs d’encodeurs, et
- * propage les modifications aux cartouches via `ui_backend (pont)`.
+ * @details
+ * Ce module traduit les **entrées physiques** (boutons, encodeurs) en
+ * modifications d’état de l’UI, selon la **spécification UI** de la cartouche
+ * active (`ui_cart_spec_t`).
  *
- * Architecture :
- * - `ui_controller.c` gère la logique pure (pas de rendu)
- * - `ui_renderer.c` s’occupe du dessin
- * - `ui_task.c` pilote le thread UI (poll, timing, affichage)
+ * Principales responsabilités :
+ * - Maintenir l’état courant (`ui_state_t`) et ses valeurs (`ui_model`).
+ * - Gérer les **cycles BM** (menus rotatifs) déclarés dans la spec.
+ * - Propager les changements de paramètres via `ui_backend` (pont neutre).
+ * - Signaler les changements de rendu via un **dirty flag**.
+ *
+ * Invariants :
+ * - Aucun accès direct au bus, UART ou drivers matériels.
+ * - Le contrôleur ne fait que **modifier l’état UI** et appeler `ui_backend`.
+ * - Le renderer est purement stateless (lit uniquement l’état courant).
  */
 
 #ifndef BRICK_UI_UI_CONTROLLER_H
@@ -19,144 +25,96 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "ui_model.h"   // inclut ui_spec.h
+#include "ui_model.h"   /* ui_state_t */
+#include "ui_spec.h"    /* ui_cart_spec_t */
 
 /* ============================================================
- * Cycle de vie
+ * API publique
  * ============================================================ */
 
 /**
- * @brief Initialise le contrôleur UI avec la cartouche spécifiée.
- *
- * @param spec  Pointeur vers la spécification de la cartouche active.
+ * @brief Initialise l’état UI avec la spécification donnée.
+ * @param spec Spécification de cartouche active.
+ * @ingroup ui
  */
 void ui_init(const ui_cart_spec_t *spec);
 
 /**
- * @brief Change la cartouche active et réinitialise l’état du contrôleur.
- *
- * @param spec  Nouvelle spécification de cartouche (peut être NULL).
+ * @brief Bascule sur une nouvelle cartouche UI.
+ * @param spec Nouvelle spécification UI active.
+ * @ingroup ui
  */
 void ui_switch_cart(const ui_cart_spec_t *spec);
 
-/* ============================================================
- * Accès (rendu, debug)
- * ============================================================ */
+/**
+ * @brief Retourne l’état courant de l’UI.
+ * @return Pointeur constant sur l’état global (`ui_state_t`).
+ * @ingroup ui
+ */
+const ui_state_t* ui_get_state(void);
 
-/** @return Pointeur vers l’état interne de l’UI (pour le renderer). */
-const ui_state_t*     ui_get_state(void);
-
-/** @return Pointeur vers la cartouche active (spécification UI). */
+/**
+ * @brief Retourne la spécification UI active.
+ * @return Pointeur constant sur `ui_cart_spec_t`.
+ * @ingroup ui
+ */
 const ui_cart_spec_t* ui_get_cart(void);
 
-/* ============================================================
- * GESTION DU "DIRTY FLAG" (rafraîchissement UI)
- * ============================================================
- *
- * Ces fonctions permettent au thread UI (`ui_task.c`) de savoir
- * s’il faut redessiner l’écran.
- *
- * - `ui_mark_dirty()`  → à appeler quand une action utilisateur modifie l’UI.
- * - `ui_is_dirty()`    → indique si un redraw est nécessaire.
- * - `ui_clear_dirty()` → réinitialise l’état après le rendu.
- */
-
-/** Marque l’interface comme modifiée (force un redraw au prochain cycle). */
-void ui_mark_dirty(void);
-
-/** Indique si un rafraîchissement d’écran est nécessaire. */
-bool ui_is_dirty(void);
-
-/** Réinitialise le dirty flag après un rendu. */
-void ui_clear_dirty(void);
-
-/* ============================================================
- * MOTEUR DE CYCLE (BM)
- * ============================================================ */
-
 /**
- * @brief Déclare les options cyclées pour un bouton-menu donné (BM1..BM8).
- *
- * @param bm_index Index du bouton (0..7).
- * @param options  Tableau de pointeurs vers des `ui_menu_spec_t` (ex: ENV Filt/Amp/Pitch).
- * @param count    Nombre d’options dans le cycle (max 4).
- */
-void ui_cycles_set_options(int bm_index,
-                           const ui_menu_spec_t* const* options,
-                           uint8_t count);
-
-
-/**
- * @brief Renvoie le menu actif pour ce bouton.
- *
- * @param bm_index Index du bouton (0..7).
- * @return Pointeur vers le `ui_menu_spec_t` actif (cartouche ou cycle).
+ * @brief Résout le menu actif pour le rendu.
+ * @param bm_index Index du bouton menu (ignoré, pour compat).
+ * @return Pointeur vers la spec du menu actif.
+ * @ingroup ui
  */
 const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index);
 
 /* ============================================================
- * OPTIONS DE COMPORTEMENT
+ * Entrées utilisateur
  * ============================================================ */
 
 /**
- * @brief Active/désactive le mode de reprise de cycle.
- *
- * @param enable
- * - `false` = revenir toujours au premier menu du cycle.
- * - `true`  = reprendre le dernier menu actif.
- */
-void ui_set_cycle_resume_mode(bool enable);
-
-/**
- * @brief Indique si le mode “resume cycle” est actif.
- *
- * @return `true` si la reprise automatique est activée.
- */
-bool ui_get_cycle_resume_mode(void);
-
-/* ============================================================
- * Handlers d’événements (appelés par ui_task)
- * ============================================================ */
-
-/**
- * @brief Gère l’appui sur un bouton menu (BM1..BM8).
- *
- * @param index Index du bouton (0..7).
+ * @brief Gestion d’un appui sur un bouton **menu** (BM1..BM8).
+ * @param index Index du bouton.
+ * @ingroup ui
  */
 void ui_on_button_menu(int index);
 
 /**
- * @brief Gère l’appui sur un bouton de page (P1..P5).
- *
- * @param index Index du bouton (0..4).
+ * @brief Gestion d’un appui sur un bouton **page** (P1..P5).
+ * @param index Index du bouton page.
+ * @ingroup ui
  */
 void ui_on_button_page(int index);
 
 /**
- * @brief Gère la rotation d’un encodeur.
- *
+ * @brief Gestion du mouvement d’un **encodeur** (0..3) sur la page courante.
  * @param enc_index Index de l’encodeur (0..3).
- * @param delta     Variation de rotation (signée).
- *
- * @note Cette fonction appelle `cart_link_param_changed()` avec
- *       `(dest_id, value, is_bitwise, bit_mask)`.
+ * @param delta Incrément ou décrément (±1 typiquement).
+ * @ingroup ui
  */
 void ui_on_encoder(int enc_index, int delta);
 
-
+/* ============================================================
+ * Dirty flag (rafraîchissement rendu)
+ * ============================================================ */
 
 /**
- * @brief Hook de configuration des cycles pour une cart donnée.
- *
- * @details
- * Weak par défaut (implémentation vide). Chaque cart peut fournir
- * sa propre implémentation forte dans son fichier `cart_*.c` pour
- * déclarer les groupes cyclés BM via `ui_cycles_set_options()`.
- *
- * @param spec  Cart UI courante.
- * @ingroup ui_controller
+ * @brief Marque l’état UI comme « dirty » (à redessiner).
+ * @ingroup ui
  */
-void ui_cycles_setup_for(const ui_cart_spec_t* spec);
+void ui_mark_dirty(void);
 
+/**
+ * @brief Indique si l’état UI est « dirty » (doit être rerendu).
+ * @return true si l’état a changé.
+ * @ingroup ui
+ */
+bool ui_is_dirty(void);
+
+/**
+ * @brief Efface le flag dirty après un rendu.
+ * @ingroup ui
+ */
+void ui_clear_dirty(void);
 
 #endif /* BRICK_UI_UI_CONTROLLER_H */

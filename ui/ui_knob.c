@@ -173,21 +173,28 @@ void ui_draw_knob(int cx, int cy, int r_in, int val, int vmin, int vmax) {
            - val > 0 : de NORD vers l’OUEST (anti-horaire) sur [0..π]
            - val < 0 : de NORD vers l’EST   (horaire)      sur [0..π]
         */
-        if (val > 0) {
-            float tpos = clamp01f((float)val / (float)vmax); /* 0..1 */
-            if (tpos > 0.f) {
-                float a0 = ANG_N;
-                float a1 = a0 - tpos * PI;       /* anti-horaire → OUEST */
-                fill_disk_arc_mask(cx, cy, r_fill, a1, a0);
-            }
-        } else if (val < 0) {
-            float tneg = clamp01f((float)(-val) / (float)(-vmin)); /* 0..1 */
-            if (tneg > 0.f) {
-                float a0 = ANG_N;
-                float a1 = a0 + tneg * PI;       /* horaire → EST */
-                fill_disk_arc_mask(cx, cy, r_fill, a0, a1);
-            }
-        }
+      /* ----------------------- Bipolaire (corrigé) -----------------------
+         0 au NORD. On remplit :
+         - val > 0 : de NORD vers l’EST   (droite)
+         - val < 0 : de NORD vers l’OUEST (gauche)
+      */
+      if (val > 0) {
+          float tpos = clamp01f((float)val / (float)vmax);
+          if (tpos > 0.f) {
+              float a0 = ANG_N;
+              float a1 = a0 + tpos * PI;       /* → EST (droite) */
+              fill_disk_arc_mask(cx, cy, r_fill, a0, a1);
+          }
+      } else if (val < 0) {
+          float tneg = clamp01f((float)(-val) / (float)(-vmin));
+          if (tneg > 0.f) {
+              float a0 = ANG_N;
+              float a1 = a0 - tneg * PI;       /* → OUEST (gauche) */
+              fill_disk_arc_mask(cx, cy, r_fill, a1, a0);
+          }
+      }
+      /* val == 0 -> rien, outline seulement */
+
         /* val == 0 -> rien de rempli, outline seulement */
     } else {
         /* ----------------------- Unipolaire -----------------------

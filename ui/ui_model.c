@@ -2,17 +2,37 @@
  * @file ui_model.c
  * @brief État interne mutable de l’UI Brick (copie RAM + cart active).
  * @ingroup ui
+ *
+ * @details
+ * Implémente la logique de stockage locale de l’état UI :
+ * - Valeurs courantes (modèle UI).
+ * - Cartouche active / précédente.
+ * - Tag persistant d’overlay (ex. "SEQ").
+ *
+ * Les valeurs sont désormais stockées en **int16_t** pour permettre
+ * les plages bipolaires (ex. -12..+12, -128..+127). Cela évite tout wrap
+ * ou overflow lors du passage par zéro.
  */
 
 #include "ui_model.h"
 #include <string.h>
 
-/* Cartouche actuellement affichée (spec UI). */
+/* ============================================================
+ * État interne statique
+ * ============================================================ */
+
+/** Cartouche actuellement affichée (spec UI). */
 static const ui_cart_spec_t *s_cart_active = NULL;
-/* Cartouche précédente (pile 1 niveau). */
+/** Cartouche précédente (pile 1 niveau). */
 static const ui_cart_spec_t *s_cart_last   = NULL;
-/* État courant. */
+/** État courant de l’UI. */
 static ui_state_t s_ui_state;
+/** Tag persistant du dernier mode custom actif (SEQ, ARP…). */
+static char g_last_overlay_tag[8] = "";
+
+/* ============================================================
+ * Fonctions internes
+ * ============================================================ */
 
 void ui_state_init(ui_state_t *st, const ui_cart_spec_t *spec) {
     st->spec     = spec;
@@ -23,17 +43,23 @@ void ui_state_init(ui_state_t *st, const ui_cart_spec_t *spec) {
     memset(&st->vals, 0, sizeof(st->vals));
     if (!spec) return;
 
-    /* Copie des valeurs par défaut (alignées sur la spec). */
+    /* Copie des valeurs par défaut (alignées sur la spec UI). */
     for (int m = 0; m < UI_MODEL_MAX_MENUS; m++) {
         for (int p = 0; p < UI_MODEL_MAX_PAGES; p++) {
             for (int i = 0; i < UI_MODEL_PARAMS_PER_PAGE; i++) {
                 const ui_param_spec_t *ps = &spec->menus[m].pages[p].params[i];
                 ui_param_state_t      *pv = &st->vals.menus[m].pages[p].params[i];
-                pv->value = ps->label ? ps->default_value : 0;
+
+                /* Valeur par défaut : domaine UI (int16_t, peut être négative). */
+                pv->value = ps->label ? (int16_t)ps->default_value : 0;
             }
         }
     }
 }
+
+/* ============================================================
+ * Gestion de cartouches
+ * ============================================================ */
 
 void ui_model_switch_cart(const ui_cart_spec_t *spec) {
     if (!spec || spec == s_cart_active) return;
@@ -50,29 +76,40 @@ void ui_model_restore_last_cart(void) {
     ui_state_init(&s_ui_state, s_cart_active);
 }
 
+/* ============================================================
+ * Initialisation globale
+ * ============================================================ */
+
 void ui_model_init(const ui_cart_spec_t* initial_spec) {
     s_cart_last   = NULL;
     s_cart_active = initial_spec;
     ui_state_init(&s_ui_state, initial_spec);
-    /* Par défaut, les boutons step sont en mode SEQ → tag persistant "SEQ" */
-    ui_model_set_active_overlay_tag("SEQ");
 
+    /* Tag d’overlay par défaut : "SEQ" (fail-safe Phase 5). */
+    ui_model_set_active_overlay_tag("SEQ");
 }
+
+/* ============================================================
+ * Accesseurs
+ * ============================================================ */
 
 const ui_cart_spec_t *ui_model_get_active_spec(void) { return s_cart_active; }
 ui_state_t *ui_model_get_state(void) { return &s_ui_state; }
-static char g_last_overlay_tag[8] = "";
+
+/* ============================================================
+ * Tag overlay persistant
+ * ============================================================ */
 
 void ui_model_set_active_overlay_tag(const char *tag) {
     if (tag && tag[0])
-        strncpy(g_last_overlay_tag, tag, sizeof(g_last_overlay_tag)-1);
+        strncpy(g_last_overlay_tag, tag, sizeof(g_last_overlay_tag) - 1);
     else
         g_last_overlay_tag[0] = '\0';
 }
 
 const char *ui_model_get_active_overlay_tag(void) {
     if (g_last_overlay_tag[0] == '\0') {
-        /* Valeur par défaut au boot : SEQ */
+        /* Valeur par défaut au boot : "SEQ" */
         strcpy(g_last_overlay_tag, "SEQ");
     }
     return g_last_overlay_tag;

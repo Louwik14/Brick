@@ -555,3 +555,18 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 - Navigation overlay **stabilisée** (SEQ/ARP).  
 - Cycles BM **fiabilisés** (BM6, BM7, BM8).  
 - **Préparation** du rendu (tag persistant) et des règles de pas en fonction du **dernier mode custom actif**.
+
+
+---
+## 📘 ANNEXE : Mise à jour Phase 5
+
+- `ui_shortcuts.c` : Nouveau module central de gestion des combinaisons clavier, MUTE/PMUTE et overlays.
+- `ui_task.c` : Simplifié — délègue désormais tous les événements à `ui_shortcuts_handle_event()`.
+- `ui_overlay.c` : Conserve la logique d’ouverture/fermeture et de bannière, appelée uniquement depuis `ui_shortcuts`.
+- `ui_controller.c` / `ui_model.c` : Inchangés, découplés et stables.
+- `ui_renderer.c` : Rendu prioritaire par `overlay_tag` > `model_tag`, permettant un affichage correct des états MUTE/PMUTE.
+- `cart_registry.c` : Sert de registre déclaratif de specs pour les “apps custom” (SEQ, ARP, FX, etc.).
+
+✅ Architecture validée sans dépendance circulaire.
+
+📦 Prochaine étape : création des futures UIs custom (`ui_fx_ui`, `ui_drum_ui`, etc.) sur le modèle SEQ/ARP.

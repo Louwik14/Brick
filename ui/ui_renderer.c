@@ -45,7 +45,7 @@ extern "C" {
 /* === Frame titre de menu (tunable) ===================================== */
 #define MENU_FRAME_X   32   /* position X du cadre titre */
 #define MENU_FRAME_Y    0   /* position Y du cadre titre */
-#define MENU_FRAME_W   64   /* largeur du cadre titre    */
+#define MENU_FRAME_W   70   /* largeur du cadre titre    */
 #define MENU_FRAME_H   12   /* hauteur du cadre titre    */
 /* ======================================================================= */
 

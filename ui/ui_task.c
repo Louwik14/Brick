@@ -1,225 +1,147 @@
 /**
  * @file ui_task.c
- * @brief Thread principal de l’interface utilisateur Brick.
+ * @brief Thread principal de l’interface utilisateur Brick — délégation « shortcuts-centric ».
  * @ingroup ui
  *
  * @details
- * Orchestration Entrées (ui_input) → Contrôleur (ui_controller) → Rendu (ui_renderer).
- * Gère aussi le système d’OVERLAY générique (modes custom SEQ, ARP…)
- * qui s’appuie sur le module `ui_overlay.[ch]`.
+ * Orchestration en couches :
  *
- * Chaque overlay (ex: SEQ, ARP) :
- *  - sauvegarde l’état et la cart “réelle” avant de basculer,
- *  - propose plusieurs sous-specs (MODE / SETUP),
- *  - se ferme proprement lorsqu’un bouton de menu (BM) est pressé.
+ *   [ui_input] → [ui_task] → [ui_shortcuts] → [ui_controller / ui_overlay / ui_mute_backend]
+ *                                     ↳ toutes les combinaisons (SHIFT+…)
  *
- * L’architecture reste 100 % UI, sans accès direct au bus ni aux drivers.
+ * Rôles de ce thread :
+ *  - Poller les entrées via @ref ui_input_poll (boutons + encodeurs). :contentReference[oaicite:4]{index=4}
+ *  - Déléguer en priorité à @ref ui_shortcuts_handle_event pour MUTE/PMUTE, overlays, transport, etc.
+ *  - Si l’évènement n’est pas consommé, relayer les événements simples au contrôleur :
+ *      - Boutons menus/pages : @ref ui_on_button_menu / @ref ui_on_button_page. :contentReference[oaicite:5]{index=5}
+ *      - Encodeurs : @ref ui_on_encoder (corrigé pour bipolarité dans ton contrôleur). :contentReference[oaicite:6]{index=6}
+ *  - Déclencher le rendu conditionnel : @ref ui_is_dirty → @ref ui_render → @ref ui_clear_dirty. :contentReference[oaicite:7]{index=7}
+ *
+ * Le changement de cartouche « réelle » et la sortie d’overlays sont gérés dans `ui_shortcuts`.
+ * Ce fichier ne contient **aucune** logique MUTE/PMUTE/overlay.
  */
 
 #include "ch.h"
 #include "hal.h"
 
+#include <stdbool.h>
+#include <stdint.h>
+
+/* API UI de haut niveau (pas de drivers ici) */
 #include "ui_task.h"
-#include "ui_input.h"
-#include "ui_renderer.h"
-#include "ui_controller.h"
-#include "cart_registry.h"
-#include "ui_overlay.h"
-#include "ui_seq_ui.h"     /* seq_ui_spec / seq_setup_ui_spec */
-#include "ui_arp_ui.h"     /* arp_ui_spec / arp_setup_ui_spec */
-#include "drv_buttons_map.h"
+#include "ui_input.h"        /* ui_input_poll(), ui_input_shift_is_pressed() */
+#include "ui_controller.h"   /* ui_init, ui_on_button_menu/page, ui_on_encoder, ui_get_state/cart, dirty */ /* :contentReference[oaicite:8]{index=8} */
+#include "ui_renderer.h"     /* ui_render(), primitives de rendu */                                           /* :contentReference[oaicite:9]{index=9} */
+#include "cart_registry.h"   /* cart_registry_get_active_id(), cart_registry_get_ui_spec() */                /* :contentReference[oaicite:10]{index=10} */
 
-#include <string.h>
+/* Nouveau module : détection centralisée des raccourcis SHIFT+… */
+#include "ui_shortcuts.h"
 
-/* ============================================================
+/* ============================================================================
  * Configuration thread
- * ============================================================ */
+ * ==========================================================================*/
 #ifndef UI_TASK_STACK
-#define UI_TASK_STACK 1024
+#define UI_TASK_STACK  (1024)
 #endif
 
 #ifndef UI_TASK_PRIO
-#define UI_TASK_PRIO (NORMALPRIO)
+#define UI_TASK_PRIO   (NORMALPRIO)
+#endif
+
+#ifndef UI_TASK_POLL_MS
+#define UI_TASK_POLL_MS (20)   /* attente max pour un événement bouton */
+#endif
+
+#ifndef UI_TASK_HEARTBEAT_MS
+#define UI_TASK_HEARTBEAT_MS (500) /* rafraîchissement périodique (anti-stall) */
 #endif
 
 static THD_WORKING_AREA(waUI, UI_TASK_STACK);
 static thread_t* s_ui_thread = NULL;
 
-/* ============================================================
- * Bannières overlay (copies peu profondes des specs réelles)
- * ============================================================ */
-static ui_cart_spec_t s_seq_mode_spec_banner;
-static ui_cart_spec_t s_seq_setup_spec_banner;
-
-static ui_cart_spec_t s_arp_mode_spec_banner;
-static ui_cart_spec_t s_arp_setup_spec_banner;
-
-/* ============================================================
- * Thread principal UI
- * ============================================================ */
-/**
- * @brief Thread principal de l’interface utilisateur Brick.
- * @details
- * Gère :
- *  - la lecture des entrées (ui_input)
- *  - la navigation / logique (ui_controller)
- *  - le rendu (ui_renderer)
- *  - et les overlays custom (SEQ, ARP…)
- *
- * Les overlays sont exclusifs : activer l’un ferme automatiquement le précédent.
- * La sortie d’un overlay se fait par appui sur un BM (avec ou sans SHIFT).
- */
+/* ============================================================================
+ * Thread principal
+ * ==========================================================================*/
 static THD_FUNCTION(UIThread, arg) {
     (void)arg;
     chRegSetThreadName("UI");
 
-    /* Init contrôleur UI à partir du registre cartouches */
+    /* Initialisation contrôleur depuis la cartouche active */
     {
         cart_id_t active = cart_registry_get_active_id();
         const ui_cart_spec_t* init_spec = cart_registry_get_ui_spec(active);
-        ui_init(init_spec);
+        ui_init(init_spec); /* charge la spec + cycles BM déclaratifs */ /* :contentReference[oaicite:11]{index=11} */
     }
+
+    /* Init du module de raccourcis (machine d’état MUTE, timers, etc.) */
+    ui_shortcuts_init();
 
     ui_input_event_t evt;
     systime_t last_heartbeat = chVTGetSystemTimeX();
-    const systime_t heartbeat_interval = TIME_MS2I(500); // 2 Hz
 
-    while (true) {
-        /* --------- Entrées --------- */
-        if (ui_input_poll(&evt, TIME_MS2I(20))) {
+    for (;;) {
+        /* ===== 1) Entrées ===== */
+        const bool got = ui_input_poll(&evt, TIME_MS2I(UI_TASK_POLL_MS)); /* bouton et/ou encodeur */ /* :contentReference[oaicite:12]{index=12} */
 
-            /* --- Boutons --- */
-            if (evt.has_button && evt.btn_pressed) {
+        if (got) {
+            /* 1.1) Déléguer en priorité aux raccourcis SHIFT+… */
+            if (!ui_shortcuts_handle_event(&evt)) {
+                /* 1.2) Non consommé → traiter les évènements simples ici */
 
-                /* ============================================================
-                 * SHIFT + SEQ9 → Overlay SEQ (Mode/Setup)
-                 * ============================================================ */
-                if (ui_input_shift_is_pressed() && evt.btn_id == UI_BTN_SEQ9) {
-                    ui_overlay_prepare_banner(&seq_ui_spec, &seq_setup_ui_spec,
-                                              &s_seq_mode_spec_banner, &s_seq_setup_spec_banner,
-                                              ui_get_cart(), "SEQ");
-                    ui_overlay_set_custom_mode(UI_CUSTOM_SEQ);
+                /* --- Boutons (press-only) --- */
+                if (evt.has_button && evt.btn_pressed) {
+                    switch (evt.btn_id) {
+                        /* Menus (BM1..BM8) */
+                        case UI_BTN_PARAM1: ui_on_button_menu(0);  break;
+                        case UI_BTN_PARAM2: ui_on_button_menu(1);  break;
+                        case UI_BTN_PARAM3: ui_on_button_menu(2);  break;
+                        case UI_BTN_PARAM4: ui_on_button_menu(3);  break;
+                        case UI_BTN_PARAM5: ui_on_button_menu(4);  break;
+                        case UI_BTN_PARAM6: ui_on_button_menu(5);  break;
+                        case UI_BTN_PARAM7: ui_on_button_menu(6);  break;
+                        case UI_BTN_PARAM8: ui_on_button_menu(7);  break;
 
-                    if (!ui_overlay_is_active()) {
-                        ui_overlay_enter(UI_OVERLAY_SEQ, &s_seq_mode_spec_banner);
-                    } else if (ui_overlay_get_spec() == &s_seq_mode_spec_banner) {
-                        ui_overlay_switch_subspec(&s_seq_setup_spec_banner);
-                    } else if (ui_overlay_get_spec() == &s_seq_setup_spec_banner) {
-                        ui_overlay_switch_subspec(&s_seq_mode_spec_banner);
-                    } else {
-                        /* Un autre overlay était actif → remplacer par SEQ */
-                        ui_overlay_enter(UI_OVERLAY_SEQ, &s_seq_mode_spec_banner);
-                    }
-                    continue; /* évènement consommé */
-                }
+                        /* Pages (P1..P5) */
+                        case UI_BTN_PAGE1:  ui_on_button_page(0);  break;
+                        case UI_BTN_PAGE2:  ui_on_button_page(1);  break;
+                        case UI_BTN_PAGE3:  ui_on_button_page(2);  break;
+                        case UI_BTN_PAGE4:  ui_on_button_page(3);  break;
+                        case UI_BTN_PAGE5:  ui_on_button_page(4);  break;
 
-                /* ============================================================
-                 * SHIFT + BS10 → Overlay ARP (Mode/Setup)
-                 * ============================================================ */
-                if (ui_input_shift_is_pressed() && evt.btn_id == UI_BTN_SEQ10) {
-                    ui_overlay_prepare_banner(&arp_ui_spec, &arp_setup_ui_spec,
-                                              &s_arp_mode_spec_banner, &s_arp_setup_spec_banner,
-                                              ui_get_cart(), "ARP");
-                    ui_overlay_set_custom_mode(UI_CUSTOM_ARP);
-
-                    if (!ui_overlay_is_active()) {
-                        ui_overlay_enter(UI_OVERLAY_ARP, &s_arp_mode_spec_banner);
-                    } else if (ui_overlay_get_spec() == &s_arp_mode_spec_banner) {
-                        ui_overlay_switch_subspec(&s_arp_setup_spec_banner);
-                    } else if (ui_overlay_get_spec() == &s_arp_setup_spec_banner) {
-                        ui_overlay_switch_subspec(&s_arp_mode_spec_banner);
-                    } else {
-                        /* Un autre overlay (ex. SEQ) était actif → remplacer par ARP */
-                        ui_overlay_enter(UI_OVERLAY_ARP, &s_arp_mode_spec_banner);
-                    }
-                    continue; /* évènement consommé */
-                }
-
-                /* ============================================================
-                 * Sortie overlay : si un BM est pressé (avec/sans SHIFT),
-                 * on QUITTE d’abord l’overlay puis on traite le BM réel.
-                 * ============================================================ */
-                if (ui_overlay_is_active()) {
-                    bool is_bm =
-                        (evt.btn_id == UI_BTN_PARAM1) || (evt.btn_id == UI_BTN_PARAM2) ||
-                        (evt.btn_id == UI_BTN_PARAM3) || (evt.btn_id == UI_BTN_PARAM4) ||
-                        (evt.btn_id == UI_BTN_PARAM5) || (evt.btn_id == UI_BTN_PARAM6) ||
-                        (evt.btn_id == UI_BTN_PARAM7) || (evt.btn_id == UI_BTN_PARAM8);
-                    if (is_bm) {
-                        ui_overlay_exit();
-                        /* ne pas 'continue;' → on laisse le BM s’exécuter sur la cart réelle */
+                        default: break; /* autres cas déjà gérés/consommés par ui_shortcuts */
                     }
                 }
 
-                /* ============================================================
-                 * SHIFT + BM1..BM4 → changement de cart “réelle” (classique)
-                 * En changeant de cart, on purge tout overlay en cours.
-                 * ============================================================ */
-                if (ui_input_shift_is_pressed()) {
-                    const ui_cart_spec_t* spec = NULL;
-
-                    if      (evt.btn_id == UI_BTN_PARAM1) spec = cart_registry_switch(CART1);
-                    else if (evt.btn_id == UI_BTN_PARAM2) spec = cart_registry_switch(CART2);
-                    else if (evt.btn_id == UI_BTN_PARAM3) spec = cart_registry_switch(CART3);
-                    else if (evt.btn_id == UI_BTN_PARAM4) spec = cart_registry_switch(CART4);
-
-                    if (spec) {
-                        if (ui_overlay_is_active()) ui_overlay_exit();
-                        ui_switch_cart(spec);
-                        ui_mark_dirty();
-                        continue;
-                    }
+                /* --- Encodeurs --- */
+                if (evt.has_encoder && evt.enc_delta != 0) {
+                    ui_on_encoder((int)evt.encoder, (int)evt.enc_delta); /* bipolarité gérée côté contrôleur */ /* :contentReference[oaicite:13]{index=13} */
                 }
-
-                /* ============================================================
-                 * Menus (BM1..BM8) — cycles gérés par ui_controller
-                 * ============================================================ */
-                if      (evt.btn_id == UI_BTN_PARAM1) ui_on_button_menu(0);
-                else if (evt.btn_id == UI_BTN_PARAM2) ui_on_button_menu(1);
-                else if (evt.btn_id == UI_BTN_PARAM3) ui_on_button_menu(2);
-                else if (evt.btn_id == UI_BTN_PARAM4) ui_on_button_menu(3);
-                else if (evt.btn_id == UI_BTN_PARAM5) ui_on_button_menu(4);
-                else if (evt.btn_id == UI_BTN_PARAM6) ui_on_button_menu(5);
-                else if (evt.btn_id == UI_BTN_PARAM7) ui_on_button_menu(6);
-                else if (evt.btn_id == UI_BTN_PARAM8) ui_on_button_menu(7);
-
-                /* ============================================================
-                 * Pages (P1..P5)
-                 * ============================================================ */
-                else if (evt.btn_id == UI_BTN_PAGE1) ui_on_button_page(0);
-                else if (evt.btn_id == UI_BTN_PAGE2) ui_on_button_page(1);
-                else if (evt.btn_id == UI_BTN_PAGE3) ui_on_button_page(2);
-                else if (evt.btn_id == UI_BTN_PAGE4) ui_on_button_page(3);
-                else if (evt.btn_id == UI_BTN_PAGE5) ui_on_button_page(4);
-
-                ui_mark_dirty();
-            }
-
-            /* --- Encodeurs --- */
-            if (evt.has_encoder && evt.enc_delta != 0) {
-                ui_on_encoder(evt.encoder, evt.enc_delta);
-                ui_mark_dirty();
             }
         }
 
-        /* --------- Rendu --------- */
-        bool heartbeat = (chVTGetSystemTimeX() - last_heartbeat) >= heartbeat_interval;
-        if (heartbeat) last_heartbeat = chVTGetSystemTimeX();
+        /* ===== 2) Rendu conditionnel ===== */
+        const systime_t now = chVTGetSystemTimeX();
+        const bool heartbeat = (now - last_heartbeat) >= TIME_MS2I(UI_TASK_HEARTBEAT_MS);
+        if (heartbeat) last_heartbeat = now;
 
-        if (ui_is_dirty() || heartbeat) {
-            ui_draw_frame(ui_get_cart(), ui_get_state());
-            ui_clear_dirty();
+        if (ui_is_dirty() || heartbeat) {               /* dirty flag exposé par ui_controller */        /* :contentReference[oaicite:14]{index=14} */
+            ui_render();                                /* wrapper qui appelle ui_draw_frame(st,cart) */  /* :contentReference[oaicite:15]{index=15} */
+            ui_clear_dirty();                           /* reset du dirty flag */                         /* :contentReference[oaicite:16]{index=16} */
         }
 
-        chThdSleepMilliseconds(16); // ~60 FPS
+        /* Cadence d'affichage ~60 FPS (sans bloquer l'acquisition d'entrées) */
+        chThdSleepMilliseconds(16);
     }
 }
 
-/* ============================================================
- * Lancement / état du thread UI
- * ============================================================ */
+/* ============================================================================
+ * API publique
+ * ==========================================================================*/
 
-/** @brief Lance le thread UI s’il n’est pas déjà actif. */
+/**
+ * @brief Démarre le thread UI (idempotent).
+ * @ingroup ui
+ */
 void ui_task_start(void) {
     if (!s_ui_thread) {
         s_ui_thread = chThdCreateStatic(waUI, sizeof(waUI),
@@ -227,7 +149,11 @@ void ui_task_start(void) {
     }
 }
 
-/** @brief Indique si le thread UI est en cours d’exécution. */
+/**
+ * @brief Indique si le thread UI est en cours d’exécution.
+ * @return true si le thread a été créé.
+ * @ingroup ui
+ */
 bool ui_task_is_running(void) {
     return s_ui_thread != NULL;
 }
