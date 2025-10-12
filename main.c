@@ -1,27 +1,26 @@
 /**
  * @file main.c
- * @brief Point d’entrée principal du firmware **Brick Control Platform**.
+ * @brief Point d’entrée principal du firmware **Brick Control Platform** — Phase 6 (LED backend intégré).
+ * @ingroup core
  *
+ * @details
  * Ce module orchestre l’initialisation complète du système :
  * - Initialisation du noyau **ChibiOS** (`halInit()`, `chSysInit()`).
- * - Démarrage de tous les **drivers matériels** (boutons, LEDs, encodeurs...).
+ * - Démarrage de tous les **drivers matériels** (boutons, LEDs, encodeurs…).
  * - Démarrage de la pile **USB device** et de l’interface **USB MIDI**.
  * - Initialisation du **MIDI DIN** (UART @ 31250) et des threads MIDI.
  * - Initialisation de la **clock MIDI 24 PPQN** (GPT + thread @ `NORMALPRIO+3`).
  * - Initialisation du **bus cartouche**, du **registre** et du **lien cart**.
- * - Chargement du module **UI** avec la spécification du synthé `XVA1` et
- *   configuration des **cycles de menus dynamiques**.
+ * - Chargement du module **UI** avec la spécification du synthé `XVA1`
+ *   et configuration des **cycles de menus dynamiques**.
  * - Lancement du **thread principal de l’interface utilisateur**.
- *
- * La boucle principale assure le **rendu régulier des LEDs adressables**.
+ * - Initialisation du **backend LED** et rafraîchissement continu dans la boucle principale.
  *
  * Contraintes d’architecture respectées :
  * - L’ordre d’initialisation garantit que l’I/O temps réel (USB/MIDI/Clock)
  *   est prêt **avant** tout usage par l’application/UI.
  * - Les couches sont strictement séparées : l’UI ne touche pas aux drivers/bus,
- *   le pont unique reste `ui_backend` côté UI ↔ Cart.
- *
- * @ingroup core
+ *   et le pont unique pour les LEDs reste `ui_led_backend`.
  */
 
 #include "ch.h"
@@ -38,6 +37,7 @@
 #include "ui_task.h"
 #include "ui_spec.h"
 #include "ui_controller.h"
+#include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
@@ -66,7 +66,7 @@ static void system_init(void) {
  */
 static void io_realtime_init(void) {
   usb_device_start();   /* USB device + réénumération (usbcfg/usbd) */
-  midi_init();          /* UART DIN @31250 + mailbox USB + thread TX */
+  midi_init();          /* UART DIN @ 31250 + mailbox USB + thread TX */
   midi_clock_init();    /* GPT + thread Clock @ NORMALPRIO+3 */
 }
 
@@ -95,8 +95,6 @@ static void drivers_and_cart_init(void) {
 static void ui_init_all(void) {
   /* Charge la cartouche XVA1 par défaut */
   ui_init(&CART_XVA1);
-
-
 }
 
 /* ===========================================================
@@ -117,11 +115,19 @@ int main(void) {
   drivers_and_cart_init();
   ui_init_all();
 
+  /* Phase 6 : Initialisation du backend LED avant démarrage UI */
+  ui_led_backend_init();
+
   /* Démarre le thread de gestion de l’interface utilisateur */
   ui_task_start();
 
   while (true) {
-    drv_leds_addr_render();   /* Rafraîchit les LEDs adressables */
-    chThdSleepMilliseconds(20);
+    /* Mise à jour du modèle LED logique */
+    ui_led_backend_refresh();
+
+    /* Rendu physique (envoi vers driver WS2812/SK6812) */
+    drv_leds_addr_render();
+
+    chThdSleepMilliseconds(20);  /* cadence ~50 Hz */
   }
 }

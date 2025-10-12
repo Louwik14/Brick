@@ -1,40 +1,104 @@
 /**
  * @file ui_mute_backend.c
- * @brief Stub de backend MUTE (phase préparatoire avant lien avec séquenceur).
+ * @brief Implémentation du backend MUTE / PMUTE (toggle) pour l'UI Brick.
  * @ingroup ui
  *
  * @details
- * Ce fichier ne fait rien pour l’instant : il sert uniquement de
- * point d’entrée pour l’UI. Les fonctions seront implémentées côté
- * séquenceur (ex: seq_engine.c) lors de la Phase 6.
+ * - Espace de 16 tracks : 4 cartouches × 4 (mapping pris en charge côté LED).
+ * - QUICK MUTE : bascule (toggle) l'état d'une track à l'appui (SEQ1..8).
+ * - PMUTE : bascule l'état préparé; commit applique, cancel annule.
+ * - Rendu LED : @ref ui_led_backend reçoit les événements et affiche :
+ *      - muté   → rouge
+ *      - actif  → couleur cartouche (en mode MUTE uniquement)
+ *
+ * Aucune dépendance circulaire : ce module publie vers ui_led_backend
+ * sans rien exiger en retour.
  */
 
 #include "ui_mute_backend.h"
-#include "brick_config.h"  /* pour éventuel DEBUG_ENABLE */
-#include <stddef.h>
+#include "ui_led_backend.h"
+
+#include <string.h>
+
+#ifndef NUM_TRACKS
+#define NUM_TRACKS 16
+#endif
+
+/* ======================================================================
+ * ÉTAT INTERNE
+ * ====================================================================== */
+
+static bool s_muted[NUM_TRACKS];         /* état MUTE réel par track */
+static bool s_pmute_prepare[NUM_TRACKS]; /* état préparé PMUTE par track */
+
+/* ======================================================================
+ * OUTILS INTERNES
+ * ====================================================================== */
+
+static inline bool _valid(uint8_t t) { return t < NUM_TRACKS; }
+
+/* ======================================================================
+ * API
+ * ====================================================================== */
+
+void ui_mute_backend_init(void) {
+    memset(s_muted, 0, sizeof(s_muted));
+    memset(s_pmute_prepare, 0, sizeof(s_pmute_prepare));
+}
 
 void ui_mute_backend_apply(uint8_t track, bool mute) {
-#if DEBUG_ENABLE
-    (void)track; (void)mute;
-    /* debug_log("UI MUTE APPLY t%d=%d\n", track, mute); */
-#endif
+    if (!_valid(track)) return;
+    s_muted[track] = mute;
+    /* Visuel immédiat : MUTE_STATE = true/false */
+    ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
+}
+
+void ui_mute_backend_toggle(uint8_t track) {
+    if (!_valid(track)) return;
+    s_muted[track] = !s_muted[track];
+    ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
 }
 
 void ui_mute_backend_toggle_prepare(uint8_t track) {
-#if DEBUG_ENABLE
-    (void)track;
-    /* debug_log("UI MUTE TOGGLE PREPARE t%d\n", track); */
-#endif
+    if (!_valid(track)) return;
+    s_pmute_prepare[track] = !s_pmute_prepare[track];
+    /* PMUTE = même rendu visuel que MUTE côté LEDs */
+    ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, track, s_pmute_prepare[track]);
 }
 
 void ui_mute_backend_commit(void) {
-#if DEBUG_ENABLE
-    /* debug_log("UI MUTE COMMIT\n"); */
-#endif
+    /* Applique toutes les préparations en inversant l'état réel */
+    for (uint8_t i = 0; i < NUM_TRACKS; ++i) {
+        if (s_pmute_prepare[i]) {
+            s_muted[i] = !s_muted[i];
+            /* Publier l'état réel mis à jour */
+            ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, i, s_muted[i]);
+
+            /* Nettoyer le flag préparé + notifier PMUTE=false */
+            s_pmute_prepare[i] = false;
+            ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, i, false);
+        }
+    }
 }
 
 void ui_mute_backend_cancel(void) {
-#if DEBUG_ENABLE
-    /* debug_log("UI MUTE CANCEL\n"); */
-#endif
+    /* Annule toutes les préparations en cours */
+    for (uint8_t i = 0; i < NUM_TRACKS; ++i) {
+        if (s_pmute_prepare[i]) {
+            s_pmute_prepare[i] = false;
+            ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, i, false);
+        }
+    }
+}
+
+/* ======================================================================
+ * GETTERS (optionnels)
+ * ====================================================================== */
+
+bool ui_mute_backend_is_muted(uint8_t track) {
+    return _valid(track) ? s_muted[track] : false;
+}
+
+bool ui_mute_backend_is_prepared(uint8_t track) {
+    return _valid(track) ? s_pmute_prepare[track] : false;
 }

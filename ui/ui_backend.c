@@ -1,32 +1,40 @@
 /**
  * @file ui_backend.c
- * @brief Pont neutre entre UI et couches basses (CartLink, UI interne, MIDI).
- * @details
- * Implémente la fonction de routage principale `ui_backend_param_changed()`,
- * qui distribue les changements de paramètres selon leur destination :
- *
- * - **CART** (`UI_DEST_CART`) → transmission vers `cart_link_param_changed()`.
- * - **UI interne** (`UI_DEST_UI`) → interception locale (`ui_backend_handle_ui()`).
- * - **MIDI** (`UI_DEST_MIDI`) → routage vers pile MIDI (`ui_backend_handle_midi()`).
- *
- * Les appels `ui_backend_shadow_get()` et `ui_backend_shadow_set()` restent
- * strictement associés à la cartouche active (shadow local).
- *
+ * @brief Pont neutre entre UI et couches basses (CartLink, UI interne, MIDI) + shadow UI local.
  * @ingroup ui
+ *
+ * @details
+ * Implémente la fonction de routage centrale `ui_backend_param_changed()` et un
+ * **shadow local** pour les paramètres `UI_DEST_UI` (vitrine / overlays).
+ *
+ * Destinations supportées :
+ * - **CART** (`UI_DEST_CART`) → `cart_link_param_changed()`
+ * - **UI interne** (`UI_DEST_UI`) → mise à jour du *shadow UI local* + `ui_backend_handle_ui()`
+ * - **MIDI** (`UI_DEST_MIDI`) → traduction NOTE ON/OFF/PANIC vers `midi.c`
+ *
+ * Points importants :
+ * - `ui_backend_shadow_get()` et `ui_backend_shadow_set()` gèrent **à présent**
+ *   les deux espaces : `UI_DEST_UI` (shadow local) **et** `UI_DEST_CART`
+ *   (shadow cartouche via CartLink).
+ * - Le PANIC utilise le standard MIDI **CC#123** via `midi_cc(...)`.
  */
 
 #include "ui_backend.h"
-#include "cart_link.h"       // cart_link_param_changed, cart_link_shadow_{get,set}
-#include "cart_registry.h"   // cart_registry_get_active_id()
-#include "brick_config.h"    // configuration globale (optionnel pour debug/log)
-#include "ch.h"
+#include "ui_backend_midi_ids.h" /* UI_MIDI_NOTE_ON_BASE_LOCAL, etc. */
+
+#include "cart_link.h"
+#include "cart_registry.h"
+#include "brick_config.h"
+
+#include "midi.h"                /* midi_note_on/off(), midi_cc() */
+
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 /* -------------------------------------------------------------------------- */
-/* Définitions internes de destination (masques 16 bits)                      */
+/* Masques de destination (répliqués pour compilation locale)                 */
 /* -------------------------------------------------------------------------- */
-
 #define UI_DEST_MASK   0xE000U
 #define UI_DEST_CART   0x0000U  /**< Paramètre destiné à la cartouche active.  */
 #define UI_DEST_UI     0x8000U  /**< Paramètre purement interne à l'UI.       */
@@ -34,23 +42,64 @@
 #define UI_DEST_ID(x)  ((x) & 0x1FFFU) /**< ID local sur 13 bits. */
 
 /* -------------------------------------------------------------------------- */
+/* Paramètres MIDI par défaut                                                 */
+/* -------------------------------------------------------------------------- */
+#define UI_MIDI_DEFAULT_CH     0u
+#define UI_MIDI_DEFAULT_VELOC  100u
+
+/* -------------------------------------------------------------------------- */
+/* Shadow UI local (pour l’espace UI_DEST_UI)                                 */
+/* -------------------------------------------------------------------------- */
+/**
+ * @brief Petite table (id,val) pour mémoriser l’état des paramètres UI.
+ * @note
+ * - Les IDs sont des **locaux** (13 bits) *ou composés* avec UI_DEST_UI selon usage.
+ * - On stocke la valeur **déjà encodée** (0..255) telle qu’envoyée à `ui_backend_param_changed`.
+ * - Taille volontairement modeste : ajustable si besoin.
+ */
+typedef struct { uint16_t id; uint8_t val; } ui_local_kv_t;
+
+#ifndef UI_BACKEND_UI_SHADOW_MAX
+#define UI_BACKEND_UI_SHADOW_MAX  32u
+#endif
+
+static ui_local_kv_t s_ui_shadow[UI_BACKEND_UI_SHADOW_MAX];
+static uint8_t       s_ui_shadow_count = 0;
+
+/* Cherche l’index d’un id (UI_DEST_UI | local) dans la table ; -1 si absent. */
+static int _ui_shadow_find(uint16_t id_full) {
+    for (uint8_t i = 0; i < s_ui_shadow_count; ++i) {
+        if (s_ui_shadow[i].id == id_full) return (int)i;
+    }
+    return -1;
+}
+
+static void _ui_shadow_set(uint16_t id_full, uint8_t v) {
+    int idx = _ui_shadow_find(id_full);
+    if (idx >= 0) {
+        s_ui_shadow[(uint8_t)idx].val = v;
+        return;
+    }
+    if (s_ui_shadow_count < UI_BACKEND_UI_SHADOW_MAX) {
+        s_ui_shadow[s_ui_shadow_count].id  = id_full;
+        s_ui_shadow[s_ui_shadow_count].val = v;
+        s_ui_shadow_count++;
+        return;
+    }
+    /* Table pleine : remplace LRU naïf (slot 0) pour rester O(1) */
+    s_ui_shadow[0].id  = id_full;
+    s_ui_shadow[0].val = v;
+}
+
+static uint8_t _ui_shadow_get(uint16_t id_full) {
+    int idx = _ui_shadow_find(id_full);
+    return (idx >= 0) ? s_ui_shadow[(uint8_t)idx].val : 0u;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Prototypes internes                                                        */
 /* -------------------------------------------------------------------------- */
-
-/**
- * @brief Gestion d'un paramètre interne UI (menu custom, séquenceur, etc.).
- * @param local_id  Identifiant local (13 bits).
- * @param val       Valeur brute.
- * @param bitwise   Mode bitmask (true = modif bits, false = valeur absolue).
- * @param mask      Masque de bits actif si `bitwise` est vrai.
- */
 static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask);
-
-/**
- * @brief Gestion d'un paramètre MIDI (CC/NRPN/etc.).
- * @param local_id  Identifiant MIDI (CC ou autre).
- * @param val       Valeur brute (0–127 typiquement).
- */
 static void ui_backend_handle_midi(uint16_t local_id, uint8_t val);
 
 /* -------------------------------------------------------------------------- */
@@ -58,68 +107,122 @@ static void ui_backend_handle_midi(uint16_t local_id, uint8_t val);
 /* -------------------------------------------------------------------------- */
 
 void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t mask) {
-    uint16_t dest = id & UI_DEST_MASK;
-    uint16_t did  = UI_DEST_ID(id);
+    const uint16_t dest     = (id & UI_DEST_MASK);
+    const uint16_t local_id = UI_DEST_ID(id);
 
     switch (dest) {
-        case UI_DEST_CART:
-            /* Routage classique vers la cartouche active */
-            cart_link_param_changed(did, val, bitwise, mask);
-            break;
+    case UI_DEST_CART:
+        /* Route vers la cartouche active (shadow + éventuelle propagation) */
+        cart_link_param_changed(local_id, val, bitwise, mask);
+        break;
 
-        case UI_DEST_UI:
-            /* Paramètre interne UI : ne passe pas par le bus cartouche */
-            ui_backend_handle_ui(did, val, bitwise, mask);
-            break;
+    case UI_DEST_UI: {
+        /* Met à jour le shadow UI **avant** la notification locale */
+        uint8_t newv = val;
 
-        case UI_DEST_MIDI:
-            /* Paramètre MIDI : routage vers la pile MIDI interne */
-            ui_backend_handle_midi(did, val);
-            break;
+        if (bitwise) {
+            /* Lire l’état courant, appliquer le masque, puis stocker. */
+            const uint8_t prev = _ui_shadow_get(id);
+            uint8_t reg = prev;
+            if (mask) {
+                /* bitwise + mask → activer/désactiver les bits */
+                if (val) reg |= mask;
+                else     reg &= (uint8_t)~mask;
+            }
+            newv = reg;
+        }
+        _ui_shadow_set(id, newv);
 
-        default:
-            /* Valeur hors plage connue : ignorée (sécurité) */
-#if DEBUG_ENABLE
-            debug_log("ui_backend: unknown dest %04x\n", dest);
-#endif
-            break;
+        /* Interception locale UI (facultatif) */
+        ui_backend_handle_ui(local_id, newv, bitwise, mask);
+        break;
+    }
+
+    case UI_DEST_MIDI:
+        /* Routage vers la pile MIDI (NOTE ON/OFF/PANIC, CC, etc.) */
+        ui_backend_handle_midi(local_id, val);
+        break;
+
+    default:
+        /* Destination inconnue : ignore */
+        break;
     }
 }
 
-/* -------------------------------------------------------------------------- */
-/* Shadow accessors (inchangés, cartouche active uniquement)                  */
-/* -------------------------------------------------------------------------- */
-
 uint8_t ui_backend_shadow_get(uint16_t id) {
+    const uint16_t dest = (id & UI_DEST_MASK);
+    if (dest == UI_DEST_UI) {
+        /* Lire le shadow UI local */
+        return _ui_shadow_get(id);
+    }
+    /* Par défaut : shadow cartouche (CART) */
     cart_id_t cid = cart_registry_get_active_id();
     return cart_link_shadow_get(cid, id);
 }
 
 void ui_backend_shadow_set(uint16_t id, uint8_t val) {
+    const uint16_t dest = (id & UI_DEST_MASK);
+    if (dest == UI_DEST_UI) {
+        _ui_shadow_set(id, val);
+        return;
+    }
     cart_id_t cid = cart_registry_get_active_id();
     cart_link_shadow_set(cid, id, val);
 }
 
 /* -------------------------------------------------------------------------- */
-/* Hooks internes — stubs par défaut                                          */
+/* API simple pour émission de notes (utilisé par d’éventuels bridges)        */
 /* -------------------------------------------------------------------------- */
-
-static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
-    (void)local_id;
-    (void)val;
-    (void)bitwise;
-    (void)mask;
-#if DEBUG_ENABLE
-    debug_log("[UI] id=%u val=%u (bitwise=%d)\n", local_id, val, bitwise);
-#endif
-    /* TODO: Implémenter la logique des menus UI internes ou SEQ ici */
+void ui_backend_note_on(uint8_t note, uint8_t velocity) {
+    midi_note_on(MIDI_DEST_BOTH, UI_MIDI_DEFAULT_CH, note, velocity);
 }
 
+void ui_backend_note_off(uint8_t note) {
+    midi_note_off(MIDI_DEST_BOTH, UI_MIDI_DEFAULT_CH, note, 0);
+}
+
+void ui_backend_all_notes_off(void) {
+    /* Standard MIDI: CC#123 = All Notes Off */
+    midi_cc(MIDI_DEST_BOTH, UI_MIDI_DEFAULT_CH, 123, 0);
+}
+
+/* -------------------------------------------------------------------------- */
+/* UI interne                                                                 */
+/* -------------------------------------------------------------------------- */
+static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
+    (void)local_id; (void)val; (void)bitwise; (void)mask;
+    /* Ici, tu peux gérer des hooks UI si nécessaire (NOP par défaut). */
+}
+
+/* -------------------------------------------------------------------------- */
+/* MIDI : traduction des IDs locaux vers midi.h                               */
+/* -------------------------------------------------------------------------- */
 static void ui_backend_handle_midi(uint16_t local_id, uint8_t val) {
-    (void)local_id;
-    (void)val;
-#if DEBUG_ENABLE
-    debug_log("[MIDI] id=%u val=%u\n", local_id, val);
-#endif
-    /* TODO: Intégrer midi_send_cc() ou midi_send_nrpn() selon mapping */
+    const midi_dest_t dest = MIDI_DEST_BOTH;
+    const uint8_t ch = UI_MIDI_DEFAULT_CH;
+
+    /* PANIC (All Notes Off) — utiliser CC#123 */
+    if (local_id == (UI_MIDI_ALL_NOTES_OFF_LOCAL & 0x1FFFu)) {
+        midi_cc(dest, ch, 123, 0);
+        return;
+    }
+
+    /* NOTE ON */
+    if (local_id >= UI_MIDI_NOTE_ON_BASE_LOCAL &&
+        local_id <  (UI_MIDI_NOTE_ON_BASE_LOCAL + 128u)) {
+        const uint8_t note = (uint8_t)(local_id - UI_MIDI_NOTE_ON_BASE_LOCAL);
+        const uint8_t vel  = (val == 0) ? UI_MIDI_DEFAULT_VELOC : (val & 0x7Fu);
+        midi_note_on(dest, ch, note, vel);
+        return;
+    }
+
+    /* NOTE OFF */
+    if (local_id >= UI_MIDI_NOTE_OFF_BASE_LOCAL &&
+        local_id <  (UI_MIDI_NOTE_OFF_BASE_LOCAL + 128u)) {
+        const uint8_t note = (uint8_t)(local_id - UI_MIDI_NOTE_OFF_BASE_LOCAL);
+        midi_note_off(dest, ch, note, 0);
+        return;
+    }
+
+    /* TODO: ajouter plus tard CC/NRPN/etc. si tu mappes d'autres IDs */
 }

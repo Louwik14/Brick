@@ -1,34 +1,43 @@
-#ifndef BRICK_UI_UI_SHORTCUTS_H
-#define BRICK_UI_UI_SHORTCUTS_H
 /**
  * @file ui_shortcuts.h
- * @brief Détection centralisée des raccourcis clavier (SHIFT + …) pour Brick.
+ * @brief Raccourcis (SHIFT+...), gestion MUTE/PMUTE et ouverture des overlays.
  * @ingroup ui
  */
 
+#ifndef BRICK_UI_SHORTCUTS_H
+#define BRICK_UI_SHORTCUTS_H
+
 #include <stdbool.h>
 #include <stdint.h>
-#include "ui_input.h"   /* ui_input_event_t */
+#include "ui_input.h"  /* pour ui_input_event_t */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Initialise l’état interne des raccourcis (SM MUTE, timers, etc.). */
 void ui_shortcuts_init(void);
-
-/** Réinitialise la machine d’état (équivalent init partiel). */
 void ui_shortcuts_reset(void);
 
 /**
- * @brief Traite un évènement d’entrée. Retourne `true` si consommé.
- * @param evt Évènement d’entrée neutre.
- * @return `true` si l’évènement a été consommé par un raccourci.
+ * @brief Tente de consommer un événement via le moteur de raccourcis.
+ * @return true si consommé.
  */
 bool ui_shortcuts_handle_event(const ui_input_event_t *evt);
+
+/**
+ * @brief Indique si le mode Keys (Keyboard) est actuellement actif
+ *        (même si l’overlay n’est pas visible).
+ *
+ * @details
+ * - Passe à true quand on entre sur l’overlay Keys.
+ * - Reste true tant qu’on ne passe pas à un autre overlay (SEQ/ARP) ou qu’on ne
+ *   change pas de cartouche via SHIFT+BM1..4.
+ * - Reste true pendant MUTE ; à la sortie de MUTE, la LED est restaurée en conséquence.
+ */
+bool ui_shortcuts_is_keys_active(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* BRICK_UI_UI_SHORTCUTS_H */
+#endif /* BRICK_UI_SHORTCUTS_H */

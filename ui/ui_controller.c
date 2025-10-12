@@ -1,26 +1,13 @@
 /**
  * @file ui_controller.c
- * @brief Logique centrale de l’UI Brick : menus, pages, encodeurs + cycles BM data-driven.
+ * @brief Logique centrale de l’UI Brick : menus, pages, encodeurs + cycles BM.
  * @ingroup ui
  *
  * @details
- * Implémente la logique haut-niveau de navigation et d’édition de l’interface :
- * - Chargement et gestion des cycles BM depuis la spec (`ui_cart_spec_t::cycles[]`).
- * - Navigation entre menus/pages.
- * - Gestion des encodeurs CONT/ENUM/BOOL.
- * - Propagation neutre via `ui_backend`.
- *
- * Correction Phase 5 :
- * - Prise en charge complète des **paramètres bipolaires** :
- *   - stockage signé (int16_t) ;
- *   - clamp sur min/max réels ;
- *   - conversion UI→wire (`uint8_t`) via `ui_encode_cont_wire()`.
- * - Traversée du zéro sans wrap ;
- * - Valeurs négatives correctement rendues (le renderer reste stateless).
- *
- * Invariants :
- * - Aucune dépendance bus/UART : tout passe via `ui_backend`.
- * - Headers UI sans drivers ; mapping hard→UI confiné à `ui_input.c`.
+ * - Navigation (menus/pages) et édition des 4 paramètres affichés.
+ * - Propagation neutre via `ui_backend_param_changed`.
+ * - **Hook Phase 6** : MAJ LED *immédiate* pour le paramètre
+ *   `KEYBOARD → Omnichord` (quand la vitrine Keyboard est active).
  */
 
 #include "ui_controller.h"
@@ -29,30 +16,35 @@
 #include <string.h>
 #include <stdbool.h>
 
-/* ============================================================
- * État global et dirty flag
- * ============================================================ */
+/* Hook LEDs (Phase 6) */
+#include "ui_led_backend.h"
+#include "ui_keyboard_ui.h"  /* expose KBD_OMNICHORD_ID */
+
+/* ============================================================================
+ * État & dirty
+ * ==========================================================================*/
 static ui_state_t g_ui;
 static volatile bool g_ui_dirty = true;
 static const ui_cart_spec_t* s_last_spec = NULL;
-static int s_current_bm = -1;
-
-/* ============================================================
- * Helpers cycles menus (inchangés)
- * ============================================================ */
-typedef struct {
-    const ui_menu_spec_t* opts[UI_CYCLE_MAX_OPTS];
-    uint8_t count;
-    uint8_t idx;
-    bool    resume;
-} ui_cycle_t;
-
-static ui_cycle_t s_cycles[8];
+static int s_current_bm = -1; /* dernier BM utilisé (pour reprise éventuelle) */
 
 void ui_mark_dirty(void)   { g_ui_dirty = true;  }
 bool ui_is_dirty(void)     { return g_ui_dirty;  }
 void ui_clear_dirty(void)  { g_ui_dirty = false; }
 
+/* ============================================================================
+ * Cycles BM
+ * ==========================================================================*/
+typedef struct {
+    const ui_menu_spec_t* opts[UI_CYCLE_MAX_OPTS];
+    uint8_t count;   /* nombre d’options valides */
+    uint8_t idx;     /* index courant dans opts[] */
+    bool    resume;  /* si true, reprendre idx précédent au retour sur BM */
+} ui_cycle_t;
+
+static ui_cycle_t s_cycles[8];
+
+/* Helpers pointeur→appartenance et index */
 static bool ui_menu_ptr_belongs_to_spec(const ui_cart_spec_t* spec,
                                         const ui_menu_spec_t* ptr) {
     if (!spec || !ptr) return false;
@@ -61,91 +53,108 @@ static bool ui_menu_ptr_belongs_to_spec(const ui_cart_spec_t* spec,
     return (ptr >= base) && (ptr < end);
 }
 
+static int ui_menu_index_in_spec(const ui_cart_spec_t* spec,
+                                 const ui_menu_spec_t* ptr) {
+    if (!ui_menu_ptr_belongs_to_spec(spec, ptr)) return -1;
+    return (int)(ptr - &spec->menus[0]);
+}
+
 static inline void ui_cycles_reset(void) {
     memset(s_cycles, 0, sizeof(s_cycles));
     s_current_bm = -1;
 }
 
+/* Charge depuis la spec courante les cycles BM déclarés */
 static void ui_cycles_load_from_spec(const ui_cart_spec_t* spec) {
     ui_cycles_reset();
     if (!spec) return;
+
     for (int bm = 0; bm < 8; ++bm) {
         const ui_cycle_idx_spec_t* cx = &spec->cycles[bm];
         if (!cx->count) continue;
+
         uint8_t cnt = (cx->count > UI_CYCLE_MAX_OPTS) ? UI_CYCLE_MAX_OPTS : cx->count;
         s_cycles[bm].count  = cnt;
         s_cycles[bm].idx    = 0;
         s_cycles[bm].resume = cx->resume;
+
         for (uint8_t i = 0; i < cnt; ++i) {
             const ui_menu_spec_t* pmenu = NULL;
             uint8_t mi = cx->idxs[i];
             if (mi < UI_MENUS_PER_CART) {
                 pmenu = &spec->menus[mi];
-                if (!ui_menu_ptr_belongs_to_spec(spec, pmenu))
-                    pmenu = NULL;
+                if (!ui_menu_ptr_belongs_to_spec(spec, pmenu)) pmenu = NULL;
             }
             s_cycles[bm].opts[i] = pmenu;
         }
     }
 }
 
-static void ui_cycles_select_current(int bm_index) {
-    if (bm_index < 0 || bm_index >= 8) return;
-    ui_cycle_t* c = &s_cycles[bm_index];
-    if (c->count == 0) return;
-    if (!c->resume) c->idx = 0;
-    for (uint8_t k = 0; k < c->count; ++k) {
-        uint8_t i = (uint8_t)((c->idx + k) % c->count);
-        const ui_menu_spec_t* m = c->opts[i];
-        if (m && ui_menu_ptr_belongs_to_spec(g_ui.spec, m)) {
-            c->idx = i;
-            g_ui.cur_menu = (uint8_t)(m - &g_ui.spec->menus[0]);
+/* Avance au prochain menu du cycle BM, applique dans l’état UI */
+static void ui_cycles_advance(int bm) {
+    if (bm < 0 || bm >= 8) return;
+    ui_cycle_t* cyc = &s_cycles[bm];
+    if (cyc->count == 0) return;
+
+    /* avancer jusqu’à une entrée non nulle (bouclage sûr) */
+    for (uint8_t tries = 0; tries < cyc->count; ++tries) {
+        cyc->idx = (uint8_t)((cyc->idx + 1) % cyc->count);
+        const ui_menu_spec_t* pm = cyc->opts[cyc->idx];
+        if (pm) {
+            int mi = ui_menu_index_in_spec(g_ui.spec, pm);
+            if (mi >= 0 && mi < UI_MENUS_PER_CART) {
+                g_ui.cur_menu = (uint8_t)mi;
+                g_ui.cur_page = 0;
+                s_current_bm  = bm;
+                ui_mark_dirty();
+                return;
+            }
+        }
+    }
+    /* si tout est nul, ne rien faire */
+}
+
+/* Sélectionne le menu courant du cycle BM (sans avancer), applique dans l’état UI */
+static void ui_cycles_select_current(int bm) {
+    if (bm < 0 || bm >= 8) return;
+    ui_cycle_t* cyc = &s_cycles[bm];
+    if (cyc->count == 0) return;
+
+    /* si entrée nulle, tenter de trouver la première non nulle */
+    uint8_t start = cyc->idx;
+    for (uint8_t tries = 0; tries < cyc->count; ++tries) {
+        uint8_t i = (uint8_t)((start + tries) % cyc->count);
+        const ui_menu_spec_t* pm = cyc->opts[i];
+        if (!pm) continue;
+        int mi = ui_menu_index_in_spec(g_ui.spec, pm);
+        if (mi >= 0 && mi < UI_MENUS_PER_CART) {
+            cyc->idx = i; /* caler l’index réel utilisé */
+            g_ui.cur_menu = (uint8_t)mi;
             g_ui.cur_page = 0;
+            s_current_bm  = bm;
             ui_mark_dirty();
             return;
         }
     }
-    if (bm_index < UI_MENUS_PER_CART) {
-        g_ui.cur_menu = (uint8_t)bm_index;
-        g_ui.cur_page = 0;
-        ui_mark_dirty();
-    }
+    /* si rien de valide, pas d’action */
 }
 
-static void ui_cycles_advance(int bm_index) {
-    if (bm_index < 0 || bm_index >= 8) return;
-    ui_cycle_t* c = &s_cycles[bm_index];
-    if (c->count == 0) return;
-    for (uint8_t step = 0; step < c->count; ++step) {
-        c->idx = (uint8_t)((c->idx + 1) % c->count);
-        const ui_menu_spec_t* m = c->opts[c->idx];
-        if (m && ui_menu_ptr_belongs_to_spec(g_ui.spec, m)) {
-            g_ui.cur_menu = (uint8_t)(m - &g_ui.spec->menus[0]);
-            g_ui.cur_page = 0;
-            ui_mark_dirty();
-            return;
-        }
-    }
-    if (bm_index < UI_MENUS_PER_CART) {
-        g_ui.cur_menu = (uint8_t)bm_index;
-        g_ui.cur_page = 0;
-        ui_mark_dirty();
-    }
-}
-
-/* ============================================================
- * Initialisation
- * ============================================================ */
+/* ============================================================================
+ * Init / switch
+ * ==========================================================================*/
 void ui_init(const ui_cart_spec_t *spec) {
     g_ui_dirty  = true;
     s_current_bm = -1;
+
     if (!spec) {
         memset(&g_ui, 0, sizeof(g_ui));
         s_last_spec = NULL;
         ui_cycles_reset();
         return;
     }
+
     ui_state_init(&g_ui, spec);
+
     if (spec != s_last_spec) {
         ui_cycles_load_from_spec(spec);
         s_last_spec = spec;
@@ -155,22 +164,25 @@ void ui_init(const ui_cart_spec_t *spec) {
 void ui_switch_cart(const ui_cart_spec_t *spec) {
     g_ui_dirty = true;
     s_current_bm = -1;
+
     if (!spec) {
         memset(&g_ui, 0, sizeof(g_ui));
         s_last_spec = NULL;
         ui_cycles_reset();
         return;
     }
+
     ui_state_init(&g_ui, spec);
+
     if (spec != s_last_spec) {
         ui_cycles_load_from_spec(spec);
         s_last_spec = spec;
     }
 }
 
-/* ============================================================
- * Accès et rendu
- * ============================================================ */
+/* ============================================================================
+ * Accès rendu
+ * ==========================================================================*/
 const ui_state_t*     ui_get_state(void) { return &g_ui; }
 const ui_cart_spec_t* ui_get_cart(void)  { return g_ui.spec; }
 
@@ -180,15 +192,22 @@ const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index /* ignoré */) {
     return &g_ui.spec->menus[g_ui.cur_menu];
 }
 
-/* ============================================================
+/* ============================================================================
  * Boutons
- * ============================================================ */
+ * ==========================================================================*/
 void ui_on_button_menu(int index) {
     if (index < 0 || index >= 8) return;
+
     if (s_cycles[index].count > 0) {
-        if (s_current_bm == index) ui_cycles_advance(index);
-        else { s_current_bm = index; ui_cycles_select_current(index); }
+        /* cycle défini sur ce BM */
+        if (s_current_bm == index) {
+            ui_cycles_advance(index);
+        } else {
+            /* première sélection : reprendre idx courant (ou 0) */
+            ui_cycles_select_current(index);
+        }
     } else {
+        /* pas de cycle → sélection directe du menu par index */
         if ((uint8_t)index < UI_MENUS_PER_CART) {
             g_ui.cur_menu = (uint8_t)index;
             g_ui.cur_page = 0;
@@ -204,28 +223,15 @@ void ui_on_button_page(int index) {
     ui_mark_dirty();
 }
 
-/* ============================================================
- * Encodeurs (corrigé pour bipolarité)
- * ============================================================ */
-
-/**
- * @brief Clamp d’un entier dans une plage [mn,mx].
- * @ingroup ui
- */
+/* ============================================================================
+ * Helpers CONT
+ * ==========================================================================*/
 static inline int clampi(int v, int mn, int mx) {
     if (v < mn) return mn;
     if (v > mx) return mx;
     return v;
 }
 
-/**
- * @brief Conversion UI→wire (uint8_t) pour paramètres CONT.
- * @details
- * - Si plage unipolaire (0..255) → direct.
- * - Si plage symétrique de 255 valeurs (ex. -128..+127) → offset.
- * - Sinon : échelle linéaire.
- * @ingroup ui
- */
 static inline uint8_t ui_encode_cont_wire(const ui_param_spec_t* ps, int v) {
     const int mn = ps->meta.range.min;
     const int mx = ps->meta.range.max;
@@ -236,35 +242,27 @@ static inline uint8_t ui_encode_cont_wire(const ui_param_spec_t* ps, int v) {
         if (v < mn) v = mn; else if (v > mx) v = mx;
         return (uint8_t)v;
     }
-
     if (span == 255) {
         int w = v - mn;
         if (w < 0) w = 0; else if (w > 255) w = 255;
         return (uint8_t)w;
     }
-
     int num = (v - mn) * 255;
     int w = (num + span/2) / span;
     if (w < 0) w = 0; else if (w > 255) w = 255;
     return (uint8_t)w;
 }
 
-/**
- * @brief Gestion des mouvements d’encodeur (0..3).
- * @details
- * Corrigé pour les paramètres CONT bipolaires :
- * - Calcul en domaine UI (int16_t) ;
- * - Clamp sur bornes signées ;
- * - Encodage via `ui_encode_cont_wire()` ;
- * - Envoi backend neutre (`uint8_t`).
- * @ingroup ui
- */
+/* ============================================================================
+ * Encodeurs (Phase 6 : hook LEDs Omnichord live)
+ * ==========================================================================*/
 void ui_on_encoder(int enc_index, int delta) {
     if (enc_index < 0 || enc_index >= UI_PARAMS_PER_PAGE) return;
     if (!g_ui.spec) return;
 
     const ui_menu_spec_t *menu = ui_resolve_menu(g_ui.cur_menu);
     if (!menu) return;
+
     const ui_page_spec_t *page = &menu->pages[g_ui.cur_page];
     const ui_param_spec_t *ps  = &page->params[enc_index];
     ui_param_state_t *pv = &g_ui.vals.menus[g_ui.cur_menu]
@@ -278,27 +276,40 @@ void ui_on_encoder(int enc_index, int delta) {
         int v = (int)pv->value + delta * step;
         v = clampi(v, ps->meta.range.min, ps->meta.range.max);
         pv->value = (int16_t)v;
+
         uint8_t w = ui_encode_cont_wire(ps, v);
-        ui_backend_param_changed(ps->dest_id, w,
-                                 ps->is_bitwise, ps->bit_mask);
+        ui_backend_param_changed(ps->dest_id, w, ps->is_bitwise, ps->bit_mask);
         ui_mark_dirty();
         break;
     }
     case UI_PARAM_ENUM: {
         int count = ps->meta.en.count;
         if (count <= 0) break;
+
         int v = (int)pv->value + delta;
         if (v < 0) v = 0;
         if (v >= count) v = count - 1;
         pv->value = (int16_t)v;
-        ui_backend_param_changed(ps->dest_id, (uint8_t)v,
-                                 ps->is_bitwise, ps->bit_mask);
+
+        ui_backend_param_changed(ps->dest_id, (uint8_t)v, ps->is_bitwise, ps->bit_mask);
         ui_mark_dirty();
+
+        /* —— Hook LEDs : Omnichord (UI Keyboard) ——————————— */
+        if ( (ps->dest_id & UI_DEST_MASK) == UI_DEST_UI ) {
+            uint16_t local = UI_DEST_ID(ps->dest_id);
+            if (local == KBD_OMNICHORD_ID) {
+                /* Garantir le contexte visuel puis pousser l’état */
+                ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+                ui_led_backend_set_keyboard_omnichord(v != 0);
+            }
+        }
+        /* ———————————————————————————————————————————————— */
         break;
     }
     case UI_PARAM_BOOL: {
         if (delta == 0) break;
         uint8_t new_bit = (delta > 0) ? 1 : 0;
+
         if (ps->is_bitwise) {
             uint8_t reg = ui_backend_shadow_get(ps->dest_id);
             if (new_bit) reg |= ps->bit_mask;

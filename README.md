@@ -22,28 +22,26 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 
 ### Vue en couches (cible)
 
-```
-[ Application / Modes customs (futur) ]
-│                 (ex: ui_overlay.* publie le tag actif vers ui_model)
+```[ Application / Modes customs (futur) — **KEY** runtime actif ]
+│   (Overlay KEYBOARD via SHIFT+SEQ11 ; label dynamique **KEY ±N** ; contexte persistant `s_keys_active`)
+│   (Options Page 2 : Note order Natural/Fifths, Chord override ; Omni ON/Off harmonisé avec OFF)
 ▼
 [ UI Layer (task, input, controller, renderer, widgets) ]
-│     ├─ ui_model  (état courant UI, tag custom persistant "SEQ"/"ARP", etc.)
-│     ├─ ui_spec   (adaptation/consommation des cart_spec_* neutres)
-│     └─ ui_backend (pont neutre de routage vers cart / MIDI / interne)
+│     ├─ ui_task       (poll +/− → octave shift si **KEY** actif ; mise à jour label bandeau)
+│     ├─ ui_shortcuts  (raccourcis overlays, MUTE/PMUTE ; **rebuild** KEY si déjà affiché ; restaure LEDs après MUTE)
+│     ├─ ui_keyboard_app (quantization commune OFF/ON ; Chord override ; Note order ; clamp [0..127] ; base C4 ; octave shift)
+│     ├─ ui_keyboard_ui  (menu Keyboard p2 : Note order, Chord override)
+│     ├─ kbd_input_mapper (SEQ1..16 → notes/chords app)
+│     ├─ ui_model     (tag overlay courant : **KEY**/SEQ/ARP ; label dynamique conservé)
+│     ├─ ui_spec      (specs des menus/cart ; overlay_tag=NULL pour KEY → tag côté modèle)
+│     └─ ui_backend   (pont neutre vers cart/MIDI ; leds via ui_led_backend)
 │
 ▼
 [ core/spec/cart_spec_types.h ]   ← types neutres (menus/pages/params, bornes)
 │
+...
 ▼
-[ Cart Link & Bus (shadow, UART, proto, registry) ]
-│
-▼
-[ Drivers matériels (buttons, encoders, display, leds, pots) ]
-│
-▼
-[ ChibiOS HAL 21.11.x ]
-
-```
+[ ChibiOS HAL 21.11.x ]```
 
 **Règle d’or :** chaque couche ne dépend que de **celle du dessous**.
 
@@ -60,7 +58,7 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 | `core/`               | Services transverses (link, clock, USB/MIDI)                                       | `cart_link.*`, `midi_clock.*`, `clock_manager.*` (à venir), `usb_device.*`                                                  |
 | `ui/`                 | Logique et rendu UI, thread, widgets, specs UI                                     | `ui_task.*`, `ui_input.*`, `ui_controller.*`, `ui_renderer.*`, `ui_backend.*`, `ui_widgets.*`, `ui_model.*`, `ui_spec.h`    |
 | `midi/`               | Pile MIDI (USB class-compliant + DIN UART)                                         | `midi.*`                                                                                                                    |
-| `apps/`               | Apps utilitaires / démos                                                           | `metronome.*`                                                                                                               |
+| `apps/`               | Apps utilitaires / démos                                                           | `metronome.*`, `ui_keyboard_app.*`, `kbd_chords_dict.*`, `kbd_input_mapper.*`, `ui_keyboard_bridge.*`                       |
 | `usb/`                | Config USB                                                                         | `usbcfg.*`                                                                                                                  |
 | `core/brick_config.h` | Paramètres globaux (debug, fréquence UI, etc.)                                     | `brick_config.h`                                                                                                            |
 
@@ -88,6 +86,7 @@ Cela corrige le comportement des encodeurs sur les paramètres non discrets.
 │                                                                                   │
 ▼                                                                                   │
 ui_task  (tick: scan entrées + logique périodique + 60 FPS rendu)                   │
+│                         ├─ (mode KEYBOARD) SEQ1..16 → kbd_input_mapper → ui_keyboard_app → ui_backend (MIDI)
 │                                                                                   │
 ├─ ui_input  ── events ──►  ui_controller  ──►  (ui_backend)  ──►  cart_link/shadow/registry ──► cart_bus (UART)
 │                         │                    (routage Cart/MIDI/interne)
@@ -167,6 +166,28 @@ int main(void) {
 - **Valeur par défaut** : "SEQ". Le getter applique un **fail-safe** : si aucun tag n’a encore été défini lors du tout premier rendu, il retourne "SEQ".
 
 
+#### Mode **KEYBOARD** (runtime musical, Phase 6½ — *Orchid-inspired*)
+
+- **Vitrine** : `ui_keyboard_ui.c/.h` (déjà en place).
+- **App runtime** : `ui_keyboard_app.c/.h` — empile les notes/accords selon *Root/Gamme* ; envoi via `ui_backend` (MIDI) ; vélocité par défaut **100** ; canal **1** (0-based).
+- **Mapper d’entrées** : `kbd_input_mapper.c/.h` — traduit `SEQ1..16` en **note/chord actions**, détecte les combinaisons **Chord+Note** (ordre libre), applique le split **Omnichord** (ON/OFF).
+- **Bridge UI** : `ui_keyboard_bridge.c/.h` — lit `Root/Gamme/Omnichord` via `ui_backend_shadow_get(UI_DEST_UI|idLocal)`, pousse immédiatemment dans l’app + mapper + LEDs, et route les notes via **chemin direct** `ui_backend_note_on/off()`.
+- **Règles d’Omnichord** (LEDs & jeu) :
+  **OFF** — *layout scalaire* :
+  • SEQ1..8 = **octave haute** de la gamme (7 notes) + **SEQ8** = octave haute de la **root** ;
+  • SEQ9..16 = **octave basse** (même mapping).
+  **ON** — *split Orchid-like* :
+  • **Chords area** = SEQ1..4 & SEQ9..12 (8 qualités/qualif. d’accords) ;
+  • **Notes area** = SEQ5..8 & SEQ13..16 = 7 notes de la gamme + **SEQ16** = octave haute de la **root**.
+  > *Pas de strum/arp ici* : ces fonctions seront gérées par le **mode ARP** futur.
+
+
+
+**Mises à jour (2025‑10)**  
+- **Octave Shift (+/−)** : ±12 demi‑tons, bornes `[-4..+4]`, point zéro **C4 (60)** ; actif si **KEY** est le contexte (overlay visible ou non). Label bandeau : **`KEY`**, **`KEY +N`**, **`KEY -N`**.  
+- **Quantisation commune** : en **Omnichord ON**, accords/arpèges passent par la **même quantisation d’échelle** que OFF (sauf si *Chord override* = ON). **Clamp [0..127]** systématique.  
+- **Page 2 (Keyboard)** : `Note order = Natural / Circle of Fifths` (cycle root, +7, +14… ; 12 pas, dernier pad = **+12**). `Chord override` permet d’autoriser les **accidentals** en Omni ON.  
+- **Mapping** : rangée basse = 0, rangée haute = **+12** ; ordre *Fifths* appliqué **avant** transpose/quantize.
 ### Thread UI (`ui_task.c`)
 
 - Lecture non bloquante des entrées (`ui_input`).
@@ -256,6 +277,14 @@ void    ui_backend_shadow_set(uint16_t id, uint8_t val);
 - Implémentation côté bas (redirige vers `cart_link` + `cart_registry`).
 - Permet de mocker l’UI hors hardware (tests).
 
+- **Shadow UI local** : `ui_backend.c` maintient désormais un **shadow** pour les IDs `UI_DEST_UI` (en plus du shadow cartouches). Ainsi, les changements **Omnichord/Gamme/Root** de la vitrine sont lisibles instantanément par le bridge (`ui_backend_shadow_get(UI_DEST_UI|idLocal)`).
+- **APIs directes de note** (chemin court, latence minimale) :
+  `void ui_backend_note_on(uint8_t note, uint8_t vel);`
+  `void ui_backend_note_off(uint8_t note);`
+  `void ui_backend_all_notes_off(void);`
+  → implémentées dans `ui_backend.c` ; routent vers `midi.c` (**MIDI_DEST_BOTH**, canal par défaut **0**). Le **panic** utilise **CC#123**.
+
+
 ---
 
 ## Cartouches : bus, link, proto, registry
@@ -297,6 +326,8 @@ Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/
 
 - `midi_clock.[ch]` : générateur **24 PPQN** (GPT3 @ 1 MHz), ISR courte (signal), thread **`NORMALPRIO+3`**, émission F8 et callbacks précis.
 - `midi.[ch]` : pile MIDI **class-compliant** (EP1 OUT / EP2 IN, **64 B**), **mailbox non bloquante** pour TX, **chemin rapide** pour Realtime (F8/FA/FB/FC/FE/FF).
+  - **Chemin Keyboard** : `ui_backend_note_on/off()` → `midi_note_on/off()` avec `MIDI_DEST_BOTH`, canal **0**. Vélocité par défaut **100**.
+  - **All Notes Off** : émis via **CC#123** (`midi_cc(..., 123, 0)`).
   - Thread TX USB avec **priorité ≥ UI** (macro `MIDI_USB_TX_PRIO`, défaut `NORMALPRIO+1`).
   - Sémaphore d’EP IN avec **timeout court** (anti-blocage) avant `usbStartTransmitI()`.
   - DIN MIDI sur **UART 31250** (SD2), séparé du bus cartouche.
@@ -406,6 +437,8 @@ int main(void) {
 | Cart Bus (TX)     | `cart_tx_thread[*]`          | `NORMALPRIO + 2`  |
 | MIDI USB (TX)     | `thdMidiUsbTx`               | `NORMALPRIO + 1`  |
 | UI                | `UIThread`                   | `NORMALPRIO`      |
+
+> **Latence UI** : réglée par `ui_task.c` (poll 2 ms + yield 1 ms). Éviter d'augmenter la priorité UI pour ne pas affamer le scan boutons.
 | Drivers “polling” | `ButtonsThread`, `potReader` | `NORMALPRIO`      |
 | Affichage auto    | `displayThread`              | `NORMALPRIO`      |
 | Arrière-plan      | divers                       | `LOWPRIO`         |
@@ -522,6 +555,13 @@ Cette phase introduit un **nouveau module** UI ainsi que des règles de navigati
 
 Ces comportements remplacent les essais précédents et **stabilisent** la navigation.
 
+
+
+
+- **SHIFT+SEQ11 (KEYBOARD)** : si **KEY** est déjà affiché, l’action **quitte puis rouvre**
+  la bannière pour **préserver `cart_name`** et reconstruire le **label** (`KEY ±N`).
+- **Contexte persistant** : un flag runtime `s_keys_active` conserve l’état **KEY actif**
+  hors overlay ; à la **sortie de MUTE/PMUTE**, **LEDs KEYBOARD + label** sont restaurés si ce flag est vrai.
 ### 3. `ui_controller` — Cycles BM déclaratifs
 
 - Les cycles sont définis dans `ui_spec.h::cycles[]` (par cartouche).  
@@ -570,3 +610,67 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 ✅ Architecture validée sans dépendance circulaire.
 
 📦 Prochaine étape : création des futures UIs custom (`ui_fx_ui`, `ui_drum_ui`, etc.) sur le modèle SEQ/ARP.
+
+---
+
+## ✅ Mise à jour — **Phase 6** (UIs custom + LEDs adressables)
+
+**Ajouts Phase 6½ (runtime Keyboard)**
+
+- `apps/ui_keyboard_app.c/.h` : moteur notes/accords (inversions/extensions inspirées Orchid), API claire (`*_note_on/off`, `*_chord_on/off`, `*_all_notes_off`).
+- `apps/kbd_chords_dict.c/.h` : dictionnaire d’accords (intervalles relatifs root) + utilitaires de transposition par *Gamme/Root*.
+- `apps/kbd_input_mapper.c/.h` : mapping `SEQ1..16` → actions note/accord + détection de combinaisons **Chord+Note** (ordre libre).
+- `apps/ui_keyboard_bridge.c/.h` : lecture **shadow UI** (Root/Gamme/Omni) → app+mapper+LEDs ; **émission directe** via `ui_backend_note_on/off()`.
+- `ui/ui_backend.c` : ajout **shadow UI** (espace `UI_DEST_UI`) + APIs **NoteOn/Off/AllOff** + PANIC via **CC#123** ; routage `MIDI_DEST_BOTH`, canal par défaut **0**.
+- `ui/ui_task.c` : latence entrée **réduite** (poll 2 ms, priorité **NORMALPRIO**, yield 1 ms), synchro **à chaque itération** vers le bridge ; routing **SEQ1..16** vers `kbd_input_mapper_process(...)`.
+
+
+Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’architecture de la Phase 5.
+
+### Nouveaux modules
+- `ui/led/`
+  - `ui_led_backend.c/.h` : **observateur passif** de l’UI (aucune logique LED dans `ui_task` / `ui_controller` / `ui_shortcuts`). Pilote `drv_leds_addr` (format **GRB**).
+  - `ui_led_palette.h` : palette centralisée des couleurs (C1..C4, REC, Playhead, Keyboard/Omnichord).
+- `ui/customs/`
+  - `ui_keyboard_ui.c/.h` : **vitrine UI KEYBOARD** (menu unique **Mode** avec 4 paramètres : *Gamme*, *Root*, *Arp On/Off*, *Omnichord On/Off*).
+
+- `apps/`
+  - `ui_keyboard_app.c/.h`, `kbd_chords_dict.c/.h`, `kbd_input_mapper.c/.h`, `ui_keyboard_bridge.c/.h` : **app Keyboard** (runtime), dictionnaire d’accords, mapper SEQ→actions, bridge UI↔app↔backend.
+
+### Raccourcis & overlays
+- **SHIFT + SEQ11** → **KEYBOARD** (overlay vitrine).  
+  - Mise en place d’un **banner clone** : le nom affiché reste celui de la **cart active** (ex. *XVA1*), et le tag court `"KEY"` apparaît à droite (comme `"SEQ"` / `"ARP"`).
+- **MUTE actif** (QUICK ou PMUTE) : **tous les overlays sont bloqués** (aucun `SHIFT+SEQx` ne s’active).
+
+### Comportement LEDs (unifié par `ui_led_backend`)
+- **REC** : OFF par défaut, **ROUGE** quand actif.
+- **MUTE** : les 16 steps ne s’allument **que** en mode MUTE.  
+  - Track **mutée** → **rouge** (MUTE/PMUTE sans distinction visuelle).  
+  - Track **active** → **couleur de sa cartouche** (C1=bleu, C2=jaune, C3=violet, C4=cyan).  
+  - **Playhead** (tick clock) → accent **vert** (décroissance courte), visible en MUTE.
+- **KEYBOARD** (bleu froid) :  
+  - **Omnichord OFF** : **layout scalaire** ; SEQ1..8 = octave **haute** (bleu fort), SEQ9..16 = octave **basse** (bleu atténué).  
+  - **Omnichord ON** :  
+    - **Chords area** : SEQ1..4 & SEQ9..12 → **8 couleurs distinctes** (palette dédiée).  
+    - **Notes area**  : SEQ5..8 & SEQ13..16 → **bleu** (7 notes de la gamme + **SEQ16** = octave haute de la root).
+
+### Hook encodeur → LEDs (mise à jour immédiate)
+- Dans `ui_controller.c`, un hook met à jour **instantanément** le rendu LEDs lorsque le paramètre **Omnichord (Off/On)** de la vitrine **Keyboard** change :  
+  `ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);`  
+  `ui_led_backend_set_keyboard_omnichord(on_off);`
+
+### Arborescence — compléments
+- Ajouts par rapport à la table existante :
+  - `ui/led/` → `ui_led_backend.*`, `ui_led_palette.h`
+  - `ui/customs/` → `ui_keyboard_ui.*`
+
+> ℹ️ L’**ordre d’initialisation** reste identique ; la **boucle principale** continue d’appeler `drv_leds_addr_render()` pour rafraîchir les LEDs. `ui_led_backend` ne bloque pas le flux principal.
+
+
+
+**Depuis 2025‑10 :** capture des boutons **PLUS/MINUS** pour piloter l’**octave shift**
+lorsque **KEY** est le contexte actif (overlay visible ou non) ; mise à jour du
+**label** bandeau en conséquence.
+- `ui/customs/` → `ui_keyboard_ui.*` (menus Keyboard, page 2)
+- `apps/` → `ui_keyboard_app.*`, `kbd_input_mapper.*`, `kbd_chords_dict.*`
+- `ui/` → `ui_shortcuts.*` (raccourcis overlays, MUTE, flag `s_keys_active`)
