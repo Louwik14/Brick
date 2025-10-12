@@ -82,19 +82,29 @@ Cela corrige le comportement des encodeurs sur les paramètres non discrets.
                                │
                                └──(activation cart / build des menus via ui_spec)──┐
                                                                                     │
-[ Entrées physiques : boutons / encodeurs / pots ]                                  │
-│                                                                                   │
-▼                                                                                   │
-ui_task  (tick: scan entrées + logique périodique + 60 FPS rendu)                   │
-│                         ├─ (mode KEYBOARD) SEQ1..16 → kbd_input_mapper → ui_keyboard_app → ui_backend (MIDI)
-│                                                                                   │
-├─ ui_input  ── events ──►  ui_controller  ──►  (ui_backend)  ──►  cart_link/shadow/registry ──► cart_bus (UART)
-│                         │                    (routage Cart/MIDI/interne)
-│                         └── écrit l’état UI (ui_model : menu/page/vals, tag custom persistant "SEQ"/"ARP")
+[ Entrées physiques : boutons / encodeurs / pots ]
 │
-└─ ui_renderer  ──►  drv_display  ──►  OLED
-      (lit ui_model + ui_spec ; bandeau : #ID inversé à gauche,
-       cart name + mode 4×6 empilés, titre centré dans le cadre à coins ouverts)
+│
+│
+▼
+│  ui_task  (tick : scan entrées + logique périodique + rendu 60 FPS)
+│
+│  ├─ (mode KEYBOARD)
+│  │     SEQ1..16 → kbd_input_mapper → ui_keyboard_app → ui_backend (MIDI)
+│  │
+│  ├─ ui_input ── events ──► ui_controller ──► (ui_backend)
+│  │                              │
+│  │                              └──► cart_link / shadow / registry ──► cart_bus (UART)
+│  │                                   (routage Cart / MIDI / interne)
+│  │
+│  └── écrit l’état UI
+│         ├─ ui_model : menu / page / valeurs
+│         └─ tag custom persistant "SEQ" / "ARP"
+│
+└─ ui_renderer ──► drv_display ──► OLED
+          (lit ui_model + ui_spec ; bandeau :
+           #ID inversé à gauche, cart name + mode 4×6 empilés,
+           titre centré dans le cadre à coins ouverts)
 
 ```
 
