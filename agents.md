@@ -96,8 +96,7 @@ void seq_live_capture_note_off(const seq_live_note_t* e);
 
 ## 📥 Procédure d’acquisition des sources (obligatoire)
 
-> **Avant toute écriture**, **demander jusqu’à 10 fichiers par passe** (headers/sources Brick) nécessaires pour aligner les interfaces.  
-> Continuer en plusieurs passes si besoin. **Ne rien inventer** : respecter le README/archi Brick existants.
+> **Accès libre à l’ensemble du dépôt.** Tu peux ouvrir et analyser tous les fichiers nécessaires sans limitation de nombre, tant que tu respectes les autres invariants et documentations existants.
 
 ---
 
