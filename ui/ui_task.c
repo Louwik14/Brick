@@ -1,7 +1,21 @@
 /**
  * @file ui_task.c
- * @brief Thread principal UI — intégration Keyboard/Omnichord, latence faible sans starvation.
+ * @brief Thread principal UI — gestion du pipeline Keyboard / SEQ / LED, latence faible.
  * @ingroup ui
+ *
+ * @details
+ * - Lit les entrées (boutons/encodeurs) et route via `ui_shortcuts`.
+ * - Synchronise Keyboard ↔ App.
+ * - Rafraîchit LEDs et affiche (renderer).
+ *
+ * Horloge & SEQ :
+ * - Initialise `clock_manager` et enregistre `_on_clock_step`.
+ * - Forwarde **l’index absolu** de pas vers le backend LED (plus de modulo 16 ici).
+ * - Le backend relaie ensuite vers `ui_led_seq_on_clock_tick()` sans dépendance à clock_manager.
+ *
+ * Invariants :
+ * - Pas de dépendance circulaire.
+ * - Zéro régression côté Keyboard/MIDI.
  */
 
 #include "ch.h"
@@ -21,7 +35,6 @@
 #include "ui_led_backend.h"
 #include "drv_buttons_map.h"
 #include "clock_manager.h"
-
 #include "ui_overlay.h"
 #include "ui_model.h"
 
@@ -30,14 +43,15 @@
 #include "ui_keyboard_app.h"
 #include "kbd_input_mapper.h"
 
+/* (Optionnel) Pont SEQ si utilisé pour publier un snapshot au boot */
+// #include "seq_led_bridge.h"
+
 #ifndef UI_TASK_STACK
 #define UI_TASK_STACK  (1024)
 #endif
-
 #ifndef UI_TASK_PRIO
 #define UI_TASK_PRIO   (NORMALPRIO)
 #endif
-
 #ifndef UI_TASK_POLL_MS
 #define UI_TASK_POLL_MS (2)
 #endif
@@ -46,14 +60,26 @@ static THD_WORKING_AREA(waUI, UI_TASK_STACK);
 static thread_t* s_ui_thread = NULL;
 static bool s_rec_mode = false;
 
-/* Clock → LEDs (passif) */
+/* ============================================================================
+ * Horloge → LEDs (callback)
+ * ==========================================================================*/
+
+/**
+ * @brief Callback horloge (appelé à chaque step 1/16).
+ *
+ * Forwarde **l’index absolu** (0..∞) sur 8 bits (0..255),
+ * le renderer SEQ se charge du modulo sur la longueur totale.
+ */
 static void _on_clock_step(const clock_step_info_t* info) {
   if (!info) return;
-  const uint8_t step_index = (uint8_t)(info->step_idx_abs & 15U);
-  ui_led_backend_process_event(UI_LED_EVENT_CLOCK_TICK, step_index, true);
+  const uint8_t step_abs = (uint8_t)(info->step_idx_abs & 0xFFu);  /* <-- plus de & 15U */
+  ui_led_backend_process_event(UI_LED_EVENT_CLOCK_TICK, step_abs, true);
 }
 
-/* Helpers ================================================================= */
+/* ============================================================================
+ * Helpers
+ * ==========================================================================*/
+
 static bool _keyboard_overlay_active(void) {
   if (!ui_overlay_is_active()) return false;
   const ui_cart_spec_t* spec = ui_overlay_get_spec();
@@ -62,7 +88,6 @@ static bool _keyboard_overlay_active(void) {
   return (name && strcmp(name, "KEYBOARD") == 0);
 }
 
-/* Construire le label dynamique "Keys ±X" */
 static void _update_keyboard_overlay_label_from_shift(int8_t shift) {
   char tag[32];
   if (shift == 0) snprintf(tag, sizeof(tag), "Keys");
@@ -70,14 +95,12 @@ static void _update_keyboard_overlay_label_from_shift(int8_t shift) {
   ui_model_set_active_overlay_tag(tag);
 }
 
-/* Gère + / − → octave shift (si Keys actif, overlay visible ou non) */
 static bool handle_octave_shift_buttons(const ui_input_event_t *evt) {
   if (!evt->has_button || !evt->btn_pressed) return false;
-  if (ui_input_shift_is_pressed()) return false; /* SHIFT+PLUS/MINUS ont d'autres usages */
+  if (ui_input_shift_is_pressed()) return false; /* SHIFT+PLUS/MINUS réservé */
 
   const bool keys_context =
       _keyboard_overlay_active() || ui_shortcuts_is_keys_active();
-
   if (!keys_context) return false;
 
   int8_t shift = ui_keyboard_app_get_octave_shift();
@@ -100,26 +123,37 @@ static bool handle_octave_shift_buttons(const ui_input_event_t *evt) {
   return false;
 }
 
-/* ================================== Thread =============================== */
+/* ============================================================================
+ * Thread principal UI
+ * ==========================================================================*/
+
 static THD_FUNCTION(UIThread, arg) {
   (void)arg;
 #if CH_CFG_USE_REGISTRY
   chRegSetThreadName("UI");
 #endif
 
-  /* Init contrôleur depuis cartouche active */
+  /* 1) Init UI depuis la cart active */
   {
     cart_id_t active = cart_registry_get_active_id();
     const ui_cart_spec_t* init_spec = cart_registry_get_ui_spec(active);
     ui_init(init_spec);
   }
 
+  /* 2) Init clock manager (tick 24 PPQN → step 1/16) */
+  clock_manager_init(CLOCK_SRC_INTERNAL);  /* enregistre on_midi_tick, prépare GPT */
+
+  /* 3) Shortcuts + callback horloge */
   ui_shortcuts_init();
   clock_manager_register_step_callback2(_on_clock_step);
 
-  /* Bridge Keyboard + synchro immédiate */
+  /* 4) Bridge Keyboard + synchro immédiate */
   ui_keyboard_bridge_init();
   ui_keyboard_bridge_update_from_model();
+
+  /* 5) Activer SEQ au boot (LEDs SEQ visibles) */
+  ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+  ui_model_set_active_overlay_tag("SEQ");
 
   ui_input_event_t evt;
 
@@ -133,7 +167,7 @@ static THD_FUNCTION(UIThread, arg) {
         } else if (evt.has_button) {
           const bool pressed = evt.btn_pressed ? true : false;
 
-          /* Routage SEQ vers le mapper Keyboard (inchangé) */
+          /* Pads SEQ routés vers le mapper Keyboard (inchangé) */
           if (evt.btn_id >= UI_BTN_SEQ1 && evt.btn_id <= UI_BTN_SEQ16) {
             const uint8_t seq_index = (uint8_t)(1u + (evt.btn_id - UI_BTN_SEQ1)); /* 1..16 */
             kbd_input_mapper_process(seq_index, pressed);
@@ -170,9 +204,10 @@ static THD_FUNCTION(UIThread, arg) {
       }
     }
 
-    /* Réplique des params Keyboard (root/scale/omni & p2) */
+    /* Sync Keyboard runtime (root/scale/omni & p2) */
     ui_keyboard_bridge_update_from_model();
 
+    /* LEDs + affichage */
     ui_led_backend_refresh();
 
     if (ui_is_dirty()) {

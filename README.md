@@ -315,14 +315,19 @@ void    ui_backend_shadow_set(uint16_t id, uint8_t val);
 - `drv_buttons.*` : scan 74HC165 + anti-rebond + mailbox d’événements.
 - `drv_encoders.*` : lecture quadrature HW (timers) + accélération EMA.
 - `drv_pots.*` : ADC circulaire + moyennage.
-- `drv_leds_addr.*` : LEDs WS2812, rafraîchies dans la boucle principale.
+- `drv_leds_addr.*` : LEDs WS2812/SK6812, **rendu atomique** depuis `ui_led_backend_refresh()` → `drv_leds_addr_render()`.
 - `drv_display.*` : SSD1309 ; thread d’auto-refresh optionnel.
 
-Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/.h`.
+Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/.h`.  
+> ⚠️ **Les LEDs sont rendues depuis le thread UI** via `ui_led_backend_refresh()` → `drv_leds_addr_render()` ;
+> **ne pas** appeler `drv_leds_addr_update()` depuis `drivers_update_all()` (évite les races).
 
 ---
 
 ## Horloge / MIDI / Clock
+- `clock_manager.[ch]` : publie un **index de pas absolu** (0..∞). `ui_task` le forwarde au backend via `UI_LED_EVENT_CLOCK_TICK` (sans modulo 16).  
+- `ui_led_backend` relaie cet index au renderer **SEQ** (`ui_led_seq_on_clock_tick()`), qui applique le modulo sur `pages×16` et rend le **pas courant** stable (LED pleine).
+
 
 - `midi_clock.[ch]` : générateur **24 PPQN** (GPT3 @ 1 MHz), ISR courte (signal), thread **`NORMALPRIO+3`**, émission F8 et callbacks précis.
 - `midi.[ch]` : pile MIDI **class-compliant** (EP1 OUT / EP2 IN, **64 B**), **mailbox non bloquante** pour TX, **chemin rapide** pour Realtime (F8/FA/FB/FC/FE/FF).
@@ -631,6 +636,10 @@ Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’ar
 - `ui/led/`
   - `ui_led_backend.c/.h` : **observateur passif** de l’UI (aucune logique LED dans `ui_task` / `ui_controller` / `ui_shortcuts`). Pilote `drv_leds_addr` (format **GRB**).
   - `ui_led_palette.h` : palette centralisée des couleurs (C1..C4, REC, Playhead, Keyboard/Omnichord).
+
+  - `ui_led_seq.c/.h` : **renderer SEQ** (playhead absolu, pages, priorités d’état, sans dépendre de `clock_manager`).
+- `ui/seq/`
+  - `seq_led_bridge.c/.h` : **pont SEQ ↔ renderer** (pages, P-Lock mask, publication snapshot, total_span `pages×16`).
 - `ui/customs/`
   - `ui_keyboard_ui.c/.h` : **vitrine UI KEYBOARD** (menu unique **Mode** avec 4 paramètres : *Gamme*, *Root*, *Arp On/Off*, *Omnichord On/Off*).
 
@@ -647,12 +656,19 @@ Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’ar
 - **MUTE** : les 16 steps ne s’allument **que** en mode MUTE.  
   - Track **mutée** → **rouge** (MUTE/PMUTE sans distinction visuelle).  
   - Track **active** → **couleur de sa cartouche** (C1=bleu, C2=jaune, C3=violet, C4=cyan).  
-  - **Playhead** (tick clock) → accent **vert** (décroissance courte), visible en MUTE.
+  - **Aucun chenillard** en MUTE (pas d’accent tick).
 - **KEYBOARD** (bleu froid) :  
   - **Omnichord OFF** : **layout scalaire** ; SEQ1..8 = octave **haute** (bleu fort), SEQ9..16 = octave **basse** (bleu atténué).  
   - **Omnichord ON** :  
     - **Chords area** : SEQ1..4 & SEQ9..12 → **8 couleurs distinctes** (palette dédiée).  
     - **Notes area**  : SEQ5..8 & SEQ13..16 → **bleu** (7 notes de la gamme + **SEQ16** = octave haute de la root).
+- **SEQ** (séquenceur) :  
+  - **Playhead absolu** qui avance sur **toutes les pages** (`pages × 16`), **sans auto-changer** la page visible.  
+  - **Affichage stable** : le pas courant est **allumé plein** (pas de pulse).  
+  - **Pages** : `+`/`−` (sans SHIFT) changent la **page visible** ; `SHIFT + (+/−)` = **MUTE/PMUTE** (prioritaire).  
+  - **Longueur** : défaut **4 pages** (64 pas) ; ajustable via `seq_led_bridge_set_max_pages(N)`.
+
+
 
 ### Hook encodeur → LEDs (mise à jour immédiate)
 - Dans `ui_controller.c`, un hook met à jour **instantanément** le rendu LEDs lorsque le paramètre **Omnichord (Off/On)** de la vitrine **Keyboard** change :  

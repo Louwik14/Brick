@@ -1,28 +1,38 @@
 /**
  * @file ui_shortcuts.c
- * @brief Raccourcis clavier (SHIFT + …), machine MUTE/PMUTE et intégration LED contextuelle.
- * @ingroup ui
+ * @brief Raccourcis & modes : MUTE/PMUTE (prioritaire), Overlays, SEQ routing (pages, transport, pads).
+ * @ingroup ui_shortcuts
  *
  * @details
  * Priorité de gestion :
  *   1) MUTE (QUICK / PMUTE)
  *   2) Overlays (SEQ/ARP/KEYBOARD) — désactivés quand MUTE actif
- *   3) Transport & autres
+ *   3) Transport global (PLAY/STOP/REC) & SEQ routing (pages +/−, pads, param-only)
  *
  * Points clés :
  * - Le flag runtime `s_keys_active` représente l’activation du mode Keys (Keyboard)
- *   même si l’overlay n’est pas visible (utile pour que +/- fonctionne dans le menu paramètres).
- * - À l’entrée de Keys (SHIFT+SEQ11) : si Keys est déjà affiché, on sort puis on rouvre
- *   proprement la bannière afin d’éviter la disparition du cart_name.
- * - En sortie de MUTE : on restaure LEDs + tag en fonction du contexte (Keys/SEQ/ARP/aucun).
+ *   même si l’overlay n’est pas visible (utile pour que +/- fonctionne ailleurs).
+ * - **Mode SEQ** (quand `s_keys_active == false`) :
+ *   • `+ / −` sans SHIFT → page suivante/précédente (LEDs reflètent la page active)
+ *   • **PLAY** → `clock_manager_start()` + chenillard ON
+ *   • **STOP** → `clock_manager_stop()` + chenillard OFF immédiat (stop dur)
+ *   • **REC** → toggle LED REC backend
+ *   • **Pads SEQ1..16** : tap court → quick step (vert), long-press ≥250 ms → P-Lock (violet)
+ *   • **Param-only (bleu)** : si des steps sont maintenus pendant un mouvement d’encodeur
+ *     alors ces steps passent en `param_only`
+ *
+ * Invariants :
+ * - Aucune dépendance circulaire ; pas de dépendance `clock_manager` depuis les renderers.
+ * - Le mapping Keyboard est inchangé (routé si l’évènement n’est pas consommé ici).
  */
 
 #include <string.h>
 #include <stdio.h>
 
+#include "ch.h"                 /* chVTGetSystemTimeX, TIME_MS2I */
 #include "ui_shortcuts.h"
 
-#include "ui_input.h"         /* ui_input_event_t */
+#include "ui_input.h"           /* ui_input_event_t */
 #include "ui_controller.h"
 #include "ui_overlay.h"
 #include "ui_model.h"
@@ -33,8 +43,20 @@
 
 #include "ui_seq_ui.h"
 #include "ui_arp_ui.h"
-#include "ui_keyboard_ui.h"   /* vitrine Keyboard */
-#include "ui_keyboard_app.h"  /* pour lire l’octave shift courant */
+#include "ui_keyboard_ui.h"     /* vitrine Keyboard */
+#include "ui_keyboard_app.h"    /* octave shift courant */
+
+#include "seq_led_bridge.h"
+#include "clock_manager.h"
+
+/* ======================================================================
+ * Prototypes internes (pour éviter les implicit declarations)
+ * ====================================================================== */
+static bool handle_mute(const ui_input_event_t *evt);
+static bool handle_overlays(const ui_input_event_t *evt);
+static bool handle_transport_global(const ui_input_event_t *evt);
+static bool handle_seq_pages_plus_minus(const ui_input_event_t *evt);
+static bool handle_seq_pads(const ui_input_event_t *evt);
 
 /* ======================================================================
  * Bannières overlay (copies peu profondes des specs réelles)
@@ -64,6 +86,22 @@ static bool         s_last_shift= false;
 /* Flag runtime : Keys (Keyboard) actif même si overlay invisible */
 static bool         s_keys_active = false;
 
+/* Flag local REC (backend LED global) */
+static bool         s_rec_mode = false;
+
+/* ======================================================================
+ * SEQ : gestion des long-press & param-only
+ * ====================================================================== */
+
+/* Seuil de long-press (ms) */
+#ifndef SEQ_LONG_PRESS_MS
+#define SEQ_LONG_PRESS_MS (250)
+#endif
+
+/* États par pad (0..15) */
+static bool      s_seq_btn_down[16];
+static systime_t s_seq_btn_t0[16];
+
 /* ======================================================================
  * Helpers locaux
  * ====================================================================== */
@@ -78,8 +116,8 @@ static inline bool _is_seq1_16(uint8_t btn) {
     return (btn >= UI_BTN_SEQ1) && (btn <= UI_BTN_SEQ16);
 }
 
-static inline uint8_t _seq_btn_to_track(uint8_t btn) {
-    return (uint8_t)(btn - UI_BTN_SEQ1);
+static inline uint8_t _seq_btn_to_index(uint8_t btn) {
+    return (uint8_t)(btn - UI_BTN_SEQ1); /* 0..15 */
 }
 
 /* Overlay courant == Keys ? (détection par nom du 1er menu) */
@@ -91,7 +129,7 @@ static bool _overlay_is_keys_current(void) {
     return (name && strcmp(name, "KEYBOARD") == 0);
 }
 
-/* Construit et publie le tag "Keys" ou "Keys ±N" selon l’octave shift courant */
+/* Construit et publie le tag "KEY" ou "KEY ±N" selon l’octave shift courant */
 static void _publish_keys_tag_from_current_shift(void) {
     const int8_t shift = ui_keyboard_app_get_octave_shift();
     char tag[32];
@@ -149,8 +187,8 @@ static void _restore_overlay_visuals_after_mute(void) {
             _publish_keys_tag_from_current_shift();
             ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
         } else {
-            ui_model_set_active_overlay_tag("");
-            ui_led_backend_set_mode(UI_LED_MODE_NONE);
+            ui_model_set_active_overlay_tag("SEQ");     /* Fail-safe : SEQ par défaut */
+            ui_led_backend_set_mode(UI_LED_MODE_SEQ);
         }
     }
 }
@@ -193,10 +231,10 @@ static bool handle_mute(const ui_input_event_t *evt) {
         }
     }
 
-    /* QUICK : toggle SEQ1.16 */
+    /* QUICK : toggle SEQ1..16 */
     if (s_mute == MUTE_QUICK && evt->has_button && _is_seq1_16(evt->btn_id)) {
         if (evt->btn_pressed) {
-            const uint8_t track = _seq_btn_to_track(evt->btn_id);
+            const uint8_t track = _seq_btn_to_index(evt->btn_id);
             if (track < 16) ui_mute_backend_toggle(track);
         }
         return true;
@@ -213,10 +251,10 @@ static bool handle_mute(const ui_input_event_t *evt) {
         return true;
     }
 
-    /* PMUTE : préparation SEQ1.16 */
+    /* PMUTE : préparation SEQ1..16 */
     if (s_mute == MUTE_PMUTE && evt->has_button && _is_seq1_16(evt->btn_id)) {
         if (evt->btn_pressed) {
-            const uint8_t track = _seq_btn_to_track(evt->btn_id);
+            const uint8_t track = _seq_btn_to_index(evt->btn_id);
             if (track < 16) ui_mute_backend_toggle_prepare(track);
         }
         return true;
@@ -246,10 +284,9 @@ static bool handle_overlays(const ui_input_event_t *evt) {
 
     if (!evt->has_button || !evt->btn_pressed) return false;
 
-    /* Quitter un overlay actif avec un bouton menu (BM1.BM8) */
+    /* Quitter un overlay actif avec un bouton menu (BM1..BM8) */
     if (ui_overlay_is_active() && _is_bm(evt->btn_id)) {
         ui_overlay_exit();
-        /* On ne change pas s_keys_active ici : la logique “mode actif” ne dépend pas de l’overlay visible */
         return false;
     }
 
@@ -259,7 +296,7 @@ static bool handle_overlays(const ui_input_event_t *evt) {
                                   &s_seq_mode_spec_banner, &s_seq_setup_spec_banner,
                                   ui_get_cart(), "SEQ");
         ui_overlay_set_custom_mode(UI_CUSTOM_SEQ);
-        s_keys_active = false; /* on bascule le contexte actif */
+        s_keys_active = false; /* contexte actif = SEQ */
 
         if (!ui_overlay_is_active()) {
             ui_overlay_enter(UI_OVERLAY_SEQ, &s_seq_mode_spec_banner);
@@ -310,7 +347,7 @@ static bool handle_overlays(const ui_input_event_t *evt) {
         /* Clone léger de la spec Keyboard pour hériter du nom de la cart active */
         s_kbd_spec_banner = ui_keyboard_spec; /* copie structurelle */
 
-        /* Toujours recalculer le nom de cartouche pour éviter la disparition */
+        /* Toujours recalculer le nom de cartouche */
         const ui_cart_spec_t* cart_spec = ui_get_cart();
         s_kbd_spec_banner.cart_name   = cart_spec ? cart_spec->cart_name : "";
 
@@ -333,47 +370,96 @@ static bool handle_overlays(const ui_input_event_t *evt) {
 }
 
 /* ======================================================================
- * 3) TRANSPORT & AUTRES (réservés / inchangés)
+ * 3) TRANSPORT GLOBAL (toujours actif hors SHIFT)
  * ====================================================================== */
-static bool handle_transport_and_others(const ui_input_event_t *evt) {
+static bool handle_transport_global(const ui_input_event_t *evt) {
     if (!evt->has_button || !evt->btn_pressed) return false;
 
-    /* SHIFT + (PLAY/REC/STOP) : réservé */
+    /* Réserves SHIFT */
     if (ui_input_shift_is_pressed() &&
         (evt->btn_id == UI_BTN_PLAY || evt->btn_id == UI_BTN_REC || evt->btn_id == UI_BTN_STOP)) {
         return true;
     }
 
-    /* SHIFT + (+/-) : réservé */
-    if (ui_input_shift_is_pressed() &&
-        (evt->btn_id == UI_BTN_PLUS || evt->btn_id == UI_BTN_MINUS)) {
+    switch (evt->btn_id) {
+        case UI_BTN_PLAY:
+            clock_manager_start();
+            seq_led_bridge_on_play();
+            return true;
+
+        case UI_BTN_STOP:
+            clock_manager_stop();
+            seq_led_bridge_on_stop();
+            return true;
+
+        case UI_BTN_REC:
+            s_rec_mode = !s_rec_mode;
+            ui_led_backend_set_record_mode(s_rec_mode);
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+/* ======================================================================
+ * 4) SEQ : pages +/− (réservé SEQ, hors MUTE/Keys)
+ * ====================================================================== */
+static bool handle_seq_pages_plus_minus(const ui_input_event_t *evt) {
+    if (s_mute != MUTE_OFF) return false;
+    if (s_keys_active) return false;              /* KEYBOARD actif → +/− = octave (géré ailleurs) */
+    if (!evt->has_button || !evt->btn_pressed) return false;
+    if (ui_input_shift_is_pressed()) return false;/* SHIFT+ +/− : MUTE/PMUTE ailleurs */
+
+    if (evt->btn_id == UI_BTN_PLUS) {
+        seq_led_bridge_page_next();
+        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        ui_model_set_active_overlay_tag("SEQ");
+        ui_mark_dirty();
         return true;
     }
-
-    /* SHIFT + BM1..BM4 : changement de cart réelle */
-    if (ui_input_shift_is_pressed() &&
-        (evt->btn_id == UI_BTN_PARAM1 || evt->btn_id == UI_BTN_PARAM2 ||
-         evt->btn_id == UI_BTN_PARAM3 || evt->btn_id == UI_BTN_PARAM4)) {
-
-        const ui_cart_spec_t* spec = NULL;
-        if      (evt->btn_id == UI_BTN_PARAM1) spec = cart_registry_switch(CART1);
-        else if (evt->btn_id == UI_BTN_PARAM2) spec = cart_registry_switch(CART2);
-        else if (evt->btn_id == UI_BTN_PARAM3) spec = cart_registry_switch(CART3);
-        else if (evt->btn_id == UI_BTN_PARAM4) spec = cart_registry_switch(CART4);
-
-        if (spec) {
-            if (ui_overlay_is_active()) ui_overlay_exit();
-            ui_switch_cart(spec);
-            /* Changer de cart sort du contexte Keys actif */
-            s_keys_active = false;
-            ui_led_backend_set_mode(UI_LED_MODE_NONE);
-            ui_model_set_active_overlay_tag("");
-            ui_mark_dirty();
-            return true;
-        }
+    if (evt->btn_id == UI_BTN_MINUS) {
+        seq_led_bridge_page_prev();
+        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        ui_model_set_active_overlay_tag("SEQ");
+        ui_mark_dirty();
+        return true;
     }
-
     return false;
+}
+
+/* ======================================================================
+ * 5) SEQ : Pads (tap vs long-press) — uniquement si Keys inactif et MUTE OFF
+ * ====================================================================== */
+static bool handle_seq_pads(const ui_input_event_t *evt) {
+    if (s_mute != MUTE_OFF) return false;
+    if (s_keys_active) return false;
+    if (!evt->has_button || !_is_seq1_16(evt->btn_id)) return false;
+
+    const uint8_t idx = _seq_btn_to_index(evt->btn_id); /* 0..15 */
+
+    if (evt->btn_pressed) {
+        s_seq_btn_down[idx] = true;
+        s_seq_btn_t0[idx]   = chVTGetSystemTimeX();
+        return true; /* consommé */
+    } else {
+        /* release */
+        if (!s_seq_btn_down[idx]) return true; /* relâche fantôme */
+
+        const systime_t t1 = chVTGetSystemTimeX();
+        const systime_t dt = t1 - s_seq_btn_t0[idx];
+
+        s_seq_btn_down[idx] = false;
+
+        if (dt >= TIME_MS2I(SEQ_LONG_PRESS_MS)) {
+            /* Long-press : P-Lock persistant */
+            seq_led_bridge_plock_add(idx);
+        } else {
+            /* Tap court : quick toggle step (active/recorded ↔ off) */
+            seq_led_bridge_quick_toggle_step(idx);
+        }
+        return true;
+    }
 }
 
 /* ======================================================================
@@ -385,10 +471,15 @@ void ui_shortcuts_init(void) {
     s_plus_down = false;
     s_last_shift = ui_input_shift_is_pressed();
 
-    /* LED : au reset, mode visuel = NONE (steps off) */
+    /* LED : au reset, visuel = NONE ; le thread UI forcera SEQ au boot */
     ui_led_backend_set_mode(UI_LED_MODE_NONE);
 
     s_keys_active = false;
+    s_rec_mode = false;
+
+    memset(s_seq_btn_down, 0, sizeof(s_seq_btn_down));
+    memset(s_seq_btn_t0,   0, sizeof(s_seq_btn_t0));
+
     _restore_overlay_banner_tags();
 }
 
@@ -399,7 +490,25 @@ void ui_shortcuts_reset(void) {
 bool ui_shortcuts_handle_event(const ui_input_event_t *evt) {
     if (handle_mute(evt)) return true;
     if (handle_overlays(evt)) return true;
-    if (handle_transport_and_others(evt)) return true;
+
+    /* Nouvelles priorités :
+     * 1) Pads SEQ (tap/long-press) — seulement si SEQ actif (Keys inactif)
+     * 2) Transport **global** (toujours)
+     * 3) +/− pages SEQ (si SEQ actif)
+     * (L’octave Keys est gérée ailleurs quand Keys est le contexte actif)
+     */
+    if (handle_seq_pads(evt)) return true;
+    if (handle_transport_global(evt)) return true;
+    if (handle_seq_pages_plus_minus(evt)) return true;
+
+    /* Mouvement d’encodeur → param-only si des steps sont maintenus (SEQ actif) */
+    if (evt->has_encoder && evt->enc_delta != 0 && s_mute == MUTE_OFF && !s_keys_active) {
+        for (uint8_t i=0;i<16;++i){
+            if (s_seq_btn_down[i]) seq_led_bridge_set_step_param_only(i, true);
+        }
+        /* On ne consomme pas : l’encodeur reste routé vers l’UI */
+    }
+
     return false;
 }
 

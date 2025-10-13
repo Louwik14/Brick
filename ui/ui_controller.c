@@ -1,13 +1,19 @@
 /**
  * @file ui_controller.c
  * @brief Logique centrale de l’UI Brick : menus, pages, encodeurs + cycles BM.
- * @ingroup ui
+ * @ingroup ui_controller
  *
  * @details
- * - Navigation (menus/pages) et édition des 4 paramètres affichés.
- * - Propagation neutre via `ui_backend_param_changed`.
- * - **Hook Phase 6** : MAJ LED *immédiate* pour le paramètre
- *   `KEYBOARD → Omnichord` (quand la vitrine Keyboard est active).
+ * - Gestion des menus, pages et paramètres de la vitrine UI.
+ * - Routage neutre des changements vers `ui_backend_param_changed()`.
+ * - Hook direct sur les changements du paramètre **Omnichord** (Keyboard),
+ *   avec mise à jour immédiate des LEDs via `ui_led_backend_*`.
+ * - **Phase 6+ :** activation automatique du mode LED **SEQ** au démarrage.
+ *
+ * Architecture :
+ * - Ce contrôleur reste purement UI (aucune dépendance `clock_manager`).
+ * - Initialise les cycles BM (menus liés) depuis la `ui_cart_spec_t`.
+ * - Interface directe vers le backend LED pour initialisation de mode.
  */
 
 #include "ui_controller.h"
@@ -16,17 +22,25 @@
 #include <string.h>
 #include <stdbool.h>
 
-/* Hook LEDs (Phase 6) */
+/* Hooks LEDs */
 #include "ui_led_backend.h"
 #include "ui_keyboard_ui.h"  /* expose KBD_OMNICHORD_ID */
+
+/* Ajout SEQ */
+#include "seq_led_bridge.h"
 
 /* ============================================================================
  * État & dirty
  * ==========================================================================*/
+
+/** État global de l’UI (menu/page/valeurs). */
 static ui_state_t g_ui;
+/** Flag de rendu sale (demande un redraw). */
 static volatile bool g_ui_dirty = true;
+/** Spécification de cartouche précédente (pour rechargement des cycles). */
 static const ui_cart_spec_t* s_last_spec = NULL;
-static int s_current_bm = -1; /* dernier BM utilisé (pour reprise éventuelle) */
+/** Dernier bouton-menu utilisé (pour reprise éventuelle). */
+static int s_current_bm = -1;
 
 void ui_mark_dirty(void)   { g_ui_dirty = true;  }
 bool ui_is_dirty(void)     { return g_ui_dirty;  }
@@ -35,11 +49,16 @@ void ui_clear_dirty(void)  { g_ui_dirty = false; }
 /* ============================================================================
  * Cycles BM
  * ==========================================================================*/
+
+/**
+ * @struct ui_cycle_t
+ * @brief Structure interne représentant un cycle BM (bouton menu cyclant).
+ */
 typedef struct {
     const ui_menu_spec_t* opts[UI_CYCLE_MAX_OPTS];
-    uint8_t count;   /* nombre d’options valides */
-    uint8_t idx;     /* index courant dans opts[] */
-    bool    resume;  /* si true, reprendre idx précédent au retour sur BM */
+    uint8_t count;   /**< nombre d’options valides */
+    uint8_t idx;     /**< index courant dans opts[] */
+    bool    resume;  /**< si true, reprend idx précédent au retour sur BM */
 } ui_cycle_t;
 
 static ui_cycle_t s_cycles[8];
@@ -64,7 +83,9 @@ static inline void ui_cycles_reset(void) {
     s_current_bm = -1;
 }
 
-/* Charge depuis la spec courante les cycles BM déclarés */
+/**
+ * @brief Charge depuis la spécification courante les cycles BM déclarés.
+ */
 static void ui_cycles_load_from_spec(const ui_cart_spec_t* spec) {
     ui_cycles_reset();
     if (!spec) return;
@@ -90,13 +111,14 @@ static void ui_cycles_load_from_spec(const ui_cart_spec_t* spec) {
     }
 }
 
-/* Avance au prochain menu du cycle BM, applique dans l’état UI */
+/**
+ * @brief Avance au prochain menu du cycle BM et met à jour l’état UI.
+ */
 static void ui_cycles_advance(int bm) {
     if (bm < 0 || bm >= 8) return;
     ui_cycle_t* cyc = &s_cycles[bm];
     if (cyc->count == 0) return;
 
-    /* avancer jusqu’à une entrée non nulle (bouclage sûr) */
     for (uint8_t tries = 0; tries < cyc->count; ++tries) {
         cyc->idx = (uint8_t)((cyc->idx + 1) % cyc->count);
         const ui_menu_spec_t* pm = cyc->opts[cyc->idx];
@@ -111,16 +133,16 @@ static void ui_cycles_advance(int bm) {
             }
         }
     }
-    /* si tout est nul, ne rien faire */
 }
 
-/* Sélectionne le menu courant du cycle BM (sans avancer), applique dans l’état UI */
+/**
+ * @brief Sélectionne le menu courant du cycle BM (sans avancer).
+ */
 static void ui_cycles_select_current(int bm) {
     if (bm < 0 || bm >= 8) return;
     ui_cycle_t* cyc = &s_cycles[bm];
     if (cyc->count == 0) return;
 
-    /* si entrée nulle, tenter de trouver la première non nulle */
     uint8_t start = cyc->idx;
     for (uint8_t tries = 0; tries < cyc->count; ++tries) {
         uint8_t i = (uint8_t)((start + tries) % cyc->count);
@@ -128,7 +150,7 @@ static void ui_cycles_select_current(int bm) {
         if (!pm) continue;
         int mi = ui_menu_index_in_spec(g_ui.spec, pm);
         if (mi >= 0 && mi < UI_MENUS_PER_CART) {
-            cyc->idx = i; /* caler l’index réel utilisé */
+            cyc->idx = i;
             g_ui.cur_menu = (uint8_t)mi;
             g_ui.cur_page = 0;
             s_current_bm  = bm;
@@ -136,12 +158,19 @@ static void ui_cycles_select_current(int bm) {
             return;
         }
     }
-    /* si rien de valide, pas d’action */
 }
 
 /* ============================================================================
  * Init / switch
  * ==========================================================================*/
+
+/**
+ * @brief Initialise la couche UI avec la spécification fournie.
+ *
+ * @details
+ * - Réinitialise les cycles BM.
+ * - Active le mode LED SEQ par défaut au boot (nouveau).
+ */
 void ui_init(const ui_cart_spec_t *spec) {
     g_ui_dirty  = true;
     s_current_bm = -1;
@@ -159,8 +188,15 @@ void ui_init(const ui_cart_spec_t *spec) {
         ui_cycles_load_from_spec(spec);
         s_last_spec = spec;
     }
+
+    /* === Activation SEQ au boot === */
+    ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+    seq_led_bridge_init();
 }
 
+/**
+ * @brief Changement de cartouche (reload complet de la spécification).
+ */
 void ui_switch_cart(const ui_cart_spec_t *spec) {
     g_ui_dirty = true;
     s_current_bm = -1;
@@ -183,10 +219,11 @@ void ui_switch_cart(const ui_cart_spec_t *spec) {
 /* ============================================================================
  * Accès rendu
  * ==========================================================================*/
+
 const ui_state_t*     ui_get_state(void) { return &g_ui; }
 const ui_cart_spec_t* ui_get_cart(void)  { return g_ui.spec; }
 
-const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index /* ignoré */) {
+const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index) {
     (void)bm_index;
     if (!g_ui.spec) return NULL;
     return &g_ui.spec->menus[g_ui.cur_menu];
@@ -195,19 +232,20 @@ const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index /* ignoré */) {
 /* ============================================================================
  * Boutons
  * ==========================================================================*/
+
+/**
+ * @brief Gestion des boutons MENU (BM1..BM8).
+ */
 void ui_on_button_menu(int index) {
     if (index < 0 || index >= 8) return;
 
     if (s_cycles[index].count > 0) {
-        /* cycle défini sur ce BM */
         if (s_current_bm == index) {
             ui_cycles_advance(index);
         } else {
-            /* première sélection : reprendre idx courant (ou 0) */
             ui_cycles_select_current(index);
         }
     } else {
-        /* pas de cycle → sélection directe du menu par index */
         if ((uint8_t)index < UI_MENUS_PER_CART) {
             g_ui.cur_menu = (uint8_t)index;
             g_ui.cur_page = 0;
@@ -217,6 +255,9 @@ void ui_on_button_menu(int index) {
     }
 }
 
+/**
+ * @brief Gestion des boutons PAGE (1..5).
+ */
 void ui_on_button_page(int index) {
     if (index < 0 || index >= UI_PAGES_PER_MENU) return;
     g_ui.cur_page = (uint8_t)index;
@@ -226,6 +267,7 @@ void ui_on_button_page(int index) {
 /* ============================================================================
  * Helpers CONT
  * ==========================================================================*/
+
 static inline int clampi(int v, int mn, int mx) {
     if (v < mn) return mn;
     if (v > mx) return mx;
@@ -254,8 +296,22 @@ static inline uint8_t ui_encode_cont_wire(const ui_param_spec_t* ps, int v) {
 }
 
 /* ============================================================================
- * Encodeurs (Phase 6 : hook LEDs Omnichord live)
+ * Encodeurs (Hook LEDs Omnichord live)
  * ==========================================================================*/
+
+/**
+ * @brief Gestion des encodeurs rotatifs (édition de paramètre).
+ *
+ * @details
+ * - UI_PARAM_CONT → variation continue dans la plage.
+ * - UI_PARAM_ENUM → incrément/décrément dans la liste d’options.
+ * - UI_PARAM_BOOL → toggle bitwise / booléen.
+ *
+ * Hooks LED :
+ * - Si le paramètre correspond à `KBD_OMNICHORD_ID`, alors :
+ *   - Le mode LED est forcé à `UI_LED_MODE_KEYBOARD`.
+ *   - L’état Omnichord est mis à jour instantanément via `ui_led_backend_set_keyboard_omnichord()`.
+ */
 void ui_on_encoder(int enc_index, int delta) {
     if (enc_index < 0 || enc_index >= UI_PARAMS_PER_PAGE) return;
     if (!g_ui.spec) return;
@@ -294,16 +350,14 @@ void ui_on_encoder(int enc_index, int delta) {
         ui_backend_param_changed(ps->dest_id, (uint8_t)v, ps->is_bitwise, ps->bit_mask);
         ui_mark_dirty();
 
-        /* —— Hook LEDs : Omnichord (UI Keyboard) ——————————— */
-        if ( (ps->dest_id & UI_DEST_MASK) == UI_DEST_UI ) {
+        /* —— Hook LEDs : Omnichord —— */
+        if ((ps->dest_id & UI_DEST_MASK) == UI_DEST_UI) {
             uint16_t local = UI_DEST_ID(ps->dest_id);
             if (local == KBD_OMNICHORD_ID) {
-                /* Garantir le contexte visuel puis pousser l’état */
                 ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
                 ui_led_backend_set_keyboard_omnichord(v != 0);
             }
         }
-        /* ———————————————————————————————————————————————— */
         break;
     }
     case UI_PARAM_BOOL: {

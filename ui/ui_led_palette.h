@@ -23,6 +23,12 @@
 #define UI_LED_COL_CART2_ACTIVE   (led_color_t){180, 180, 0}
 #define UI_LED_COL_CART3_ACTIVE   (led_color_t){0,   120, 120}
 #define UI_LED_COL_CART4_ACTIVE   (led_color_t){180, 0,   120}
+/* ===== SEQ palette (GRB) ================================================== */
+#define UI_LED_COL_SEQ_PLAYHEAD   (led_color_t){255, 255, 255}  /* Blanc */
+#define UI_LED_COL_SEQ_ACTIVE     (led_color_t){255, 0,   0}    /* Vert  */
+#define UI_LED_COL_SEQ_RECORDED   (led_color_t){255, 255, 0}    /* Jaune */
+#define UI_LED_COL_SEQ_PARAM      (led_color_t){0,   0,   255}  /* Bleu  */
+#define UI_LED_COL_SEQ_PLOCKED    (led_color_t){0,   128, 255}  /* Violet */
 
 /* ===== États globaux — GRB ============================================= */
 #define UI_LED_COL_MUTE_RED       (led_color_t){0,   180, 0}
@@ -30,7 +36,7 @@
 
 /* ===== Système / indicateurs — GRB ===================================== */
 #define UI_LED_COL_REC_ACTIVE     (led_color_t){0,   180, 0}
-#define UI_LED_COL_PLAYHEAD       (led_color_t){180, 0,   0}
+#define UI_LED_COL_PLAYHEAD       (led_color_t){255, 255,   255}
 
 /* ===== KEYBOARD mode — GRB ============================================= */
 #define UI_LED_COL_KEY_BLUE_HI    (led_color_t){0,   0,   255}  /* rangée 1 */
