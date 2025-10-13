@@ -22,9 +22,15 @@
  * ====================================================================== */
 
 static clock_source_t   s_src          = CLOCK_SRC_INTERNAL;  /**< Source actuelle de l’horloge */
-static clock_step_cb2_t s_step_cb_v2   = NULL;                 /**< Callback V2 (recommandé) */
 static uint32_t         s_tick_count   = 0;                    /**< Compteur interne de ticks MIDI (0..5) */
 static uint32_t         s_step_idx_abs = 0;                    /**< Compteur absolu de steps 1/16 */
+
+#ifndef CLOCK_MANAGER_MAX_OBSERVERS
+#define CLOCK_MANAGER_MAX_OBSERVERS 4U
+#endif
+
+static clock_step_cb2_t s_step_observers[CLOCK_MANAGER_MAX_OBSERVERS];
+static clock_step_handle_t s_legacy_handle = CLOCK_STEP_INVALID_HANDLE;
 
 /* ======================================================================
  *                              FONCTIONS INTERNES
@@ -66,16 +72,22 @@ static void handle_tick(void) {
     systime_t tick_st, step_st;
     compute_periods_st(bpm, &tick_st, &step_st);
 
-    if (s_step_cb_v2) {
-        clock_step_info_t info = {
-            .now          = now,
-            .step_idx_abs = s_step_idx_abs,
-            .bpm          = bpm,
-            .tick_st      = tick_st,
-            .step_st      = step_st,
-            .ext_clock    = (s_src == CLOCK_SRC_MIDI)
-        };
-        s_step_cb_v2(&info);
+    clock_step_info_t info = {
+        .now          = now,
+        .step_idx_abs = s_step_idx_abs,
+        .bpm          = bpm,
+        .tick_st      = tick_st,
+        .step_st      = step_st,
+        .source       = (s_src == CLOCK_SRC_MIDI)
+                          ? CLOCK_STEP_SOURCE_EXTERNAL
+                          : CLOCK_STEP_SOURCE_INTERNAL
+    };
+
+    for (uint8_t i = 0; i < CLOCK_MANAGER_MAX_OBSERVERS; ++i) {
+        clock_step_cb2_t cb = s_step_observers[i];
+        if (cb) {
+            cb(&info);
+        }
     }
 
     // Incrément du compteur absolu de steps (après notification)
@@ -105,6 +117,10 @@ void clock_manager_init(clock_source_t src) {
     s_src          = src;
     s_tick_count   = 0U;
     s_step_idx_abs = 0U;
+    for (uint8_t i = 0; i < CLOCK_MANAGER_MAX_OBSERVERS; ++i) {
+        s_step_observers[i] = NULL;
+    }
+    s_legacy_handle = CLOCK_STEP_INVALID_HANDLE;
 
     midi_clock_init();
     midi_clock_register_tick_callback(on_midi_tick);
@@ -143,6 +159,35 @@ void clock_manager_stop(void) {
 
 bool clock_manager_is_running(void) { return midi_clock_is_running(); }
 
+clock_step_handle_t clock_manager_step_subscribe(clock_step_cb2_t cb) {
+    if (!cb) {
+        return CLOCK_STEP_INVALID_HANDLE;
+    }
+    for (uint8_t i = 0; i < CLOCK_MANAGER_MAX_OBSERVERS; ++i) {
+        if (s_step_observers[i] == NULL) {
+            s_step_observers[i] = cb;
+            return (clock_step_handle_t)i;
+        }
+    }
+    return CLOCK_STEP_INVALID_HANDLE;
+}
+
+void clock_manager_step_unsubscribe(clock_step_handle_t handle) {
+    if (handle >= CLOCK_MANAGER_MAX_OBSERVERS) {
+        return;
+    }
+    s_step_observers[handle] = NULL;
+    if (s_legacy_handle == handle) {
+        s_legacy_handle = CLOCK_STEP_INVALID_HANDLE;
+    }
+}
+
 void clock_manager_register_step_callback2(clock_step_cb2_t cb) {
-    s_step_cb_v2 = cb;
+    if (s_legacy_handle != CLOCK_STEP_INVALID_HANDLE) {
+        clock_manager_step_unsubscribe(s_legacy_handle);
+        s_legacy_handle = CLOCK_STEP_INVALID_HANDLE;
+    }
+    if (cb) {
+        s_legacy_handle = clock_manager_step_subscribe(cb);
+    }
 }

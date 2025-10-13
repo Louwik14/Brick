@@ -27,6 +27,9 @@
 #include "brick_config.h"
 
 #include "midi.h"                /* midi_note_on/off(), midi_cc() */
+#include "seq_engine.h"
+#include "clock_manager.h"
+#include "seq_led_bridge.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -40,6 +43,28 @@
 #define UI_DEST_UI     0x8000U  /**< Paramètre purement interne à l'UI.       */
 #define UI_DEST_MIDI   0x4000U  /**< Paramètre routé vers la pile MIDI.       */
 #define UI_DEST_ID(x)  ((x) & 0x1FFFU) /**< ID local sur 13 bits. */
+
+enum {
+    SEQ_ALL_TRANSP = 0x0000,
+    SEQ_ALL_VEL,
+    SEQ_ALL_LEN,
+    SEQ_ALL_MIC,
+
+    SEQ_V1_NOTE, SEQ_V1_VEL, SEQ_V1_LEN, SEQ_V1_MIC,
+    SEQ_V2_NOTE, SEQ_V2_VEL, SEQ_V2_LEN, SEQ_V2_MIC,
+    SEQ_V3_NOTE, SEQ_V3_VEL, SEQ_V3_LEN, SEQ_V3_MIC,
+    SEQ_V4_NOTE, SEQ_V4_VEL, SEQ_V4_LEN, SEQ_V4_MIC,
+
+    SEQ_SETUP_CLOCK,
+    SEQ_SETUP_SWING,
+    SEQ_SETUP_STEPS,
+    SEQ_SETUP_QUANT,
+
+    SEQ_SETUP_CH1,
+    SEQ_SETUP_CH2,
+    SEQ_SETUP_CH3,
+    SEQ_SETUP_CH4
+};
 
 /* -------------------------------------------------------------------------- */
 /* Paramètres MIDI par défaut                                                 */
@@ -94,6 +119,23 @@ static void _ui_shadow_set(uint16_t id_full, uint8_t v) {
 static uint8_t _ui_shadow_get(uint16_t id_full) {
     int idx = _ui_shadow_find(id_full);
     return (idx >= 0) ? s_ui_shadow[(uint8_t)idx].val : 0u;
+}
+
+static int decode_seq_linear(uint8_t wire, int mn, int mx) {
+    int span = mx - mn;
+    if (span <= 0) {
+        return mn;
+    }
+    if (mn >= 0 && mx <= 255) {
+        if (wire < (uint8_t)mn) wire = (uint8_t)mn;
+        if (wire > (uint8_t)mx) wire = (uint8_t)mx;
+        return (int)wire;
+    }
+    if (span == 255) {
+        return mn + wire;
+    }
+    int value = ((int)wire * span + 127) / 255;
+    return mn + value;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -190,8 +232,70 @@ void ui_backend_all_notes_off(void) {
 /* UI interne                                                                 */
 /* -------------------------------------------------------------------------- */
 static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
-    (void)local_id; (void)val; (void)bitwise; (void)mask;
-    /* Ici, tu peux gérer des hooks UI si nécessaire (NOP par défaut). */
+    (void)bitwise;
+    (void)mask;
+
+    switch (local_id) {
+    case SEQ_ALL_TRANSP:
+        seq_engine_set_global_offset(SEQ_PARAM_NOTE, decode_seq_linear(val, -12, 12));
+        seq_led_bridge_publish();
+        break;
+    case SEQ_ALL_VEL:
+        seq_engine_set_global_offset(SEQ_PARAM_VELOCITY, decode_seq_linear(val, -127, 127));
+        seq_led_bridge_publish();
+        break;
+    case SEQ_ALL_LEN:
+        seq_engine_set_global_offset(SEQ_PARAM_LENGTH, decode_seq_linear(val, -32, 32));
+        seq_led_bridge_publish();
+        break;
+    case SEQ_ALL_MIC:
+        seq_engine_set_global_offset(SEQ_PARAM_MICRO_TIMING, decode_seq_linear(val, -12, 12));
+        seq_led_bridge_publish();
+        break;
+
+    case SEQ_V1_NOTE: case SEQ_V1_VEL: case SEQ_V1_LEN: case SEQ_V1_MIC:
+        seq_engine_set_active_voice(0);
+        break;
+    case SEQ_V2_NOTE: case SEQ_V2_VEL: case SEQ_V2_LEN: case SEQ_V2_MIC:
+        seq_engine_set_active_voice(1);
+        break;
+    case SEQ_V3_NOTE: case SEQ_V3_VEL: case SEQ_V3_LEN: case SEQ_V3_MIC:
+        seq_engine_set_active_voice(2);
+        break;
+    case SEQ_V4_NOTE: case SEQ_V4_VEL: case SEQ_V4_LEN: case SEQ_V4_MIC:
+        seq_engine_set_active_voice(3);
+        break;
+
+    case SEQ_SETUP_CLOCK:
+        clock_manager_set_source(val ? CLOCK_SRC_MIDI : CLOCK_SRC_INTERNAL);
+        break;
+    case SEQ_SETUP_STEPS: {
+        int steps = decode_seq_linear(val, 1, 64);
+        for (uint8_t v = 0; v < SEQ_MODEL_VOICE_COUNT; ++v) {
+            seq_engine_set_voice_length(v, (uint16_t)steps);
+        }
+        seq_led_bridge_set_total_span((uint16_t)(steps));
+        break;
+    }
+    case SEQ_SETUP_CH1:
+        seq_engine_set_voice_channel(0, val);
+        seq_led_bridge_publish();
+        break;
+    case SEQ_SETUP_CH2:
+        seq_engine_set_voice_channel(1, val);
+        seq_led_bridge_publish();
+        break;
+    case SEQ_SETUP_CH3:
+        seq_engine_set_voice_channel(2, val);
+        seq_led_bridge_publish();
+        break;
+    case SEQ_SETUP_CH4:
+        seq_engine_set_voice_channel(3, val);
+        seq_led_bridge_publish();
+        break;
+    default:
+        break;
+    }
 }
 
 /* -------------------------------------------------------------------------- */

@@ -132,6 +132,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard apps/*.c) \
        $(wildcard cart/*.c) \
        $(wildcard core/*.c) \
+       $(wildcard seq/*.c) \
        
        
        
@@ -152,7 +153,7 @@ ASMSRC = $(ALLASMSRC)
 ASMXSRC = $(ALLXASMSRC)
 
 # Inclusion directories.
-INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams
+INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams seq
 
 
 # Define C warning options here.

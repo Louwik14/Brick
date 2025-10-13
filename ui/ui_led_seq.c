@@ -22,11 +22,11 @@
 #endif
 
 typedef struct {
-    seq_runtime_t rt;           /* Snapshot de la page visible */
-    bool          running;      /* Lecture active */
-    uint16_t      total_span;   /* pages * 16 (min 16, max 256) */
-    uint16_t      play_abs;     /* Position absolue 0..total_span-1 */
-    bool          has_tick;     /* Latch: vrai après 1er tick post-PLAY */
+    ui_seq_led_surface_t surface; /* Snapshot de la page visible */
+    bool                 running; /* Lecture active */
+    uint16_t             total_span;   /* pages * 16 (min 16, max 256) */
+    uint16_t             play_abs;     /* Position absolue 0..total_span-1 */
+    bool                 has_tick;     /* Latch: vrai après 1er tick post-PLAY */
 } seq_renderer_t;
 
 static seq_renderer_t g;
@@ -47,12 +47,12 @@ static inline void _set_led_step(uint8_t s, led_color_t col, led_mode_t mode){
 
 /* ============================== API ===================================== */
 
-void ui_led_seq_update_from_app(const seq_runtime_t *rt){
-    if (!rt) return;
-    g.rt = *rt;
-    if (g.rt.steps_per_page == 0) g.rt.steps_per_page = SEQ_STEPS_PER_PAGE;
-    if (g.rt.steps_per_page > 16) g.rt.steps_per_page = 16;
-    if (g.total_span < g.rt.steps_per_page) g.total_span = g.rt.steps_per_page; /* garde-fou */
+void ui_led_seq_update_from_app(const ui_seq_led_surface_t *surface){
+    if (!surface) return;
+    g.surface = *surface;
+    if (g.surface.steps_per_page == 0) g.surface.steps_per_page = SEQ_STEPS_PER_PAGE;
+    if (g.surface.steps_per_page > 16) g.surface.steps_per_page = 16;
+    if (g.total_span < g.surface.steps_per_page) g.total_span = g.surface.steps_per_page; /* garde-fou */
 }
 
 void ui_led_seq_set_total_span(uint16_t total_steps){
@@ -81,12 +81,12 @@ static inline bool _is_playing_here(uint8_t local_idx){
     if (!g.has_tick) return false; /* évite l'effet "double" à PLAY */
     /* page du playhead (absolu) */
     uint8_t page = (g.total_span ? (g.play_abs / 16u) : 0u);
-    if (page != g.rt.visible_page) return false;
+    if (page != g.surface.visible_page) return false;
     return ((g.play_abs % 16u) == local_idx);
 }
 
 static inline void _render_one(uint8_t s, bool is_playing_here){
-    const seq_step_state_t *st = &g.rt.steps[s];
+    const ui_seq_led_step_t *st = &g.surface.steps[s];
 
     if (g.running && is_playing_here) {
         /* 💡 Playhead SEQ : **stable**, pas de pulse */
@@ -107,10 +107,10 @@ static inline void _render_one(uint8_t s, bool is_playing_here){
 }
 
 void ui_led_seq_render(void){
-    if (g.rt.steps_per_page == 0) return;
+    if (g.surface.steps_per_page == 0) return;
 
-    const uint8_t page = g.rt.visible_page;
-    for (uint8_t s = 0; s < g.rt.steps_per_page; ++s) {
+    const uint8_t page = g.surface.visible_page;
+    for (uint8_t s = 0; s < g.surface.steps_per_page; ++s) {
         const bool is_playing_here =
             (g.total_span && g.running && g.has_tick) &&
             ((g.play_abs / 16u) == page) &&
