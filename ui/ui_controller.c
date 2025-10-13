@@ -28,6 +28,7 @@
 
 /* Ajout SEQ */
 #include "seq_led_bridge.h"
+#include "ui_overlay.h"   /* <-- ajoute ceci */
 
 /* ============================================================================
  * État & dirty
@@ -238,6 +239,17 @@ const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index) {
  */
 void ui_on_button_menu(int index) {
     if (index < 0 || index >= 8) return;
+        /* Si un overlay est actif (SEQ/ARP/KBD bannière), on le ferme AVANT
+           de traiter le BM. Ça restaure cart + état réels et recharge les cycles. */
+        if (ui_overlay_is_active()) {
+            ui_overlay_exit();
+            /* À ce stade :
+               - ui_switch_cart() a rechargé les cycles BM pour la cart réelle,
+               - l'état UI (menu/page) précédent a été restauré,
+               - ui_mark_dirty() a été posé.
+               On peut donc traiter le BM tout de suite sur la cart réelle. */
+        }
+
 
     if (s_cycles[index].count > 0) {
         if (s_current_bm == index) {

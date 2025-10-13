@@ -8,9 +8,9 @@
  *  - entrée/sortie d’un overlay,
  *  - bascule de sous-spec (MODE↔SETUP),
  *  - accès à la spec overlay courante,
- *  - flag de « mode custom actif » persistant (pour rendu/steps).
+ *  - flag de « mode custom actif » persistant (pour rendu/règles).
  *
- * Conforme README: module UI pur (aucun accès bus/driver).
+ * Module UI pur (pas de drivers).
  */
 #ifndef BRICK_UI_UI_OVERLAY_H
 #define BRICK_UI_UI_OVERLAY_H
@@ -22,67 +22,38 @@
 extern "C" {
 #endif
 
-/** Types d’overlays supportés. */
 typedef enum {
     UI_OVERLAY_NONE = 0,
     UI_OVERLAY_SEQ,
     UI_OVERLAY_ARP,
-    /* futurs: UI_OVERLAY_FX, UI_OVERLAY_DRUM, ... */
 } ui_overlay_id_t;
 
-/** Types de modes custom (flag persistant visuel/logic). */
 typedef enum {
     UI_CUSTOM_NONE = 0,
     UI_CUSTOM_SEQ,
     UI_CUSTOM_ARP,
 } ui_custom_mode_t;
 
-/* ===== API principale ===== */
-
-/**
- * @brief Entrer dans un overlay (remplace un overlay précédent si présent).
- * Sauvegarde la cartouche/état réels à la première entrée, puis bascule sur @p spec.
- */
+/** Entrer dans un overlay (ferme l’éventuel overlay précédent proprement). */
 void ui_overlay_enter(ui_overlay_id_t id, const ui_cart_spec_t* spec);
 
-/**
- * @brief Quitter l’overlay courant et restaurer la cart/état réels.
- * Ne réinitialise PAS le flag de mode custom (persistance voulue).
- */
+/** Quitter l’overlay courant et restaurer cart/état réels. */
 void ui_overlay_exit(void);
 
-/** @brief Vrai si un overlay est actif. */
+/** Vrai si un overlay est actif. */
 bool ui_overlay_is_active(void);
 
-/**
- * @brief Bascule vers une autre sous-spec de l’overlay courant (ex. MODE↔SETUP).
- * Ne modifie pas la cart/état réels sauvegardés.
- */
+/** Bascule de sous-spec (ex. MODE ↔ SETUP) dans l’overlay actif. */
 void ui_overlay_switch_subspec(const ui_cart_spec_t* spec);
 
-/** @brief Retourne la spec overlay actuellement affichée, ou NULL si aucun. */
+/** Spec overlay courante (MODE/SETUP) si actif, sinon NULL. */
 const ui_cart_spec_t* ui_overlay_get_spec(void);
 
-/* ===== Flag de mode custom persistant ===== */
-
-/** @brief Définit le mode custom actif (persiste même après exit overlay). */
+/** Flag persistant (dernier mode custom actif). */
 void ui_overlay_set_custom_mode(ui_custom_mode_t mode);
-
-/** @brief Lit le mode custom actif persistant. */
 ui_custom_mode_t ui_overlay_get_custom_mode(void);
 
-/* ===== Utilitaire : préparer des « bannières » overlay avec tag ===== */
-/**
- * @brief Prépare deux copies de specs (MODE/SETUP) pour un overlay,
- *        en injectant le nom de la cartouche réelle et un tag (ex: "SEQ").
- *
- * @param src_mode   Spec source MODE (ex: seq_ui_spec)
- * @param src_setup  Spec source SETUP (ex: seq_setup_ui_spec)
- * @param dst_mode   Copie destination MODE (écrasée)
- * @param dst_setup  Copie destination SETUP (écrasée)
- * @param prev_cart  Cartouche réelle à afficher en en-tête
- * @param mode_tag   Tag texte (ex: "SEQ", "ARP") stocké pour rendu futur
- */
+/** Prépare deux bannières (MODE/SETUP) avec cart_name + overlay_tag. */
 void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode,
                                const ui_cart_spec_t* src_setup,
                                ui_cart_spec_t* dst_mode,

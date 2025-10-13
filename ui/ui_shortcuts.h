@@ -1,7 +1,17 @@
 /**
  * @file ui_shortcuts.h
- * @brief Raccourcis (SHIFT+...), gestion MUTE/PMUTE et ouverture des overlays.
+ * @brief Raccourcis (SHIFT, MUTE/PMUTE), overlays (SEQ/ARP/KEY), et routage SEQ (pages, pads).
  * @ingroup ui
+ *
+ * @details
+ * Objectifs (Elektron-like) :
+ * - Tap court = Quick Step / Quick Clear.
+ * - Maintien (un ou plusieurs steps) = **Preview P-Lock** (affichage des valeurs P-Lock,
+ *   encodeurs modifient les P-Lock des steps maintenus). Aucune couleur "focus violet".
+ * - À la relâche de tous les steps, fin de preview et retour à l’état normal.
+ *
+ * Invariants :
+ * - MUTE prioritaire ; pas de dépendances circulaires ; zéro régression Keyboard/MIDI.
  */
 
 #ifndef BRICK_UI_SHORTCUTS_H
@@ -9,30 +19,25 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "ui_input.h"  /* pour ui_input_event_t */
+#include "ui_input.h"  /* ui_input_event_t */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+/** Initialise/Reset le moteur de raccourcis. */
 void ui_shortcuts_init(void);
 void ui_shortcuts_reset(void);
 
 /**
  * @brief Tente de consommer un événement via le moteur de raccourcis.
- * @return true si consommé.
+ * @return true si consommé (l’événement ne doit plus être routé ailleurs).
  */
 bool ui_shortcuts_handle_event(const ui_input_event_t *evt);
 
 /**
- * @brief Indique si le mode Keys (Keyboard) est actuellement actif
+ * @brief Indique si le contexte Keys (Keyboard) est actif
  *        (même si l’overlay n’est pas visible).
- *
- * @details
- * - Passe à true quand on entre sur l’overlay Keys.
- * - Reste true tant qu’on ne passe pas à un autre overlay (SEQ/ARP) ou qu’on ne
- *   change pas de cartouche via SHIFT+BM1..4.
- * - Reste true pendant MUTE ; à la sortie de MUTE, la LED est restaurée en conséquence.
  */
 bool ui_shortcuts_is_keys_active(void);
 

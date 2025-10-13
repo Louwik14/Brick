@@ -328,6 +328,8 @@ Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/
 - `clock_manager.[ch]` : publie un **index de pas absolu** (0..∞). `ui_task` le forwarde au backend via `UI_LED_EVENT_CLOCK_TICK` (sans modulo 16).  
 - `ui_led_backend` relaie cet index au renderer **SEQ** (`ui_led_seq_on_clock_tick()`), qui applique le modulo sur `pages×16` et rend le **pas courant** stable (LED pleine).
 
+**Nota (2025‑10‑13)** — Le renderer SEQ met en œuvre un **latch `has_tick`** : le playhead n’est affiché qu’à partir du **premier tick** après PLAY, évitant tout effet de double allumage au redémarrage.
+
 
 - `midi_clock.[ch]` : générateur **24 PPQN** (GPT3 @ 1 MHz), ISR courte (signal), thread **`NORMALPRIO+3`**, émission F8 et callbacks précis.
 - `midi.[ch]` : pile MIDI **class-compliant** (EP1 OUT / EP2 IN, **64 B**), **mailbox non bloquante** pour TX, **chemin rapide** pour Realtime (F8/FA/FB/FC/FE/FF).
@@ -525,6 +527,13 @@ int main(void) {
 
 ## Phase 5 — Overlays & Modes customs (SEQ / ARP)
 
+#### Correctif navigation overlay (2025‑10‑13)
+
+- **Rebuild déterministe** des overlays : à chaque `enter/exit/switch_subspec`, l’overlay **réinitialise** `cur_menu=0` / `cur_page=0`, **publie** le `overlay_tag` si présent, et **force** un `ui_mark_dirty()` pour éviter tout état « fantôme ».
+- **BM1..BM8 en sortie d’overlay** : le contrôleur (`ui_controller`) **ferme d’abord** tout overlay actif (`ui_overlay_exit()`), **puis** traite le bouton menu sur la **cart réelle** restaurée.  
+  → Plus de menus vides ni de cycles MODE/SETUP inattendus après un mode custom.
+
+
 Cette phase introduit un **nouveau module** UI ainsi que des règles de navigation/rendu associées, sans modifier l’architecture en couches.
 
 ### 1. Nouveau module : `ui_overlay.[ch]`
@@ -618,7 +627,21 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 
 ---
 
-## ✅ Mise à jour — **Phase 6** (UIs custom + LEDs adressables)
+## ✅ Mise à jour — **Phase 6**
+
+### 🔧 Mise à jour (2025‑10‑13) — Cohérence **SEQ UI/LED** (Elektron‑like)
+
+- **Suppression totale** du focus violet (*ancien « P‑Lock hold visuel »*).  
+  Les steps maintenus **ne changent plus de couleur**.
+- **Priorité des états LED SEQ** (par step) :  
+  **Playhead (blanc)** ▶ **Param‑only (bleu)** ▶ **Active/Recorded (vert)** ▶ **Off**.
+- **Param‑only = bleu** : un step **P‑Lock sans note** (toutes vélocités = 0, au moins un param locké) s’affiche **bleu**.
+- **Hold / Preview P‑Lock** : le maintien d’un ou plusieurs steps sert **uniquement** à éditer les P‑Locks au(x) step(s) sélectionné(s) ;  
+  **aucune couleur spécifique** n’est rendue pendant le maintien. Le masque UI de preview est posé **à l’appui** et retiré **au relâchement**.
+- **Quick Step / Quick Clear** : tap court **toggle** immédiatement l’état du step (**on/off**) — comportement inchangé.
+- **Playhead stable** : latch anti‑double (premier tick post‑PLAY) pour éviter l’allumage simultané *playhead+step précédent* lors d’un redémarrage.
+- **Threading / découplage** : `ui_led_seq` reste mis à jour **uniquement** via `ui_led_backend` (aucune dépendance à `clock_manager` dans le renderer).
+ (UIs custom + LEDs adressables)
 
 **Ajouts Phase 6½ (runtime Keyboard)**
 
@@ -663,6 +686,8 @@ Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’ar
     - **Chords area** : SEQ1..4 & SEQ9..12 → **8 couleurs distinctes** (palette dédiée).  
     - **Notes area**  : SEQ5..8 & SEQ13..16 → **bleu** (7 notes de la gamme + **SEQ16** = octave haute de la root).
 - **SEQ** (séquenceur) :  
+  - **Param‑only = bleu**, **Active = vert**, **Playhead = blanc**, **Off = éteint**.
+
   - **Playhead absolu** qui avance sur **toutes les pages** (`pages × 16`), **sans auto-changer** la page visible.  
   - **Affichage stable** : le pas courant est **allumé plein** (pas de pulse).  
   - **Pages** : `+`/`−` (sans SHIFT) changent la **page visible** ; `SHIFT + (+/−)` = **MUTE/PMUTE** (prioritaire).  
