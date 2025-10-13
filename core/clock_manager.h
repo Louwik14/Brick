@@ -49,13 +49,18 @@ typedef enum {
  * - `step_st` : durée d’1 step (1/16 = 6 ticks) en `systime_t`
  * - `ext_clock` : true si la source active est une horloge externe
  */
+typedef enum {
+    CLOCK_STEP_SOURCE_INTERNAL = 0, /**< Step triggered by internal clock. */
+    CLOCK_STEP_SOURCE_EXTERNAL      /**< Step mirrored from external clock. */
+} clock_step_source_t;
+
 typedef struct {
-    systime_t now;
-    uint32_t  step_idx_abs;
-    float     bpm;
-    systime_t tick_st;
-    systime_t step_st;
-    bool      ext_clock;
+    systime_t           now;
+    uint32_t            step_idx_abs;
+    float               bpm;
+    systime_t           tick_st;
+    systime_t           step_st;
+    clock_step_source_t source;
 } clock_step_info_t;
 
 /**
@@ -113,6 +118,16 @@ bool clock_manager_is_running(void);
  * @brief Enregistre un callback V2 appelé à chaque pas (1/16).
  * @param cb Pointeur vers la fonction callback (peut être NULL pour désinscrire).
  */
+typedef uint8_t clock_step_handle_t;
+#define CLOCK_STEP_INVALID_HANDLE ((clock_step_handle_t)0xFFu)
+
+/** Subscribe to step notifications and receive an opaque handle. */
+clock_step_handle_t clock_manager_step_subscribe(clock_step_cb2_t cb);
+
+/** Remove a previously registered observer using its handle. */
+void clock_manager_step_unsubscribe(clock_step_handle_t handle);
+
+/** Legacy single-callback API kept for compatibility. */
 void clock_manager_register_step_callback2(clock_step_cb2_t cb);
 
 /** @} */ // end of group clock

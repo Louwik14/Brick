@@ -43,6 +43,7 @@
 #include "usb_device.h"
 #include "midi.h"
 #include "midi_clock.h"
+#include "seq_service.h"
 
 /* ===========================================================
  * INITIALISATION EN BLOCS
@@ -113,6 +114,7 @@ int main(void) {
   /* I/O temps réel d’abord (USB/MIDI/Clock), puis drivers/cart, puis UI */
   io_realtime_init();
   drivers_and_cart_init();
+  seq_service_init();
   ui_init_all();
 
   /* Phase 6 : Initialisation du backend LED avant démarrage UI */
