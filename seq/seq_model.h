@@ -17,8 +17,26 @@ extern "C" {
  *  @brief Immutable-friendly pattern representation used by the engine.
  *  @{ */
 
+/** Number of DSP carts handled simultaneously. */
+#define SEQ_MODEL_CART_COUNT 4U
+
+/** Logical voices per DSP cart. */
+#define SEQ_MODEL_VOICES_PER_CART 4U
+
 /** Maximum number of voices managed by the sequencer. */
-#define SEQ_MODEL_VOICE_COUNT 4U
+#define SEQ_MODEL_VOICE_COUNT (SEQ_MODEL_CART_COUNT * SEQ_MODEL_VOICES_PER_CART)
+
+/** Default base note (C4) applied when clearing a step. */
+#define SEQ_MODEL_DEFAULT_NOTE 60
+
+/** Default velocity applied when clearing a step. */
+#define SEQ_MODEL_DEFAULT_VELOCITY 100
+
+/** Default gate length (1 step). */
+#define SEQ_MODEL_DEFAULT_LENGTH 1
+
+/** Default micro-timing offset (on grid). */
+#define SEQ_MODEL_DEFAULT_MICRO 0
 
 /** Maximum number of steps per pattern. */
 #define SEQ_MODEL_STEP_COUNT 64U
@@ -101,6 +119,15 @@ int16_t seq_model_step_param(const seq_pattern_t *pattern, uint8_t voice, uint16
 
 /** Remove all P-Lock flags and values for the selected step. */
 void seq_model_clear_step_params(seq_pattern_t *pattern, uint8_t voice, uint16_t step_idx);
+
+/**
+ * @brief Clear a step completely (note + P-Locks) and restore defaults.
+ * @details
+ *  Utilisé pour le « quick clear » : supprime l’éventuel P-Lock résiduel et
+ *  restaure les valeurs live (note C4, vélocité 100, longueur 1, micro=0) afin
+ *  que la réactivation ultérieure reparte d’un état propre.
+ */
+void seq_model_step_clear_all(seq_pattern_t *pattern, uint8_t voice, uint16_t step_idx);
 
 /** Update the pattern-wide offsets used by the engine. */
 void seq_model_set_offsets(seq_pattern_t *pattern, const seq_offsets_t *offsets);

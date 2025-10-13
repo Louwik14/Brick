@@ -234,3 +234,8 @@ void seq_led_bridge_end_plock_preview(void) {
     g_bridge.preview_mask = 0;
     seq_led_bridge_publish();
 }
+
+uint16_t seq_led_bridge_get_preview_mask(void) {
+    // FIX: expose le masque courant pour que l’UI sache quels steps éditer en P-Lock.
+    return g_bridge.preview_mask;
+}

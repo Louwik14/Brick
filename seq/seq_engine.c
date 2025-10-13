@@ -103,14 +103,17 @@ void seq_engine_init(const seq_engine_config_t *cfg) {
     chMtxObjectInit(&g_engine.pattern_mutex);
     g_engine.cfg.dest = DEFAULT_DESTINATION;
     for (uint8_t v = 0; v < SEQ_MODEL_VOICE_COUNT; ++v) {
-        g_engine.cfg.midi_channel[v] = v; /* default: channels 1..4 → 0-based */
+        g_engine.cfg.midi_channel[v] = (uint8_t)(v % 16); /* default: 1..16 → 0-based */
     }
     if (cfg) {
         g_engine.cfg.dest = (cfg->dest == MIDI_DEST_NONE) ? DEFAULT_DESTINATION : cfg->dest;
         for (uint8_t v = 0; v < SEQ_MODEL_VOICE_COUNT; ++v) {
             uint8_t ch = cfg->midi_channel[v];
-            if (ch == 0 || ch > 16) {
-                ch = (uint8_t)(v + 1);
+            if (ch == 0) {
+                ch = (uint8_t)((v % 16) + 1u);
+            }
+            if (ch > 16) {
+                ch = 16;
             }
             g_engine.cfg.midi_channel[v] = (uint8_t)(ch - 1u);
         }
@@ -143,7 +146,13 @@ void seq_engine_toggle_step(uint8_t voice, uint32_t step_idx_abs) {
     }
     chMtxLock(&g_engine.pattern_mutex);
     uint16_t local = normalise_step_locked(voice, step_idx_abs);
+    bool was_active = seq_model_step_is_active(&g_engine.pattern, voice, local);
     seq_model_toggle_step(&g_engine.pattern, voice, local);
+    bool now_active = seq_model_step_is_active(&g_engine.pattern, voice, local);
+    if (was_active && !now_active) {
+        // FIX: un quick clear doit purger les P-Locks et restaurer les valeurs par défaut.
+        seq_model_step_clear_all(&g_engine.pattern, voice, local);
+    }
     seq_engine_publish_locked();
     chMtxUnlock(&g_engine.pattern_mutex);
 }
@@ -168,7 +177,7 @@ void seq_engine_apply_plock_delta(seq_param_id_t param, int16_t delta, uint64_t 
         return;
     }
     chMtxLock(&g_engine.pattern_mutex);
-    for (uint16_t s = 0; s < 64; ++s) {
+    for (uint16_t s = 0; s < SEQ_MODEL_STEP_COUNT; ++s) {
         if (step_mask & (1ull << s)) {
             uint16_t local = normalise_step_locked(g_engine.active_voice, s);
             bool     is_plocked = false;

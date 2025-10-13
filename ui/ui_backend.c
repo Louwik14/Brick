@@ -141,7 +141,8 @@ static int decode_seq_linear(uint8_t wire, int mn, int mx) {
 /* -------------------------------------------------------------------------- */
 /* Prototypes internes                                                        */
 /* -------------------------------------------------------------------------- */
-static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask);
+static void ui_backend_handle_ui(uint16_t local_id, uint8_t prev_wire, uint8_t new_wire,
+                                 bool bitwise, uint8_t mask);
 static void ui_backend_handle_midi(uint16_t local_id, uint8_t val);
 
 /* -------------------------------------------------------------------------- */
@@ -160,11 +161,11 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
 
     case UI_DEST_UI: {
         /* Met à jour le shadow UI **avant** la notification locale */
+        const uint8_t prev = _ui_shadow_get(id);
         uint8_t newv = val;
 
         if (bitwise) {
             /* Lire l’état courant, appliquer le masque, puis stocker. */
-            const uint8_t prev = _ui_shadow_get(id);
             uint8_t reg = prev;
             if (mask) {
                 /* bitwise + mask → activer/désactiver les bits */
@@ -176,7 +177,7 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
         _ui_shadow_set(id, newv);
 
         /* Interception locale UI (facultatif) */
-        ui_backend_handle_ui(local_id, newv, bitwise, mask);
+        ui_backend_handle_ui(local_id, prev, newv, bitwise, mask);
         break;
     }
 
@@ -231,46 +232,135 @@ void ui_backend_all_notes_off(void) {
 /* -------------------------------------------------------------------------- */
 /* UI interne                                                                 */
 /* -------------------------------------------------------------------------- */
-static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
+static uint8_t seq_param_slot_from_id(seq_param_id_t param) {
+    switch (param) {
+        case SEQ_PARAM_NOTE:         return 0u;
+        case SEQ_PARAM_VELOCITY:     return 1u;
+        case SEQ_PARAM_LENGTH:       return 2u;
+        case SEQ_PARAM_MICRO_TIMING: return 3u;
+        default:                     return 0u;
+    }
+}
+
+static int16_t decode_seq_voice_param(seq_param_id_t param, uint8_t wire) {
+    switch (param) {
+        case SEQ_PARAM_NOTE:
+            return wire; /* mapping direct 0..127 */
+        case SEQ_PARAM_VELOCITY:
+            return decode_seq_linear(wire, 0, 127);
+        case SEQ_PARAM_LENGTH:
+            return decode_seq_linear(wire, 1, 64);
+        case SEQ_PARAM_MICRO_TIMING:
+            return decode_seq_linear(wire, -12, 12);
+        default:
+            return 0;
+    }
+}
+
+static bool handle_seq_voice_plock(uint16_t local_id, uint8_t prev_wire, uint8_t new_wire) {
+    seq_param_id_t param;
+    uint8_t voice;
+
+    switch (local_id) {
+    case SEQ_V1_NOTE: case SEQ_V1_VEL: case SEQ_V1_LEN: case SEQ_V1_MIC:
+        voice = 0; break;
+    case SEQ_V2_NOTE: case SEQ_V2_VEL: case SEQ_V2_LEN: case SEQ_V2_MIC:
+        voice = 1; break;
+    case SEQ_V3_NOTE: case SEQ_V3_VEL: case SEQ_V3_LEN: case SEQ_V3_MIC:
+        voice = 2; break;
+    case SEQ_V4_NOTE: case SEQ_V4_VEL: case SEQ_V4_LEN: case SEQ_V4_MIC:
+        voice = 3; break;
+    default:
+        return false;
+    }
+
+    switch (local_id) {
+        case SEQ_V1_NOTE: case SEQ_V2_NOTE: case SEQ_V3_NOTE: case SEQ_V4_NOTE:
+            param = SEQ_PARAM_NOTE;
+            break;
+        case SEQ_V1_VEL: case SEQ_V2_VEL: case SEQ_V3_VEL: case SEQ_V4_VEL:
+            param = SEQ_PARAM_VELOCITY;
+            break;
+        case SEQ_V1_LEN: case SEQ_V2_LEN: case SEQ_V3_LEN: case SEQ_V4_LEN:
+            param = SEQ_PARAM_LENGTH;
+            break;
+        default:
+            param = SEQ_PARAM_MICRO_TIMING;
+            break;
+    }
+
+    uint16_t held = seq_led_bridge_get_preview_mask();
+    if (held == 0) {
+        return false;
+    }
+
+    seq_engine_set_active_voice(voice);
+
+    int16_t prev_val = decode_seq_voice_param(param, prev_wire);
+    int16_t new_val  = decode_seq_voice_param(param, new_wire);
+    int16_t delta    = new_val - prev_val;
+    if (delta == 0) {
+        return true;
+    }
+
+    // FIX: appliquer immédiatement le delta P-Lock sur tous les steps maintenus.
+    seq_led_bridge_apply_plock_param(seq_param_slot_from_id(param), delta, held);
+    return true;
+}
+
+static void ui_backend_handle_ui(uint16_t local_id, uint8_t prev_wire, uint8_t new_wire,
+                                 bool bitwise, uint8_t mask) {
     (void)bitwise;
     (void)mask;
 
     switch (local_id) {
     case SEQ_ALL_TRANSP:
-        seq_engine_set_global_offset(SEQ_PARAM_NOTE, decode_seq_linear(val, -12, 12));
+        seq_engine_set_global_offset(SEQ_PARAM_NOTE, decode_seq_linear(new_wire, -12, 12));
         seq_led_bridge_publish();
         break;
     case SEQ_ALL_VEL:
-        seq_engine_set_global_offset(SEQ_PARAM_VELOCITY, decode_seq_linear(val, -127, 127));
+        seq_engine_set_global_offset(SEQ_PARAM_VELOCITY, decode_seq_linear(new_wire, -127, 127));
         seq_led_bridge_publish();
         break;
     case SEQ_ALL_LEN:
-        seq_engine_set_global_offset(SEQ_PARAM_LENGTH, decode_seq_linear(val, -32, 32));
+        seq_engine_set_global_offset(SEQ_PARAM_LENGTH, decode_seq_linear(new_wire, -32, 32));
         seq_led_bridge_publish();
         break;
     case SEQ_ALL_MIC:
-        seq_engine_set_global_offset(SEQ_PARAM_MICRO_TIMING, decode_seq_linear(val, -12, 12));
+        seq_engine_set_global_offset(SEQ_PARAM_MICRO_TIMING, decode_seq_linear(new_wire, -12, 12));
         seq_led_bridge_publish();
         break;
 
     case SEQ_V1_NOTE: case SEQ_V1_VEL: case SEQ_V1_LEN: case SEQ_V1_MIC:
+        if (handle_seq_voice_plock(local_id, prev_wire, new_wire)) {
+            break;
+        }
         seq_engine_set_active_voice(0);
         break;
     case SEQ_V2_NOTE: case SEQ_V2_VEL: case SEQ_V2_LEN: case SEQ_V2_MIC:
+        if (handle_seq_voice_plock(local_id, prev_wire, new_wire)) {
+            break;
+        }
         seq_engine_set_active_voice(1);
         break;
     case SEQ_V3_NOTE: case SEQ_V3_VEL: case SEQ_V3_LEN: case SEQ_V3_MIC:
+        if (handle_seq_voice_plock(local_id, prev_wire, new_wire)) {
+            break;
+        }
         seq_engine_set_active_voice(2);
         break;
     case SEQ_V4_NOTE: case SEQ_V4_VEL: case SEQ_V4_LEN: case SEQ_V4_MIC:
+        if (handle_seq_voice_plock(local_id, prev_wire, new_wire)) {
+            break;
+        }
         seq_engine_set_active_voice(3);
         break;
 
     case SEQ_SETUP_CLOCK:
-        clock_manager_set_source(val ? CLOCK_SRC_MIDI : CLOCK_SRC_INTERNAL);
+        clock_manager_set_source(new_wire ? CLOCK_SRC_MIDI : CLOCK_SRC_INTERNAL);
         break;
     case SEQ_SETUP_STEPS: {
-        int steps = decode_seq_linear(val, 1, 64);
+        int steps = decode_seq_linear(new_wire, 1, 64);
         for (uint8_t v = 0; v < SEQ_MODEL_VOICE_COUNT; ++v) {
             seq_engine_set_voice_length(v, (uint16_t)steps);
         }
@@ -278,19 +368,19 @@ static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, u
         break;
     }
     case SEQ_SETUP_CH1:
-        seq_engine_set_voice_channel(0, val);
+        seq_engine_set_voice_channel(0, new_wire);
         seq_led_bridge_publish();
         break;
     case SEQ_SETUP_CH2:
-        seq_engine_set_voice_channel(1, val);
+        seq_engine_set_voice_channel(1, new_wire);
         seq_led_bridge_publish();
         break;
     case SEQ_SETUP_CH3:
-        seq_engine_set_voice_channel(2, val);
+        seq_engine_set_voice_channel(2, new_wire);
         seq_led_bridge_publish();
         break;
     case SEQ_SETUP_CH4:
-        seq_engine_set_voice_channel(3, val);
+        seq_engine_set_voice_channel(3, new_wire);
         seq_led_bridge_publish();
         break;
     default:

@@ -28,6 +28,49 @@ static inline bool _step_valid(uint16_t step_idx) {
     return step_idx < SEQ_MODEL_STEP_COUNT;
 }
 
+static inline void seq_model_sync_params_from_base(seq_step_t *step) {
+    if (!step) {
+        return;
+    }
+    step->params[SEQ_PARAM_NOTE]         = step->note;
+    step->params[SEQ_PARAM_VELOCITY]     = step->velocity;
+    step->params[SEQ_PARAM_LENGTH]       = step->length;
+    step->params[SEQ_PARAM_MICRO_TIMING] = step->micro_timing;
+}
+
+static inline int16_t clamp_param_value(seq_param_id_t param, int16_t value) {
+    switch (param) {
+        case SEQ_PARAM_NOTE:
+            return (int16_t)CLAMP(value, 0, 127);
+        case SEQ_PARAM_VELOCITY:
+            return (int16_t)CLAMP(value, 0, 127);
+        case SEQ_PARAM_LENGTH:
+            return (int16_t)CLAMP(value, 1, SEQ_MODEL_STEP_COUNT);
+        case SEQ_PARAM_MICRO_TIMING:
+            return (int16_t)CLAMP(value, -SEQ_MODEL_MICRO_OFFSET_RANGE, SEQ_MODEL_MICRO_OFFSET_RANGE);
+        default:
+            return value;
+    }
+}
+
+static inline int16_t base_param_value(const seq_step_t *step, seq_param_id_t param) {
+    if (!step) {
+        return 0;
+    }
+    switch (param) {
+        case SEQ_PARAM_NOTE:
+            return step->note;
+        case SEQ_PARAM_VELOCITY:
+            return step->velocity;
+        case SEQ_PARAM_LENGTH:
+            return step->length;
+        case SEQ_PARAM_MICRO_TIMING:
+            return step->micro_timing;
+        default:
+            return 0;
+    }
+}
+
 void seq_model_init(seq_pattern_t *pattern) {
     if (!pattern) {
         return;
@@ -37,13 +80,13 @@ void seq_model_init(seq_pattern_t *pattern) {
         pattern->voices[v].length = SEQ_MODEL_STEP_COUNT;
         for (uint16_t s = 0; s < SEQ_MODEL_STEP_COUNT; ++s) {
             seq_step_t *st = &pattern->voices[v].steps[s];
-            st->note        = 60; /* C4 default */
-            st->velocity    = 100;
-            st->length      = 1;
-            st->micro_timing = 0;
+            st->note        = SEQ_MODEL_DEFAULT_NOTE; /* C4 */
+            st->velocity    = SEQ_MODEL_DEFAULT_VELOCITY;
+            st->length      = SEQ_MODEL_DEFAULT_LENGTH;
+            st->micro_timing = SEQ_MODEL_DEFAULT_MICRO;
             st->active      = false;
             st->plock_mask  = 0;
-            memset(st->params, 0, sizeof(st->params));
+            seq_model_sync_params_from_base(st);
         }
     }
     pattern->offsets.transpose   = 0;
@@ -119,36 +162,37 @@ bool seq_model_step_is_active(const seq_pattern_t *pattern, uint8_t voice, uint1
     return step->active;
 }
 
-static inline void _write_param(seq_step_t *step, seq_param_id_t param, int16_t value) {
-    switch (param) {
-        case SEQ_PARAM_NOTE:
-            step->params[param] = CLAMP(value, 0, 127);
-            break;
-        case SEQ_PARAM_VELOCITY:
-            step->params[param] = CLAMP(value, 0, 127);
-            break;
-        case SEQ_PARAM_LENGTH:
-            step->params[param] = CLAMP(value, 1, SEQ_MODEL_STEP_COUNT);
-            break;
-        case SEQ_PARAM_MICRO_TIMING:
-            step->params[param] = CLAMP(value, -SEQ_MODEL_MICRO_OFFSET_RANGE, SEQ_MODEL_MICRO_OFFSET_RANGE);
-            break;
-        default:
-            break;
-    }
-}
-
 void seq_model_set_step_param(seq_pattern_t *pattern, uint8_t voice, uint16_t step_idx,
                               seq_param_id_t param, int16_t value, bool enable_plock) {
     if (!pattern || !_voice_valid(voice) || !_step_valid(step_idx) || param >= SEQ_PARAM_COUNT) {
         return;
     }
     seq_step_t *step = &pattern->voices[voice].steps[step_idx];
-    _write_param(step, param, value);
+    int16_t clamped = clamp_param_value(param, value);
+
     if (enable_plock) {
+        // FIX: enregistrer la valeur P-Lock réelle plutôt qu’un delta fantôme.
+        step->params[param] = clamped;
         step->plock_mask |= (seq_plock_mask_t)(1u << param);
     } else {
         step->plock_mask &= (seq_plock_mask_t)~(1u << param);
+        switch (param) {
+            case SEQ_PARAM_NOTE:
+                step->note = (uint8_t)clamped;
+                break;
+            case SEQ_PARAM_VELOCITY:
+                step->velocity = (uint8_t)clamped;
+                break;
+            case SEQ_PARAM_LENGTH:
+                step->length = (uint8_t)clamped;
+                break;
+            case SEQ_PARAM_MICRO_TIMING:
+                step->micro_timing = (int8_t)clamped;
+                break;
+            default:
+                break;
+        }
+        seq_model_sync_params_from_base(step);
     }
     seq_model_bump_generation(pattern);
 }
@@ -162,10 +206,11 @@ int16_t seq_model_step_param(const seq_pattern_t *pattern, uint8_t voice, uint16
         return 0;
     }
     const seq_step_t *step = &pattern->voices[voice].steps[step_idx];
+    bool locked = (step->plock_mask & (seq_plock_mask_t)(1u << param)) != 0;
     if (is_plocked) {
-        *is_plocked = ((step->plock_mask & (seq_plock_mask_t)(1u << param)) != 0);
+        *is_plocked = locked;
     }
-    return step->params[param];
+    return locked ? step->params[param] : base_param_value(step, param);
 }
 
 void seq_model_clear_step_params(seq_pattern_t *pattern, uint8_t voice, uint16_t step_idx) {
@@ -174,7 +219,23 @@ void seq_model_clear_step_params(seq_pattern_t *pattern, uint8_t voice, uint16_t
     }
     seq_step_t *step = &pattern->voices[voice].steps[step_idx];
     step->plock_mask = 0;
-    memset(step->params, 0, sizeof(step->params));
+    seq_model_sync_params_from_base(step);
+    // FIX: retire les restes de P-Lock pour permettre le « quick clear ».
+    seq_model_bump_generation(pattern);
+}
+
+void seq_model_step_clear_all(seq_pattern_t *pattern, uint8_t voice, uint16_t step_idx) {
+    if (!pattern || !_voice_valid(voice) || !_step_valid(step_idx)) {
+        return;
+    }
+    seq_step_t *step = &pattern->voices[voice].steps[step_idx];
+    step->active       = false;
+    step->note         = SEQ_MODEL_DEFAULT_NOTE;
+    step->velocity     = SEQ_MODEL_DEFAULT_VELOCITY;
+    step->length       = SEQ_MODEL_DEFAULT_LENGTH;
+    step->micro_timing = SEQ_MODEL_DEFAULT_MICRO;
+    step->plock_mask   = 0;
+    seq_model_sync_params_from_base(step);
     seq_model_bump_generation(pattern);
 }
 

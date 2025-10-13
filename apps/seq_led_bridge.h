@@ -35,6 +35,7 @@ void seq_led_bridge_plock_clear(void);
 void seq_led_bridge_begin_plock_preview(uint16_t held_mask);
 void seq_led_bridge_apply_plock_param(uint8_t param_id, int32_t delta, uint16_t held_mask);
 void seq_led_bridge_end_plock_preview(void);
+uint16_t seq_led_bridge_get_preview_mask(void);
 
 #ifdef __cplusplus
 }
