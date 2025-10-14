@@ -934,12 +934,6 @@ void seq_led_bridge_on_stop(void) {
     seq_led_bridge_publish();
 }
 
-void seq_led_bridge_set_plock_mask(uint16_t mask) {
-    _hold_sync_mask(mask);
-    _hold_update(mask);
-    seq_led_bridge_publish();
-}
-
 void seq_led_bridge_plock_add(uint8_t i) {
     if (g.visible_page >= SEQ_MAX_PAGES || i >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         return;
@@ -957,12 +951,6 @@ void seq_led_bridge_plock_remove(uint8_t i) {
     uint16_t mask = g.page_hold_mask[g.visible_page] & (uint16_t)~(1U << i);
     _hold_sync_mask(mask);
     _hold_update(g.page_hold_mask[g.visible_page]);
-    seq_led_bridge_publish();
-}
-
-void seq_led_bridge_plock_clear(void) {
-    _hold_sync_mask(0U);
-    _hold_update(0U);
     seq_led_bridge_publish();
 }
 

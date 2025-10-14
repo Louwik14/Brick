@@ -241,17 +241,33 @@ HOST_TEST_DIR := $(BUILDDIR)/host
 HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
 HOST_SEQ_HOLD_TEST  := $(HOST_TEST_DIR)/seq_hold_runtime_tests
 
+ifeq ($(OS),Windows_NT)
+HOST_CC_AVAILABLE := $(strip $(shell where $(HOST_CC) >NUL 2>NUL && echo yes))
+HOST_CC_HINT := Installez "MSYS2 / mingw-w64" et exposez gcc (ou définissez HOST_CC=clang).
+else
+HOST_CC_AVAILABLE := $(strip $(shell command -v $(HOST_CC) >/dev/null 2>&1 && echo yes))
+HOST_CC_HINT := Installez gcc (ex: `sudo apt install build-essential`) ou définissez HOST_CC=clang.
+endif
+
 .PHONY: check-host
+ifeq ($(HOST_CC_AVAILABLE),yes)
 check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
 	$(HOST_SEQ_HOLD_TEST)
+else
+check-host:
+	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
+	@echo "hint: $(HOST_CC_HINT)"
+	@echo "hint: make check-host HOST_CC=<compilateur>"
+	@exit 1
+endif
 
 $(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
 
-$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c
+$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Imidi -Icore -I. tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -I. tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c -o $@

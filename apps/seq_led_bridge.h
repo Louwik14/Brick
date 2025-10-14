@@ -46,10 +46,8 @@ void seq_led_bridge_on_play(void);
 void seq_led_bridge_on_stop(void);
 
 /* Preview P-Lock */
-void seq_led_bridge_set_plock_mask(uint16_t mask);
 void seq_led_bridge_plock_add(uint8_t i);
 void seq_led_bridge_plock_remove(uint8_t i);
-void seq_led_bridge_plock_clear(void);
 void seq_led_bridge_begin_plock_preview(uint16_t held_mask);
 void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                                       int32_t value,
