@@ -32,6 +32,7 @@
 #include "ui_overlay.h"
 #include "ui_mute_backend.h"
 #include "seq_led_bridge.h"
+#include "seq_engine_runner.h"
 #include "seq_recorder.h"
 #include "clock_manager.h"
 #include "ui_seq_ui.h"
@@ -390,12 +391,14 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_PLAY:
+        seq_engine_runner_on_transport_play();
         clock_manager_start();
         seq_led_bridge_on_play();
         s_mode_ctx.transport.playing = true;
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_STOP:
+        seq_engine_runner_on_transport_stop();
         clock_manager_stop();
         seq_led_bridge_on_stop();
         s_mode_ctx.transport.playing = false;
