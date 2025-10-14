@@ -59,7 +59,7 @@ static void sink_note_off(uint8_t ch, uint8_t note, uint8_t vel) {
 
 static void sink_all_notes_off(uint8_t ch) {
   (void)ch;
-  ui_backend_all_notes_off();
+  /* NOTE OFF events are flushed individually; avoid global All Notes Off. */
 }
 
 static ui_keyboard_note_sink_t g_sink = {

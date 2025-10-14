@@ -838,8 +838,12 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
 
     bool mutated = false;
     if (on) {
-        seq_model_step_make_automation_only(step);
-        mutated = true;
+        const bool has_voice = seq_model_step_has_playable_voice(step);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(step);
+        if (!has_voice && !has_seq_plock) {
+            seq_model_step_make_automation_only(step);
+            mutated = true;
+        }
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
@@ -893,8 +897,12 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
 
     bool mutated = false;
     if (on) {
-        seq_model_step_make_automation_only(step);
-        mutated = true;
+        const bool has_voice = seq_model_step_has_playable_voice(step);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(step);
+        if (!has_voice && !has_seq_plock) {
+            seq_model_step_make_automation_only(step);
+            mutated = true;
+        }
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;

@@ -208,6 +208,36 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
     return step->plock_count > 0U;
 }
 
+bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        const seq_model_plock_t *plk = &step->plocks[i];
+        if (plk->domain == SEQ_MODEL_PLOCK_INTERNAL) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        const seq_model_plock_t *plk = &step->plocks[i];
+        if (plk->domain == SEQ_MODEL_PLOCK_CART) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void seq_model_step_make_automation_only(seq_model_step_t *step) {
     size_t i;
 
@@ -318,6 +348,9 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
         }
     }
 
+    const bool has_seq_plock = seq_model_step_has_seq_plock(step);
+    const bool has_cart_plock = seq_model_step_has_cart_plock(step);
+
     step->flags.active = has_voice;
-    step->flags.automation = (!has_voice) && (step->plock_count > 0U);
+    step->flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock;
 }
