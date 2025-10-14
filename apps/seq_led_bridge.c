@@ -289,7 +289,7 @@ static void _hold_sync_mask(uint16_t mask) {
             }
         } else {
             seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
-            if (slot->active && (slot->absolute_index != (_page_base(g.visible_page) + (uint16_t)local)))) {
+            if (slot->active && (slot->absolute_index != (_page_base(g.visible_page) + (uint16_t)local))) {
                 if (_hold_commit_slot(local)) {
                     mutated = true;
                 }

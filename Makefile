@@ -239,12 +239,19 @@ HOST_CC ?= gcc
 HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g
 HOST_TEST_DIR := $(BUILDDIR)/host
 HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
+HOST_SEQ_HOLD_TEST  := $(HOST_TEST_DIR)/seq_hold_runtime_tests
 
 .PHONY: check-host
-check-host: $(HOST_SEQ_MODEL_TEST)
+check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
+	@echo "Running host hold/runtime bridge tests"
+	$(HOST_SEQ_HOLD_TEST)
 
 $(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
+
+$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Imidi -Icore -I. tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c -o $@
