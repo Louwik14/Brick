@@ -179,6 +179,12 @@ Maintien + tweak paramètre → p-lock créé ; si le step n’était pas neutre
 5. Référer à `ARCHITECTURE_FR.md` et à ce document en cas de doute.
 
 ---
+### 🧩 Correction proactive des erreurs de typage
+- En cas d’erreur de type manquant (`unknown type name`, `incomplete type`, etc.), tu dois **ajouter le typedef complet** et non ignorer la définition.
+- Il est autorisé de créer de nouvelles structures si leur rôle est clair (par ex. `seq_led_bridge_hold_view_t` pour gérer l’état visuel du hold/p-lock).
+- Un patch “minimal” ne doit **jamais laisser le projet en erreur de compilation**.
+- Priorité : *code compilable > patch minimal*.
+
 
 ### ✅ TL;DR Codex
 
