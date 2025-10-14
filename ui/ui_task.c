@@ -108,6 +108,7 @@ static THD_FUNCTION(UIThread, arg) {
   ui_input_event_t evt;
 
   for (;;) {
+    const systime_t now = chVTGetSystemTimeX();
     const bool got = ui_input_poll(&evt, TIME_MS2I(UI_TASK_POLL_MS));
 
     if (got) {
@@ -116,6 +117,7 @@ static THD_FUNCTION(UIThread, arg) {
 
     /* Sync Keyboard runtime (root/scale/omni & p2) */
     ui_keyboard_bridge_update_from_model();
+    ui_keyboard_bridge_tick(now); // --- ARP: tick moteur ---
 
     /* LEDs + affichage */
     ui_led_backend_refresh();

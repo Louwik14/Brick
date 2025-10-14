@@ -14,6 +14,8 @@
 
 #include "ui_keyboard_app.h"
 #include "kbd_input_mapper.h"
+#include "arp_engine.h" // --- ARP: moteur temps réel ---
+#include "ui_arp_menu.h" // --- ARP: paramètres UI ---
 
 /* Backend (fonctions directes) + constantes UI_DEST_* */
 #include "ui_backend.h"
@@ -27,6 +29,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 /* -------------------------------------------------------------------------- */
 /* Si ui_backend.h n’expose pas (encore) ces 3 APIs “directes”, déclare-les  */
@@ -45,21 +48,53 @@ extern void ui_backend_all_notes_off(void);
 #define DEFAULT_MIDI_CHANNEL 0
 #define DEFAULT_VELOCITY     100
 
-static void sink_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
-  (void)ch;
-  seq_recorder_handle_note_on(note, vel);
-  ui_backend_note_on(note, (vel ? vel : DEFAULT_VELOCITY));
+static arp_engine_t s_arp_engine;                 // --- ARP: instance moteur ---
+static arp_config_t s_arp_config;                 // --- ARP: configuration courante ---
+
+static inline uint8_t _resolve_velocity(uint8_t vel) {
+  return (vel != 0u) ? vel : DEFAULT_VELOCITY;
 }
 
-static void sink_note_off(uint8_t ch, uint8_t note, uint8_t vel) {
-  (void)ch; (void)vel;
+static void _direct_note_on(uint8_t note, uint8_t vel) {
+  const uint8_t resolved = _resolve_velocity(vel);
+  seq_recorder_handle_note_on(note, resolved);
+  ui_backend_note_on(note, resolved);
+}
+
+static void _direct_note_off(uint8_t note) {
   seq_recorder_handle_note_off(note);
   ui_backend_note_off(note);
 }
 
+static void _arp_callback_note_on(uint8_t note, uint8_t vel) { // --- ARP: callback MIDI ---
+  _direct_note_on(note, vel);
+}
+
+static void _arp_callback_note_off(uint8_t note) { // --- ARP: callback OFF ---
+  _direct_note_off(note);
+}
+
+static void sink_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
+  (void)ch;
+  if (s_arp_config.enabled) {
+    arp_note_input(&s_arp_engine, note, _resolve_velocity(vel), true);
+  } else {
+    _direct_note_on(note, vel);
+  }
+}
+
+static void sink_note_off(uint8_t ch, uint8_t note, uint8_t vel) {
+  (void)ch; (void)vel;
+  if (s_arp_config.enabled) {
+    arp_note_input(&s_arp_engine, note, 0u, false);
+  } else {
+    _direct_note_off(note);
+  }
+}
+
 static void sink_all_notes_off(uint8_t ch) {
   (void)ch;
-  /* NOTE OFF events are flushed individually; avoid global All Notes Off. */
+  arp_stop_all(&s_arp_engine); // --- ARP: flush immédiat ---
 }
 
 static ui_keyboard_note_sink_t g_sink = {
@@ -102,11 +137,65 @@ static inline uint8_t _shadow_ui_local(uint16_t local_id) {
   return ui_backend_shadow_get(KBD_UI_ID(local_id));
 }
 
+static inline uint8_t _shadow_arp_u8(uint16_t local_id) {
+  return ui_backend_shadow_get(KBD_ARP_UI_ID(local_id));
+}
+
+static inline int8_t _shadow_arp_i8(uint16_t local_id) {
+  return (int8_t)ui_backend_shadow_get(KBD_ARP_UI_ID(local_id));
+}
+
+static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI ---
+  arp_config_t cfg = s_arp_config;
+  cfg.enabled = (_shadow_arp_u8(KBD_ARP_LOCAL_ONOFF) != 0u);
+  cfg.rate = (arp_rate_t)(_shadow_arp_u8(KBD_ARP_LOCAL_RATE) % ARP_RATE_COUNT);
+  cfg.octave_range = _shadow_arp_u8(KBD_ARP_LOCAL_OCT_RANGE);
+  cfg.pattern = (arp_pattern_t)(_shadow_arp_u8(KBD_ARP_LOCAL_PATTERN) % ARP_PATTERN_COUNT);
+  cfg.gate_percent = _shadow_arp_u8(KBD_ARP_LOCAL_GATE);
+  cfg.swing_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SWING);
+  cfg.accent = (arp_accent_t)(_shadow_arp_u8(KBD_ARP_LOCAL_ACCENT) % ARP_ACCENT_COUNT);
+  cfg.velocity_random = _shadow_arp_u8(KBD_ARP_LOCAL_VEL_RAND);
+  cfg.strum_mode = (arp_strum_t)(_shadow_arp_u8(KBD_ARP_LOCAL_STRUM_MODE) % ARP_STRUM_COUNT);
+  cfg.strum_offset_ms = _shadow_arp_u8(KBD_ARP_LOCAL_STRUM_OFFSET);
+  cfg.repeat_count = _shadow_arp_u8(KBD_ARP_LOCAL_REPEAT);
+  cfg.trigger_mode = (arp_trigger_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_TRIGGER) % ARP_TRIGGER_COUNT);
+  cfg.transpose = _shadow_arp_i8(KBD_ARP_LOCAL_TRANSPOSE);
+  cfg.spread_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SPREAD);
+  cfg.octave_shift = _shadow_arp_i8(KBD_ARP_LOCAL_OCT_SHIFT);
+  cfg.direction_behavior = _shadow_arp_u8(KBD_ARP_LOCAL_DIRECTION_BEHAV);
+  cfg.pattern_select = _shadow_arp_u8(KBD_ARP_LOCAL_PATTERN_SELECT);
+  cfg.pattern_morph = _shadow_arp_u8(KBD_ARP_LOCAL_PATTERN_MORPH);
+  cfg.lfo_target = (arp_lfo_target_t)(_shadow_arp_u8(KBD_ARP_LOCAL_LFO_TARGET) % ARP_LFO_TARGET_COUNT);
+  cfg.lfo_depth = _shadow_arp_u8(KBD_ARP_LOCAL_LFO_DEPTH);
+  cfg.lfo_rate = _shadow_arp_u8(KBD_ARP_LOCAL_LFO_RATE);
+  cfg.sync_mode = (arp_sync_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_SYNC_MODE) % ARP_SYNC_COUNT);
+
+  const bool was_enabled = s_arp_config.enabled;
+  if (memcmp(&cfg, &s_arp_config, sizeof(cfg)) != 0) {
+    s_arp_config = cfg;
+    arp_set_config(&s_arp_engine, &s_arp_config);
+    if (!cfg.enabled && was_enabled) {
+      arp_stop_all(&s_arp_engine);
+    }
+  }
+}
+
 /* ================================ Bridge ================================= */
 
 void ui_keyboard_bridge_init(void) {
   /* Init app avec sink direct (chemin court vers midi.c) */
   ui_keyboard_app_init(&g_sink);
+
+  memset(&s_arp_config, 0, sizeof(s_arp_config));
+  arp_init(&s_arp_engine, &s_arp_config);
+  const arp_callbacks_t callbacks = {
+    .note_on = _arp_callback_note_on,
+    .note_off = _arp_callback_note_off
+  };
+  arp_set_callbacks(&s_arp_engine, &callbacks);
+
+  _sync_arp_config_from_ui();
+  ui_backend_shadow_set(KBD_UI_ID(KBD_UI_LOCAL_ARP), (uint8_t)(s_arp_config.enabled ? 1u : 0u)); // --- ARP: miroir legacy ---
 
   /* Lecture initiale via shadow UI */
   const uint8_t root_idx   = (uint8_t)(_shadow_ui_local(KBD_UI_LOCAL_ROOT)  & 0x7Fu); /* 0..11 */
@@ -149,9 +238,17 @@ void ui_keyboard_bridge_update_from_model(void) {
   /* MAJ du mapper + LEDs (idempotents) */
   kbd_input_mapper_set_omnichord_state(omni);
   ui_led_backend_set_keyboard_omnichord(omni);
+
+  _sync_arp_config_from_ui();
+  ui_backend_shadow_set(KBD_UI_ID(KBD_UI_LOCAL_ARP), (uint8_t)(s_arp_config.enabled ? 1u : 0u));
 }
 
-void ui_keyboard_bridge_tick(uint32_t elapsed_ms) {
-  (void)elapsed_ms;
-  ui_keyboard_app_tick(elapsed_ms);
+void ui_keyboard_bridge_tick(systime_t now) {
+  (void)now;
+  ui_keyboard_app_tick(0u);
+  arp_tick(&s_arp_engine, now);
+}
+
+void ui_keyboard_bridge_on_transport_stop(void) {
+  arp_stop_all(&s_arp_engine); // --- ARP: STOP transport ---
 }
