@@ -105,6 +105,8 @@ typedef struct {
     seq_model_plock_t plocks[SEQ_MODEL_MAX_PLOCKS_PER_STEP]; /**< Parameter locks. */
     uint8_t plock_count; /**< Number of active parameter locks. */
     seq_model_step_offsets_t offsets; /**< Per-step offsets. */
+    bool has_active_voice; /**< Cached flag indicating at least one audible voice. */
+    bool automation_only;  /**< Flag telling the engine to treat the step as automation-only. */
 } seq_model_step_t;
 
 /** Quantization configuration applied during live capture. */
@@ -178,6 +180,8 @@ const seq_model_step_offsets_t *seq_model_step_get_offsets(const seq_model_step_
 
 /** Return true if at least one voice is enabled with a non-zero velocity. */
 bool seq_model_step_has_active_voice(const seq_model_step_t *step);
+/** Return true if the step should be treated as automation-only. */
+bool seq_model_step_is_automation_only(const seq_model_step_t *step);
 /** Convert a step into an automation-only placeholder (all voices muted). */
 void seq_model_step_make_automate(seq_model_step_t *step);
 

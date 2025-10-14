@@ -21,6 +21,9 @@ static void _seq_live_capture_divmod(int64_t value, int64_t divisor, int64_t *qu
 static int8_t _seq_live_capture_micro_from_delta(int64_t delta, int64_t step_duration);
 static int8_t _seq_live_capture_micro_from_within(int64_t within_step, int64_t step_duration);
 static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta);
+static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
+                                                 uint8_t requested,
+                                                 uint8_t note);
 
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
     chDbgCheck(capture != NULL);
@@ -164,15 +167,26 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
 
     seq_model_step_t *step = &capture->pattern->steps[plan->step_index];
 
-    if (plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_ON) {
+    if ((plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_ON) &&
+        (plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF)) {
         return false;
     }
 
-    if (plan->voice_index >= SEQ_MODEL_VOICES_PER_STEP) {
-        return false;
-    }
-
-    if (plan->velocity == 0U) {
+    if (plan->type == SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF) {
+        uint8_t slot = _seq_live_capture_pick_voice_slot(step, plan->voice_index, plan->note);
+        const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
+        seq_model_voice_t voice;
+        if (voice_src != NULL) {
+            voice = *voice_src;
+        } else {
+            seq_model_voice_init(&voice, slot == 0U);
+        }
+        voice.velocity = 0U;
+        voice.state = SEQ_MODEL_VOICE_DISABLED;
+        if (!seq_model_step_set_voice(step, slot, &voice)) {
+            return false;
+        }
+        seq_model_gen_bump(&capture->pattern->generation);
         return true;
     }
 
@@ -180,20 +194,29 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         seq_model_step_init_default(step, plan->note);
     }
 
-    const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, plan->voice_index);
+    uint8_t slot = _seq_live_capture_pick_voice_slot(step, plan->voice_index, plan->note);
+    const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
     seq_model_voice_t voice;
     if (voice_src != NULL) {
         voice = *voice_src;
     } else {
-        seq_model_voice_init(&voice, plan->voice_index == 0U);
+        seq_model_voice_init(&voice, slot == 0U);
     }
 
+    if (plan->velocity == 0U) {
+        voice.velocity = 0U;
+        voice.state = SEQ_MODEL_VOICE_DISABLED;
+    } else {
+        voice.velocity = plan->velocity;
+        voice.state = SEQ_MODEL_VOICE_ENABLED;
+    }
     voice.note = plan->note;
-    voice.velocity = plan->velocity;
+    if (voice.length == 0U) {
+        voice.length = 1U;
+    }
     voice.micro_offset = plan->micro_offset;
-    voice.state = (plan->velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
 
-    if (!seq_model_step_set_voice(step, plan->voice_index, &voice)) {
+    if (!seq_model_step_set_voice(step, slot, &voice)) {
         return false;
     }
 
@@ -331,4 +354,38 @@ static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta) {
     }
     step %= SEQ_MODEL_STEPS_PER_PATTERN;
     return (size_t)step;
+}
+
+static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
+                                                 uint8_t requested,
+                                                 uint8_t note) {
+    if (step == NULL) {
+        return 0U;
+    }
+
+    if (requested < SEQ_MODEL_VOICES_PER_STEP) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, requested);
+        if ((voice == NULL) ||
+            (voice->state != SEQ_MODEL_VOICE_ENABLED) ||
+            (voice->velocity == 0U) ||
+            (voice->note == note)) {
+            return requested;
+        }
+    }
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
+        if ((voice != NULL) && (voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->note == note)) {
+            return i;
+        }
+    }
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
+        if ((voice == NULL) || (voice->state != SEQ_MODEL_VOICE_ENABLED) || (voice->velocity == 0U)) {
+            return i;
+        }
+    }
+
+    return 0U;
 }

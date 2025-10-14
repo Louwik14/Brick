@@ -30,16 +30,17 @@ static void test_default_step_initialisation(void) {
 
     seq_model_step_init(&step);
     assert(step.plock_count == 0U);
+    assert(!seq_model_step_has_active_voice(&step));
+    assert(!seq_model_step_is_automation_only(&step));
 
     for (i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
         const seq_model_voice_t *voice = seq_model_step_get_voice(&step, i);
         assert(voice != NULL);
 
+        assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
         if (i == 0U) {
-            assert(voice->state == SEQ_MODEL_VOICE_ENABLED);
             assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY);
         } else {
-            assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
             assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY);
         }
 
