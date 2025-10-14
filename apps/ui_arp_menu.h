@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 #include "ui_spec.h"
+#include "ui_backend.h"  // Nécessaire pour UI_DEST_UI et les structures de menu
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,8 +37,10 @@ enum {
   KBD_ARP_LOCAL_SYNC_MODE
 };
 
-#define KBD_ARP_UI_ID(local) (uint16_t)(UI_DEST_UI | ((uint16_t)(local) & 0x1FFFu))
+// --- Macro de création d’ID global ---
+#define KBD_ARP_UI_ID(local) ((uint16_t)(UI_DEST_UI | ((uint16_t)(local) & 0x1FFFu)))
 
+// --- Spécification du menu ARP exportée ---
 extern const ui_cart_spec_t ui_keyboard_arp_menu_spec;
 
 #ifdef __cplusplus
