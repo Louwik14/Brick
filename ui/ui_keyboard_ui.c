@@ -11,8 +11,8 @@
  *    et **Chord buttons override scale** (autorise les accidentals pour les accords).
  *
  * Le champ `cart_name` est volontairement vide afin de ne pas remplacer
- * le nom de la cartouche active à l’écran. Le tag `"KEY"` est utilisé
- * dans la bannière pour identifier ce mode.
+ * le nom de la cartouche active à l’écran. Le label de bannière provient
+ * désormais du `ui_backend` (ex. "KEY", "KEY+1").
  */
 
 #include "ui_keyboard_ui.h"
@@ -134,7 +134,6 @@ static const ui_menu_spec_t kbd_menu = {
 
 const ui_cart_spec_t ui_keyboard_spec = {
     .cart_name   = "",        /**< Laisse le nom de la cart active affiché. */
-    .overlay_tag = "KEY",     /**< Tag court affiché dans la bannière. */
     .menus       = { [0] = kbd_menu },
     .cycles      = {
         [0] = { .count=0 }, [1] = { .count=0 }, [2] = { .count=0 }, [3] = { .count=0 },

@@ -13,6 +13,7 @@
  */
 
 #include <string.h>
+#include "ch.h"
 #include "ui_led_backend.h"
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
@@ -30,6 +31,84 @@ static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
 
 /* Keyboard */
 static bool     s_kbd_omni = false;
+
+typedef struct {
+    ui_led_event_t event;
+    uint8_t index;
+    bool state;
+} ui_led_backend_evt_t;
+
+#ifndef UI_LED_BACKEND_QUEUE_CAPACITY
+#define UI_LED_BACKEND_QUEUE_CAPACITY 32U
+#endif
+
+static ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
+static uint8_t s_evt_head = 0U;
+static uint8_t s_evt_tail = 0U;
+
+static inline uint8_t _queue_next(uint8_t idx) {
+    return (uint8_t)((idx + 1U) % UI_LED_BACKEND_QUEUE_CAPACITY);
+}
+
+static void _queue_push_locked(const ui_led_backend_evt_t *evt) {
+    uint8_t next_tail = _queue_next(s_evt_tail);
+    if (next_tail == s_evt_head) {
+        /* Saturation : drop le plus ancien pour éviter de bloquer. */
+        s_evt_head = _queue_next(s_evt_head);
+    }
+    s_evt_queue[s_evt_tail] = *evt;
+    s_evt_tail = next_tail;
+}
+
+static bool _queue_pop_locked(ui_led_backend_evt_t *evt) {
+    if (s_evt_head == s_evt_tail) {
+        return false;
+    }
+    if (evt != NULL) {
+        *evt = s_evt_queue[s_evt_head];
+    }
+    s_evt_head = _queue_next(s_evt_head);
+    return true;
+}
+
+static void _apply_event(const ui_led_backend_evt_t *evt) {
+    if (evt == NULL) {
+        return;
+    }
+
+    switch (evt->event) {
+        case UI_LED_EVENT_MUTE_STATE:
+        case UI_LED_EVENT_PMUTE_STATE:
+            if ((evt->index & 15u) < NUM_STEPS) {
+                s_track_muted[evt->index & 15u] = evt->state;
+            }
+            break;
+
+        case UI_LED_EVENT_CLOCK_TICK:
+            /* SEQ : forward **absolu** (0..255) → le renderer applique son modulo [pages*16] */
+            ui_led_seq_on_clock_tick(evt->index);
+            break;
+
+        case UI_LED_EVENT_STEP_STATE:
+        case UI_LED_EVENT_PARAM_SELECT:
+        default:
+            break;
+    }
+}
+
+static void _drain_event_queue(void) {
+    ui_led_backend_evt_t evt;
+
+    while (true) {
+        chSysLock();
+        const bool has_evt = _queue_pop_locked(&evt);
+        chSysUnlock();
+        if (!has_evt) {
+            break;
+        }
+        _apply_event(&evt);
+    }
+}
 
 /* ===== MAP step→LED physique ===== */
 static inline int _led_index_for_step(uint8_t step) {
@@ -106,6 +185,7 @@ void ui_led_backend_init(void) {
     s_rec_active = false;
     s_mode = UI_LED_MODE_NONE;
     s_kbd_omni = false;
+    s_evt_head = s_evt_tail = 0U;
 
     drv_leds_addr_init();
     /* NE PAS toucher au buffer physique ici : render() s’en charge. */
@@ -114,21 +194,20 @@ void ui_led_backend_init(void) {
     ui_led_seq_set_running(false);
 }
 
-void ui_led_backend_process_event(ui_led_event_t event, uint8_t index, bool state) {
-    switch (event) {
-        case UI_LED_EVENT_MUTE_STATE:
-        case UI_LED_EVENT_PMUTE_STATE:
-            if ((index & 15u) < NUM_STEPS) s_track_muted[index & 15u] = state;
-            break;
+void ui_led_backend_post_event(ui_led_event_t event, uint8_t index, bool state) {
+    const ui_led_backend_evt_t evt = { event, index, state };
 
-        case UI_LED_EVENT_CLOCK_TICK:
-            /* SEQ : forward **absolu** (0..255) → le renderer applique son modulo [pages*16] */
-            ui_led_seq_on_clock_tick(index);
-            break;
+    chSysLock();
+    _queue_push_locked(&evt);
+    chSysUnlock();
+}
 
-        default:
-            break;
-    }
+void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state) {
+    const ui_led_backend_evt_t evt = { event, index, state };
+
+    chSysLockFromISR();
+    _queue_push_locked(&evt);
+    chSysUnlockFromISR();
 }
 
 void ui_led_backend_set_record_mode(bool active) { s_rec_active = active; }
@@ -142,6 +221,9 @@ void ui_led_backend_set_keyboard_omnichord(bool enabled) { s_kbd_omni = enabled;
 
 /* ===== Rendu ===== */
 void ui_led_backend_refresh(void) {
+
+    /* 0) Appliquer les événements accumulés (non bloquant). */
+    _drain_event_queue();
 
     /* 1) Remplir l’état logique (pas d’accès au buffer physique ici) */
     switch (s_mode) {

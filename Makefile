@@ -10,8 +10,21 @@ endif
 
 # C specific options here (added to USE_OPT).
 ifeq ($(USE_COPT),)
-  USE_COPT = 
+  USE_COPT =
 endif
+
+# Optional warnings control (default: enabled).
+ifeq ($(USE_WARNINGS),)
+  USE_WARNINGS = yes
+endif
+
+ifeq ($(USE_WARNINGS),yes)
+  WARNINGS_FLAGS = -Wall -Wextra
+else
+  WARNINGS_FLAGS =
+endif
+
+USE_COPT += $(WARNINGS_FLAGS)
 
 # C++ specific options here (added to USE_OPT).
 ifeq ($(USE_CPPOPT),)
@@ -95,6 +108,7 @@ BUILDDIR := ./build
 DEPDIR   := ./.dep
 
 # Licensing files.
+ifeq ($(filter lint-cppcheck check-host,$(MAKECMDGOALS)),)
 include $(CHIBIOS)/os/license/license.mk
 # Startup files.
 include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.mk
@@ -113,6 +127,7 @@ include $(CHIBIOS)/tools/mk/autobuild.mk
 include $(CHIBIOS)/os/test/test.mk
 include $(CHIBIOS)/test/rt/rt_test.mk
 include $(CHIBIOS)/test/oslib/oslib_test.mk
+endif
 
 # Define linker script file here
 LDSCRIPT= $(STARTUPLD)/STM32F429xI.ld
@@ -132,6 +147,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard apps/*.c) \
        $(wildcard cart/*.c) \
        $(wildcard core/*.c) \
+       $(wildcard core/seq/*.c) \
        
        
        
@@ -176,7 +192,7 @@ UDEFS =
 UADEFS =
 
 # List all user directories here
-UINCDIR = usb midi drivers ui apps cart cfg core core/spec
+UINCDIR = usb midi drivers ui apps cart cfg core core/spec core/seq
 
 # List the user directory to look for the libraries here
 ULIBDIR =
@@ -193,8 +209,19 @@ ULIBS = -lm
 #
 
 RULESPATH = $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk
+
+ifeq ($(filter lint-cppcheck check-host,$(MAKECMDGOALS)),)
 include $(RULESPATH)/arm-none-eabi.mk
 include $(RULESPATH)/rules.mk
+endif
+
+CPPCHECK ?= cppcheck
+CPPCHECK_FLAGS ?= --enable=warning,style,performance --std=c11
+
+.PHONY: lint-cppcheck
+lint-cppcheck:
+	@echo "Running cppcheck on core/ and ui/"
+	$(CPPCHECK) $(CPPCHECK_FLAGS) core ui
 
 #
 # Common rules
@@ -207,3 +234,17 @@ include $(RULESPATH)/rules.mk
 #
 # Custom rules
 ##############################################################################
+
+HOST_CC ?= gcc
+HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g
+HOST_TEST_DIR := $(BUILDDIR)/host
+HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
+
+.PHONY: check-host
+check-host: $(HOST_SEQ_MODEL_TEST)
+	@echo "Running host sequencer model tests"
+	$(HOST_SEQ_MODEL_TEST)
+
+$(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
