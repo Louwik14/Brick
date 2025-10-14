@@ -159,6 +159,7 @@ bool seq_live_capture_plan_event(seq_live_capture_t *capture,
     out_plan->micro_offset = micro_offset;
     out_plan->micro_adjust = micro_adjust;
     out_plan->quantized = quantized;
+    out_plan->input_time = input->timestamp;
     out_plan->scheduled_time = (systime_t)scheduled_time;
 
     return true;
@@ -214,13 +215,14 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
             seq_model_voice_init(&voice, slot == 0U);
         }
 
-        const systime_t start_time = capture->voices[slot].active ?
-                                      capture->voices[slot].start_time : plan->scheduled_time;
+        const systime_t start_time_raw = capture->voices[slot].active ?
+                                          capture->voices[slot].start_time_raw : plan->input_time;
+        const systime_t end_time_raw = plan->input_time;
         const systime_t start_step_duration = capture->voices[slot].active ?
                                               capture->voices[slot].step_duration : capture->clock_step_duration;
         const uint8_t length_steps = _seq_live_capture_compute_length_steps(capture,
-                                                                            start_time,
-                                                                            plan->scheduled_time,
+                                                                            start_time_raw,
+                                                                            end_time_raw,
                                                                             start_step_duration);
 
         if (voice.length != length_steps) {
@@ -241,6 +243,7 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
 
         capture->voices[slot].active = false;
         capture->voices[slot].note = 0U;
+        capture->voices[slot].start_time_raw = 0U;
 
         seq_model_gen_bump(&capture->pattern->generation);
         return true;
@@ -290,6 +293,7 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
     capture->voices[slot].active = true;
     capture->voices[slot].step_index = plan->step_index;
     capture->voices[slot].start_time = plan->scheduled_time;
+    capture->voices[slot].start_time_raw = plan->input_time;
     capture->voices[slot].step_duration = capture->clock_step_duration;
     capture->voices[slot].voice_slot = slot;
     capture->voices[slot].note = plan->note;
@@ -475,6 +479,7 @@ static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture) 
         capture->voices[i].active = false;
         capture->voices[i].step_index = 0U;
         capture->voices[i].start_time = 0U;
+        capture->voices[i].start_time_raw = 0U;
         capture->voices[i].step_duration = 0U;
         capture->voices[i].voice_slot = (uint8_t)i;
         capture->voices[i].note = 0U;

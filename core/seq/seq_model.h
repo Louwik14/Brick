@@ -192,6 +192,10 @@ bool seq_model_step_has_playable_voice(const seq_model_step_t *step);
 bool seq_model_step_is_automation_only(const seq_model_step_t *step);
 /** Return true when the step exposes at least one parameter lock. */
 bool seq_model_step_has_any_plock(const seq_model_step_t *step);
+/** Return true when the step exposes at least one sequencer-domain parameter lock. */
+bool seq_model_step_has_seq_plock(const seq_model_step_t *step);
+/** Return true when the step exposes at least one cartridge-domain parameter lock. */
+bool seq_model_step_has_cart_plock(const seq_model_step_t *step);
 /** Recompute cached flags after mutating voices or parameter locks. */
 void seq_model_step_recompute_flags(seq_model_step_t *step);
 

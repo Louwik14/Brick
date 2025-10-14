@@ -58,6 +58,7 @@ typedef struct {
     int8_t micro_offset;                /**< Planned micro-timing offset (-12..+12). */
     int8_t micro_adjust;                /**< Quantize correction compared to raw input. */
     bool quantized;                     /**< True if quantize altered the timing. */
+    systime_t input_time;               /**< Raw timestamp of the incoming event. */
     systime_t scheduled_time;           /**< Timestamp at which the event should play. */
 } seq_live_capture_plan_t;
 
@@ -78,6 +79,7 @@ typedef struct {
         bool active;                         /**< True when a note-on has been captured. */
         size_t step_index;                   /**< Step index that received the note-on. */
         systime_t start_time;                /**< Scheduled playback time of the note-on. */
+        systime_t start_time_raw;            /**< Raw timestamp captured at note-on. */
         systime_t step_duration;             /**< Step duration snapshot for the note. */
         uint8_t voice_slot;                  /**< Voice slot used to store the note. */
         uint8_t note;                        /**< MIDI note tied to the slot. */

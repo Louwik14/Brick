@@ -85,6 +85,8 @@ static void test_step_state_helpers(void) {
     seq_model_step_make_automation_only(&step);
     assert(!seq_model_step_has_playable_voice(&step));
     assert(!seq_model_step_is_automation_only(&step));
+    assert(!seq_model_step_has_seq_plock(&step));
+    assert(!seq_model_step_has_cart_plock(&step));
 
     seq_model_plock_t plock = {
         .domain = SEQ_MODEL_PLOCK_INTERNAL,
@@ -95,6 +97,26 @@ static void test_step_state_helpers(void) {
     };
     assert(seq_model_step_add_plock(&step, &plock));
     assert(seq_model_step_has_any_plock(&step));
+    assert(seq_model_step_has_seq_plock(&step));
+    assert(!seq_model_step_has_cart_plock(&step));
+    assert(!seq_model_step_is_automation_only(&step));
+
+    seq_model_plock_t cart = {
+        .domain = SEQ_MODEL_PLOCK_CART,
+        .voice_index = 0U,
+        .parameter_id = 1U,
+        .value = 32,
+        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
+    };
+    assert(seq_model_step_add_plock(&step, &cart));
+    assert(seq_model_step_has_cart_plock(&step));
+    assert(!seq_model_step_is_automation_only(&step));
+
+    seq_model_step_init(&step);
+    seq_model_step_make_automation_only(&step);
+    assert(seq_model_step_add_plock(&step, &cart));
+    assert(!seq_model_step_has_seq_plock(&step));
+    assert(seq_model_step_has_cart_plock(&step));
     assert(seq_model_step_is_automation_only(&step));
 }
 

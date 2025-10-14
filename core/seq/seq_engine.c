@@ -649,6 +649,19 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
         _seq_engine_schedule_plocks(engine, step, dispatch_time, step_end);
     }
 
+    // --- FIX: ordonner les évènements pour éviter qu'un NOTE OFF bloque les autres voix ---
+    if (note_event_count > 1U) {
+        for (size_t i = 1U; i < note_event_count; ++i) {
+            seq_engine_event_t tmp = note_events[i];
+            size_t j = i;
+            while ((j > 0U) && (note_events[j - 1U].scheduled_time > tmp.scheduled_time)) {
+                note_events[j] = note_events[j - 1U];
+                --j;
+            }
+            note_events[j] = tmp;
+        }
+    }
+
     for (size_t i = 0U; i < note_event_count; ++i) {
         _seq_engine_schedule_event(engine, &note_events[i]);
     }

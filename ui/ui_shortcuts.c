@@ -75,7 +75,8 @@ static bool _map_mute(const ui_input_event_t *evt,
     }
 
     if (ctx->mute_state == UI_MUTE_STATE_QUICK) {
-        if (_is_seq_pad(evt->btn_id)) {
+        if (_is_seq_pad(evt->btn_id) && evt->btn_pressed) {
+            // --- FIX: ne toggler la track qu'à l'appui pour obtenir un mute en latch ---
             ui_shortcut_action_t *act =
                 _push_action(res, UI_SHORTCUT_ACTION_TOGGLE_MUTE_TRACK);
             if (act) {
@@ -89,7 +90,8 @@ static bool _map_mute(const ui_input_event_t *evt,
             consumed = true;
         }
     } else if (ctx->mute_state == UI_MUTE_STATE_PMUTE) {
-        if (_is_seq_pad(evt->btn_id)) {
+        if (_is_seq_pad(evt->btn_id) && evt->btn_pressed) {
+            // --- FIX: PMUTE reste préparé après relâchement, on déclenche seulement sur l'appui ---
             ui_shortcut_action_t *act =
                 _push_action(res, UI_SHORTCUT_ACTION_PREPARE_PMUTE_TRACK);
             if (act) {

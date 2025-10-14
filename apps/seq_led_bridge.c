@@ -12,7 +12,6 @@
 #include "core/seq/seq_model.h"
 #include "seq_led_bridge.h"
 #include "ui_mute_backend.h"
-#include "midi.h"
 
 #ifdef BRICK_DEBUG_PLOCK
 #include "chprintf.h"
@@ -44,9 +43,6 @@
 #endif
 #ifndef SEQ_LED_BRIDGE_STEPS_PER_PAGE
 #define SEQ_LED_BRIDGE_STEPS_PER_PAGE 16U
-#endif
-#ifndef SEQ_LED_BRIDGE_PREVIEW_DURATION_MS
-#define SEQ_LED_BRIDGE_PREVIEW_DURATION_MS 30U
 #endif
 
 typedef struct {
@@ -289,7 +285,7 @@ static void _hold_sync_mask(uint16_t mask) {
             }
         } else {
             seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
-            if (slot->active && (slot->absolute_index != (_page_base(g.visible_page) + (uint16_t)local)))) {
+            if (slot->active && (slot->absolute_index != (_page_base(g.visible_page) + (uint16_t)local))) {
                 if (_hold_commit_slot(local)) {
                     mutated = true;
                 }
@@ -680,12 +676,14 @@ static void _rebuild_runtime_from_pattern(void) {
 
         const seq_model_step_t *src = &g.pattern.steps[absolute];
         const bool has_voice = seq_model_step_has_playable_voice(src);
-        const bool automation = seq_model_step_is_automation_only(src);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(src);
+        const bool has_cart_plock = seq_model_step_has_cart_plock(src);
+        const bool automation = (!has_voice) && !has_seq_plock && has_cart_plock;
         const uint8_t track = _first_active_voice(src);
         const bool muted = ui_mute_backend_is_muted(track);
 
-        dst->active = has_voice;
-        dst->recorded = has_voice;
+        dst->active = has_voice || has_seq_plock;
+        dst->recorded = has_voice || has_seq_plock || has_cart_plock;
         dst->param_only = automation;
         dst->automation = automation;
         dst->muted = muted;
@@ -838,8 +836,12 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
 
     bool mutated = false;
     if (on) {
-        seq_model_step_make_automation_only(step);
-        mutated = true;
+        const bool has_voice = seq_model_step_has_playable_voice(step);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(step);
+        if (!has_voice && !has_seq_plock) {
+            seq_model_step_make_automation_only(step);
+            mutated = true;
+        }
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
@@ -875,11 +877,7 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         }
         seq_model_gen_bump(&g.pattern.generation);
         _hold_refresh_if_active();
-        if (voice != NULL) {
-            midi_note_on(MIDI_DEST_BOTH, 0U, voice->note, voice->velocity);
-            chThdSleepMilliseconds(SEQ_LED_BRIDGE_PREVIEW_DURATION_MS);
-            midi_note_off(MIDI_DEST_BOTH, 0U, voice->note, 0U);
-        }
+        // --- FIX: suppression du step preview MIDI pour éviter les notes parasites ---
     }
     seq_led_bridge_publish();
 }
@@ -893,8 +891,12 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
 
     bool mutated = false;
     if (on) {
-        seq_model_step_make_automation_only(step);
-        mutated = true;
+        const bool has_voice = seq_model_step_has_playable_voice(step);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(step);
+        if (!has_voice && !has_seq_plock) {
+            seq_model_step_make_automation_only(step);
+            mutated = true;
+        }
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
@@ -924,12 +926,6 @@ void seq_led_bridge_on_stop(void) {
     seq_led_bridge_publish();
 }
 
-void seq_led_bridge_set_plock_mask(uint16_t mask) {
-    _hold_sync_mask(mask);
-    _hold_update(mask);
-    seq_led_bridge_publish();
-}
-
 void seq_led_bridge_plock_add(uint8_t i) {
     if (g.visible_page >= SEQ_MAX_PAGES || i >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         return;
@@ -947,12 +943,6 @@ void seq_led_bridge_plock_remove(uint8_t i) {
     uint16_t mask = g.page_hold_mask[g.visible_page] & (uint16_t)~(1U << i);
     _hold_sync_mask(mask);
     _hold_update(g.page_hold_mask[g.visible_page]);
-    seq_led_bridge_publish();
-}
-
-void seq_led_bridge_plock_clear(void) {
-    _hold_sync_mask(0U);
-    _hold_update(0U);
     seq_led_bridge_publish();
 }
 

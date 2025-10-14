@@ -377,10 +377,22 @@ void ui_on_encoder(int enc_index, int delta) {
         }
     }
 
+    const bool block_global_seq = hold_active &&
+                                  (hold_id >= SEQ_HOLD_PARAM_COUNT) &&
+                                  ((ps->dest_id & UI_DEST_MASK) != UI_DEST_CART);
+
     const int16_t original_value = pv->value;
 
     switch (ps->kind) {
     case UI_PARAM_CONT: {
+        if (block_global_seq) {
+            if (ctx != NULL) {
+                seq_led_bridge_begin_plock_preview(ctx->seq.held_mask);
+            }
+            ui_mark_dirty();
+            break;
+        }
+
         int step = (ps->meta.range.step > 0) ? ps->meta.range.step : 1;
         int base = (int)pv->value;
         if (hold_param != NULL && hold_param->available && !hold_param->mixed) {
@@ -407,6 +419,14 @@ void ui_on_encoder(int enc_index, int delta) {
         break;
     }
     case UI_PARAM_ENUM: {
+        if (block_global_seq) {
+            if (ctx != NULL) {
+                seq_led_bridge_begin_plock_preview(ctx->seq.held_mask);
+            }
+            ui_mark_dirty();
+            break;
+        }
+
         int count = ps->meta.en.count;
         if (count <= 0) break;
 
@@ -446,6 +466,13 @@ void ui_on_encoder(int enc_index, int delta) {
     }
     case UI_PARAM_BOOL: {
         if (delta == 0) break;
+        if (block_global_seq) {
+            if (ctx != NULL) {
+                seq_led_bridge_begin_plock_preview(ctx->seq.held_mask);
+            }
+            ui_mark_dirty();
+            break;
+        }
         uint8_t new_bit = (delta > 0) ? 1 : 0;
 
         if (ps->is_bitwise) {

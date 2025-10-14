@@ -59,7 +59,7 @@ static void sink_note_off(uint8_t ch, uint8_t note, uint8_t vel) {
 
 static void sink_all_notes_off(uint8_t ch) {
   (void)ch;
-  ui_backend_all_notes_off();
+  /* NOTE OFF events are flushed individually; avoid global All Notes Off. */
 }
 
 static ui_keyboard_note_sink_t g_sink = {
@@ -126,7 +126,7 @@ void ui_keyboard_bridge_init(void) {
   ui_keyboard_app_set_chord_override(override);
 
   kbd_input_mapper_init(omni); /* état initial */
-  ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+  // --- FIX: ne pas écraser le mode LED SEQ au démarrage (on laisse le bridge LED décider) ---
   ui_led_backend_set_keyboard_omnichord(omni);
 }
 

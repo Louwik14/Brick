@@ -106,6 +106,11 @@ void seq_engine_runner_on_transport_stop(void) {
             _runner_plock_release(&s_plock_state[i]);
         }
     }
+
+    // --- FIX: STOP doit forcer un All Notes Off immédiat sur tous les canaux actifs ---
+    for (uint8_t ch = 0U; ch < 16U; ++ch) {
+        midi_all_notes_off(MIDI_DEST_BOTH, ch);
+    }
 }
 
 void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
