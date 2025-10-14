@@ -302,7 +302,8 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         /* --- Label param centré --- */
         int tw_label = text_width_px(&FONT_4X6, ps->label);
         int x_label = x + (frame_w - tw_label) / 2;
-        if (hold_param != NULL) {
+        const bool hold_highlight = (hold_param != NULL) && hold_param->plocked;
+        if (hold_highlight) {
             draw_filled_rect(x_label - 1, y + 2, tw_label + 2, FONT_4X6.height + 2);
             display_draw_text_inverted(&FONT_4X6, x_label, y + 3, ps->label);
         } else {

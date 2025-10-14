@@ -7,7 +7,7 @@
  * @details
  * - Playhead **absolu** (0..total_span-1), n’auto-change pas la page visible.
  * - Affichage du playhead en LED_MODE_ON (un pas "plein", sans clignotement).
- * - Priorité d’affichage : playhead(blanc) > param_only(bleu) > active(vert) > off.
+ * - Priorité d’affichage : playhead (blanc) > automation (cyan) > actif (couleur piste) > off.
  * - Aucune dépendance à clock_manager (ticks injectés par ui_led_backend).
  * - IMPORTANT : `plock_selected_mask` est **UI-only**, il ne produit **aucune** couleur (plus de violet).
  */
@@ -43,6 +43,20 @@ static inline int _led_index_for_step(uint8_t s){
 }
 static inline void _set_led_step(uint8_t s, led_color_t col, led_mode_t mode){
     drv_leds_addr_set(_led_index_for_step(s), col, mode);
+}
+
+static inline led_color_t _track_color(uint8_t track_index) {
+    switch (track_index & 0x3U) {
+        case 0U:
+        default:
+            return UI_LED_COL_CART1_ACTIVE;
+        case 1U:
+            return UI_LED_COL_CART2_ACTIVE;
+        case 2U:
+            return UI_LED_COL_CART3_ACTIVE;
+        case 3U:
+            return UI_LED_COL_CART4_ACTIVE;
+    }
 }
 
 /* ============================== API ===================================== */
@@ -94,13 +108,13 @@ static inline void _render_one(uint8_t s, bool is_playing_here){
         return;
     }
 
-    /* Priorité: param_only (bleu) > active (vert) > off */
-    if (st->param_only) {
-        _set_led_step(s, UI_LED_COL_SEQ_PARAM, LED_MODE_ON); /* BLEU */
+    if (st->automation) {
+        _set_led_step(s, UI_LED_COL_SEQ_AUTOMATION, LED_MODE_ON);
         return;
     }
     if (st->active) {
-        _set_led_step(s, UI_LED_COL_SEQ_ACTIVE, LED_MODE_ON); /* VERT */
+        const led_color_t col = st->muted ? UI_LED_COL_MUTE_RED : _track_color(st->track_index);
+        _set_led_step(s, col, LED_MODE_ON);
         return;
     }
     _set_led_step(s, UI_LED_COL_OFF, LED_MODE_OFF);

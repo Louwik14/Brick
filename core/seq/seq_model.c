@@ -35,14 +35,16 @@ bool seq_model_gen_has_changed(const seq_model_gen_t *lhs, const seq_model_gen_t
 }
 
 void seq_model_voice_init(seq_model_voice_t *voice, bool primary) {
+    (void)primary;
+
     if (voice == NULL) {
         return;
     }
 
-    voice->state = primary ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
-    voice->note = 60U;  /* C4 default. */
-    voice->velocity = primary ? SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY : SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY;
-    voice->length = 16U;
+    voice->state = SEQ_MODEL_VOICE_DISABLED;
+    voice->note = SEQ_MODEL_DEFAULT_NOTE;
+    voice->velocity = SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY;
+    voice->length = 1U;
     voice->micro_offset = 0;
 }
 
@@ -199,6 +201,18 @@ bool seq_model_step_has_active_voice(const seq_model_step_t *step) {
     }
 
     return false;
+}
+
+bool seq_model_step_is_automation_only(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    if (step->plock_count == 0U) {
+        return false;
+    }
+
+    return !seq_model_step_has_active_voice(step);
 }
 
 void seq_model_step_make_automate(seq_model_step_t *step) {
