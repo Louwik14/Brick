@@ -74,6 +74,14 @@ typedef struct {
     systime_t clock_tick_duration;           /**< Duration of a single MIDI tick. */
     uint32_t clock_step_index;               /**< Absolute step index (monotonic). */
     size_t clock_pattern_step;               /**< Step index within the pattern. */
+    struct {
+        bool active;                         /**< True when a note-on has been captured. */
+        size_t step_index;                   /**< Step index that received the note-on. */
+        systime_t start_time;                /**< Scheduled playback time of the note-on. */
+        systime_t step_duration;             /**< Step duration snapshot for the note. */
+        uint8_t voice_slot;                  /**< Voice slot used to store the note. */
+        uint8_t note;                        /**< MIDI note tied to the slot. */
+    } voices[SEQ_MODEL_VOICES_PER_STEP];
 } seq_live_capture_t;
 
 /** Initialise the live capture context. */

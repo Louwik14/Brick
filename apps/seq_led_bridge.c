@@ -145,6 +145,66 @@ static void _hold_cart_reset(void) {
     g_hold_cart_param_count = 0U;
 }
 
+static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, uint8_t fallback) {
+    if (step == NULL) {
+        return fallback;
+    }
+
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        const seq_model_plock_t *plk = &step->plocks[i];
+        if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
+            (plk->internal_param == SEQ_MODEL_PLOCK_PARAM_NOTE) &&
+            (plk->voice_index == voice)) {
+            int32_t value = plk->value;
+            if (value < 0) {
+                value = 0;
+            } else if (value > 127) {
+                value = 127;
+            }
+            return (uint8_t)value;
+        }
+    }
+
+    return fallback;
+}
+
+static bool _ensure_primary_voice_for_seq(seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    seq_model_voice_t voice = step->voices[0];
+    bool mutated = false;
+
+    uint8_t fallback = voice.note;
+    if ((voice.state != SEQ_MODEL_VOICE_ENABLED) || (voice.velocity == 0U)) {
+        fallback = (g.last_note <= 127U) ? g.last_note : 60U;
+    }
+    uint8_t desired_note = _resolve_step_note(step, 0U, fallback);
+    if (voice.note != desired_note) {
+        voice.note = desired_note;
+        mutated = true;
+    }
+
+    if (voice.velocity == 0U) {
+        voice.velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+        mutated = true;
+    }
+    if (voice.length == 0U) {
+        voice.length = 1U;
+        mutated = true;
+    }
+    if (voice.state != SEQ_MODEL_VOICE_ENABLED) {
+        voice.state = SEQ_MODEL_VOICE_ENABLED;
+        mutated = true;
+    }
+
+    if (mutated) {
+        step->voices[0] = voice;
+    }
+    return mutated;
+}
+
 static bool _hold_commit_slot(uint8_t local) {
     if (local >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         return false;
@@ -926,12 +986,14 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
         bool step_mutated = false;
-        if (!had_voice && !had_plock) {
-            seq_model_step_make_automation_only(step);
-            step_mutated = true;
+        if (!had_voice) {
+            if (!had_plock) {
+                seq_model_step_make_neutral(step);
+                step_mutated = true;
+            } else if (_ensure_primary_voice_for_seq(step)) {
+                step_mutated = true;
+            }
         }
-
-        const bool automation = seq_model_step_is_automation_only(step);
 
         switch (param_id) {
             case SEQ_HOLD_PARAM_ALL_TRANSP: {
@@ -990,7 +1052,7 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                             step_mutated = true;
                         }
                         step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
-                        if (!automation && (voice == 0U) &&
+                        if ((voice == 0U) &&
                             (voice_state.state == SEQ_MODEL_VOICE_ENABLED) &&
                             (voice_state.velocity > 0U)) {
                             g.last_note = voice_state.note;
@@ -999,7 +1061,7 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                     }
                     case 1: { /* Velocity */
                         int32_t v = _clamp_i32(value, 0, 127);
-                        uint8_t applied_velocity = automation ? 0U : (uint8_t)v;
+                        uint8_t applied_velocity = (uint8_t)v;
                         if (voice_state.velocity != applied_velocity) {
                             voice_state.velocity = applied_velocity;
                             step_mutated = true;
