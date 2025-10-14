@@ -28,6 +28,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "ch.h"            /* systime_t */
+#include "ui_input.h"      /* ui_input_event_t */
+#include "ui_overlay.h"    /* ui_custom_mode_t, ui_overlay_id_t */
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,8 +53,89 @@ extern "C" {
 /** @} */
 
 /* ============================================================
+ * Contexte mode UI (état centralisé partagé)
+ * ============================================================ */
+
+/**
+ * @brief État MUTE courant.
+ */
+typedef enum {
+    UI_MUTE_STATE_OFF = 0,   /**< Aucun mute actif. */
+    UI_MUTE_STATE_QUICK,     /**< Mute rapide (SHIFT + + maintenu). */
+    UI_MUTE_STATE_PMUTE      /**< Préparation de mute (PMUTE). */
+} ui_mute_state_t;
+
+/**
+ * @brief État transport global.
+ */
+typedef struct {
+    bool playing;            /**< Transport en lecture. */
+    bool recording;          /**< Mode enregistrement actif. */
+} ui_transport_state_t;
+
+/**
+ * @brief État seq (pages + steps maintenus).
+ */
+typedef struct {
+    uint8_t  page_index;                     /**< Page visible (0..N-1). */
+    uint8_t  page_count;                     /**< Nombre total de pages. */
+    uint16_t held_mask;                      /**< Steps maintenus (bits). */
+    bool     held_flags[16];                 /**< Drapeaux runtime pour chaque step. */
+    systime_t hold_start[16];                /**< Timestamp d'appui (pour long-press). */
+} ui_seq_runtime_t;
+
+/**
+ * @brief État Keyboard (mode custom latched).
+ */
+typedef struct {
+    bool  active;            /**< Mode Keyboard actif (overlay visible ou latched). */
+    bool  overlay_visible;   /**< L'overlay Keyboard est affiché. */
+    int8_t octave;           /**< Décalage d'octave courant. */
+} ui_keyboard_state_t;
+
+/**
+ * @brief Contexte runtime partagé entre shortcuts/backend.
+ *
+ * Contient :
+ * - mode custom actif (`custom_mode`),
+ * - overlay courant (`overlay_id`) + sous-mode (0 = MODE, 1 = SETUP),
+ * - état MUTE, transport, Keyboard,
+ * - pages SEQ visibles et steps maintenus.
+ */
+typedef struct {
+    ui_custom_mode_t    custom_mode;      /**< Dernier mode custom actif. */
+    ui_overlay_id_t     overlay_id;       /**< Overlay affiché (ou NONE). */
+    uint8_t             overlay_submode;  /**< 0 = MODE, 1 = SETUP. */
+    bool                overlay_active;   /**< Overlay visible ? */
+
+    ui_mute_state_t     mute_state;       /**< Machine MUTE (OFF/QUICK/PMUTE). */
+    bool                mute_plus_down;   /**< Bouton PLUS maintenu ? */
+    bool                mute_shift_latched; /**< SHIFT actif lors du dernier event. */
+
+    ui_transport_state_t transport;       /**< Transport global. */
+    ui_seq_runtime_t     seq;             /**< Runtime SEQ (page + holds). */
+    ui_keyboard_state_t  keyboard;        /**< Runtime Keyboard. */
+} ui_mode_context_t;
+
+/* ============================================================
  * API publique
  * ============================================================ */
+
+/**
+ * @brief Initialise le contexte mode + tables runtime.
+ */
+void ui_backend_init_runtime(void);
+
+/**
+ * @brief Retourne le contexte runtime courant (lecture seule).
+ */
+const ui_mode_context_t* ui_backend_get_mode_context(void);
+
+/**
+ * @brief Traite un évènement d'entrée complet (bouton/encodeur).
+ * @param evt Évènement à traiter (doit être non NULL).
+ */
+void ui_backend_process_input(const ui_input_event_t* evt);
 
 /**
  * @brief Notifie un changement de paramètre issu de l’UI.

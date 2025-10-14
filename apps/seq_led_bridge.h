@@ -48,6 +48,16 @@ void seq_led_bridge_page_next(void);
 void seq_led_bridge_page_prev(void);
 void seq_led_bridge_set_visible_page(uint8_t page);
 
+/**
+ * @brief Page visible courante (0..N-1).
+ */
+uint8_t seq_led_bridge_get_visible_page(void);
+
+/**
+ * @brief Nombre maximum de pages configuré.
+ */
+uint8_t seq_led_bridge_get_max_pages(void);
+
 /* Edition simple */
 void seq_led_bridge_quick_toggle_step(uint8_t i);
 void seq_led_bridge_set_step_param_only(uint8_t i, bool on);

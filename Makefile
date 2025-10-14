@@ -10,8 +10,21 @@ endif
 
 # C specific options here (added to USE_OPT).
 ifeq ($(USE_COPT),)
-  USE_COPT = 
+  USE_COPT =
 endif
+
+# Optional warnings control (default: enabled).
+ifeq ($(USE_WARNINGS),)
+  USE_WARNINGS = yes
+endif
+
+ifeq ($(USE_WARNINGS),yes)
+  WARNINGS_FLAGS = -Wall -Wextra
+else
+  WARNINGS_FLAGS =
+endif
+
+USE_COPT += $(WARNINGS_FLAGS)
 
 # C++ specific options here (added to USE_OPT).
 ifeq ($(USE_CPPOPT),)
@@ -95,6 +108,7 @@ BUILDDIR := ./build
 DEPDIR   := ./.dep
 
 # Licensing files.
+ifneq ($(filter lint-cppcheck,$(MAKECMDGOALS)),lint-cppcheck)
 include $(CHIBIOS)/os/license/license.mk
 # Startup files.
 include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.mk
@@ -113,6 +127,7 @@ include $(CHIBIOS)/tools/mk/autobuild.mk
 include $(CHIBIOS)/os/test/test.mk
 include $(CHIBIOS)/test/rt/rt_test.mk
 include $(CHIBIOS)/test/oslib/oslib_test.mk
+endif
 
 # Define linker script file here
 LDSCRIPT= $(STARTUPLD)/STM32F429xI.ld
@@ -193,8 +208,19 @@ ULIBS = -lm
 #
 
 RULESPATH = $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk
+
+ifneq ($(filter lint-cppcheck,$(MAKECMDGOALS)),lint-cppcheck)
 include $(RULESPATH)/arm-none-eabi.mk
 include $(RULESPATH)/rules.mk
+endif
+
+CPPCHECK ?= cppcheck
+CPPCHECK_FLAGS ?= --enable=warning,style,performance --std=c11
+
+.PHONY: lint-cppcheck
+lint-cppcheck:
+	@echo "Running cppcheck on core/ and ui/"
+	$(CPPCHECK) $(CPPCHECK_FLAGS) core ui
 
 #
 # Common rules
