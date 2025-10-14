@@ -151,7 +151,7 @@ static void format_note_label(int value, char *buf, size_t len) {
     } else if (value > 127) {
         value = 127;
     }
-    int octave = (value / 12) - 2;
+    int octave = (value / 12) - 1;
     int pc = value % 12;
     (void)snprintf(buf, len, "%s%d", names[pc], octave);
 }
@@ -296,13 +296,23 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         if (!ps->label) continue;
 
         int hold_idx = hold_param_index_for_render(menu, st->cur_page, (uint8_t)i);
+        seq_led_bridge_hold_param_t cart_hold_param;
         const seq_led_bridge_hold_param_t *hold_param =
             (hold_active && hold_idx >= 0) ? &hold_view->params[hold_idx] : NULL;
+        if (hold_active && hold_idx < 0 && ((ps->dest_id & UI_DEST_MASK) == UI_DEST_CART)) {
+            if (seq_led_bridge_hold_get_cart_param(UI_DEST_ID(ps->dest_id), &cart_hold_param)) {
+                hold_param = &cart_hold_param;
+            }
+        }
+        const bool hold_plocked = (hold_param != NULL) && hold_param->plocked;
+        const bool hold_available = (hold_param != NULL) && hold_param->available;
+        const bool hold_mixed = hold_available && hold_param->mixed;
+        int32_t hold_value = hold_available ? hold_param->value : 0;
 
         /* --- Label param centré --- */
         int tw_label = text_width_px(&FONT_4X6, ps->label);
         int x_label = x + (frame_w - tw_label) / 2;
-        if (hold_param != NULL) {
+        if (hold_plocked) {
             draw_filled_rect(x_label - 1, y + 2, tw_label + 2, FONT_4X6.height + 2);
             display_draw_text_inverted(&FONT_4X6, x_label, y + 3, ps->label);
         } else {
@@ -317,15 +327,8 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         int  knob_value = (int)pv->value;   /* valeur “numérique” pour knob fallback */
         bool bool_on    = (pv->value != 0);
 
-        bool hold_available = false;
-        int32_t hold_value = 0;
-        if (hold_param != NULL) {
-            hold_available = hold_param->available && !hold_param->mixed;
-            hold_value = hold_param->value;
-        }
-
-        if (hold_param != NULL) {
-            if (!hold_available) {
+        if (hold_available) {
+            if (hold_mixed) {
                 snprintf(valbuf, sizeof(valbuf), "--");
             } else {
                 if (ps->kind == UI_PARAM_ENUM) {

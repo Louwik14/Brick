@@ -49,9 +49,14 @@ static kbd_state_t g;
 
 static inline void sink_note_on(uint8_t n){ if (g.sink.note_on)  g.sink.note_on(g.sink.midi_channel, n, g.sink.velocity); }
 static inline void sink_note_off(uint8_t n){if (g.sink.note_off) g.sink.note_off(g.sink.midi_channel, n, 0); }
-static void sink_all_notes_off_internal(void){
+
+static void flush_sounding_notes(void){
   for (uint8_t i=0;i<g.sounding_count;++i) sink_note_off(g.sounding[i]);
   g.sounding_count = 0;
+}
+
+static void sink_all_notes_off_internal(void){
+  flush_sounding_notes();
   if (g.sink.all_notes_off) g.sink.all_notes_off(g.sink.midi_channel);
 }
 
@@ -233,7 +238,7 @@ void ui_keyboard_app_set_params(uint8_t root_midi, kbd_scale_t scale, bool omnic
   g.ui_scale     = scale;
   g.omnichord    = omnichord;
   if (omni_changed){
-    sink_all_notes_off_internal();
+    flush_sounding_notes();
     g.chord_mask = 0;
     g.note_mask  = 0;
     ui_led_backend_set_keyboard_omnichord(g.omnichord);
@@ -300,7 +305,7 @@ void ui_keyboard_app_note_button(uint8_t note_slot, bool pressed){
     const uint16_t bit = (uint16_t)(1u << (note_slot & 15u));
     if (pressed) g.note_mask |= bit; else g.note_mask &= (uint16_t)(~bit);
 
-    if (g.note_mask == 0){ sink_all_notes_off_internal(); g.active.valid=false; g.active.interval_count=0; g.active.root_midi=0; return; }
+    if (g.note_mask == 0){ flush_sounding_notes(); g.active.valid=false; g.active.interval_count=0; g.active.root_midi=0; return; }
 
     uint8_t notes[KBD_MAX_ACTIVE_NOTES], cnt; ui_keyboard_active_chord_t na;
     build_current_notes(notes,&cnt,&na);
@@ -313,7 +318,7 @@ void ui_keyboard_app_note_button(uint8_t note_slot, bool pressed){
   const uint16_t bit = (uint16_t)(1u << (note_slot & 7u));
   if (pressed) g.note_mask |= bit; else g.note_mask &= (uint16_t)(~bit);
 
-  if ((g.note_mask & 0x00FFu) == 0){ sink_all_notes_off_internal(); g.active.valid=false; g.active.interval_count=0; g.active.root_midi=0; return; }
+  if ((g.note_mask & 0x00FFu) == 0){ flush_sounding_notes(); g.active.valid=false; g.active.interval_count=0; g.active.root_midi=0; return; }
 
   uint8_t notes[KBD_MAX_ACTIVE_NOTES], cnt; ui_keyboard_active_chord_t na;
   build_current_notes(notes,&cnt,&na);

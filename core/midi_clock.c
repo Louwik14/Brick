@@ -39,6 +39,7 @@ static binary_semaphore_t clk_sem;
 static float     s_bpm            = 120.0f;
 static uint32_t  s_interval_ticks = 0;
 static bool      s_running        = false;
+static bool      s_initialized    = false;
 
 /* === Configuration du GPT === */
 static GPTConfig gpt3cfg = {
@@ -101,6 +102,10 @@ void midi_clock_register_tick_callback(midi_tick_cb_t cb) { s_tick_cb = cb; }
  * @brief Initialise le générateur MIDI Clock (thread + GPT3).
  */
 void midi_clock_init(void) {
+  if (s_initialized) {
+    return;
+  }
+  s_initialized = true;
   chBSemObjectInit(&clk_sem, true);
   (void)chBSemWaitTimeout(&clk_sem, TIME_IMMEDIATE); /* consomme le token initial */
   chThdCreateStatic(waMidiClk, sizeof(waMidiClk), NORMALPRIO + 3, thMidiClk, NULL);

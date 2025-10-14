@@ -55,6 +55,9 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                                       int32_t value,
                                       uint16_t held_mask);
 void seq_led_bridge_end_plock_preview(void);
+void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
+                                     int32_t value,
+                                     uint16_t held_mask);
 
 typedef struct {
     bool available;   /**< True if at least one held step exposed a value. */
@@ -71,6 +74,8 @@ typedef struct {
 } seq_led_bridge_hold_view_t;
 
 const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void);
+bool seq_led_bridge_hold_get_cart_param(uint16_t parameter_id,
+                                        seq_led_bridge_hold_param_t *out);
 
 /* Helpers (exposés si besoin moteur) */
 void seq_led_bridge_step_clear(uint8_t i);

@@ -30,16 +30,17 @@ static void test_default_step_initialisation(void) {
 
     seq_model_step_init(&step);
     assert(step.plock_count == 0U);
+    assert(!seq_model_step_has_playable_voice(&step));
+    assert(!seq_model_step_is_automation_only(&step));
 
     for (i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
         const seq_model_voice_t *voice = seq_model_step_get_voice(&step, i);
         assert(voice != NULL);
 
+        assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
         if (i == 0U) {
-            assert(voice->state == SEQ_MODEL_VOICE_ENABLED);
             assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY);
         } else {
-            assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
             assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY);
         }
 
@@ -54,6 +55,47 @@ static void test_default_step_initialisation(void) {
     assert(offsets->velocity == 0);
     assert(offsets->length == 0);
     assert(offsets->micro == 0);
+}
+
+static void test_step_state_helpers(void) {
+    seq_model_step_t step;
+    seq_model_step_init(&step);
+
+    assert(!seq_model_step_has_playable_voice(&step));
+    assert(!seq_model_step_has_any_plock(&step));
+    assert(!seq_model_step_is_automation_only(&step));
+
+    seq_model_step_make_neutral(&step);
+    assert(seq_model_step_has_playable_voice(&step));
+    assert(!seq_model_step_is_automation_only(&step));
+
+    const seq_model_voice_t *primary = seq_model_step_get_voice(&step, 0U);
+    assert(primary != NULL);
+    assert(primary->velocity == SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY);
+    assert(primary->length == 1U);
+    assert(primary->micro_offset == 0);
+
+    for (size_t v = 1U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(&step, v);
+        assert(voice != NULL);
+        assert(voice->velocity == 0U);
+        assert(voice->length == 1U);
+    }
+
+    seq_model_step_make_automation_only(&step);
+    assert(!seq_model_step_has_playable_voice(&step));
+    assert(!seq_model_step_is_automation_only(&step));
+
+    seq_model_plock_t plock = {
+        .domain = SEQ_MODEL_PLOCK_INTERNAL,
+        .voice_index = 0U,
+        .parameter_id = 0U,
+        .value = 64,
+        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
+    };
+    assert(seq_model_step_add_plock(&step, &plock));
+    assert(seq_model_step_has_any_plock(&step));
+    assert(seq_model_step_is_automation_only(&step));
 }
 
 static void test_plock_capacity_guard(void) {
@@ -115,6 +157,7 @@ static void test_pattern_config_mutations(void) {
 int main(void) {
     test_generation_helpers();
     test_default_step_initialisation();
+    test_step_state_helpers();
     test_plock_capacity_guard();
     test_pattern_config_mutations();
 
