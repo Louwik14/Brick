@@ -126,7 +126,7 @@ void ui_keyboard_bridge_init(void) {
   ui_keyboard_app_set_chord_override(override);
 
   kbd_input_mapper_init(omni); /* état initial */
-  ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+  // --- FIX: ne pas écraser le mode LED SEQ au démarrage (on laisse le bridge LED décider) ---
   ui_led_backend_set_keyboard_omnichord(omni);
 }
 

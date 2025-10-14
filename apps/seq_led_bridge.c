@@ -12,7 +12,6 @@
 #include "core/seq/seq_model.h"
 #include "seq_led_bridge.h"
 #include "ui_mute_backend.h"
-#include "midi.h"
 
 #ifdef BRICK_DEBUG_PLOCK
 #include "chprintf.h"
@@ -44,9 +43,6 @@
 #endif
 #ifndef SEQ_LED_BRIDGE_STEPS_PER_PAGE
 #define SEQ_LED_BRIDGE_STEPS_PER_PAGE 16U
-#endif
-#ifndef SEQ_LED_BRIDGE_PREVIEW_DURATION_MS
-#define SEQ_LED_BRIDGE_PREVIEW_DURATION_MS 30U
 #endif
 
 typedef struct {
@@ -881,11 +877,7 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         }
         seq_model_gen_bump(&g.pattern.generation);
         _hold_refresh_if_active();
-        if (voice != NULL) {
-            midi_note_on(MIDI_DEST_BOTH, 0U, voice->note, voice->velocity);
-            chThdSleepMilliseconds(SEQ_LED_BRIDGE_PREVIEW_DURATION_MS);
-            midi_note_off(MIDI_DEST_BOTH, 0U, voice->note, 0U);
-        }
+        // --- FIX: suppression du step preview MIDI pour éviter les notes parasites ---
     }
     seq_led_bridge_publish();
 }
