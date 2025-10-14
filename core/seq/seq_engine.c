@@ -8,6 +8,23 @@
 #include <limits.h>
 #include <string.h>
 
+#ifdef BRICK_DEBUG_PLOCK
+#include "chprintf.h"
+#ifndef BRICK_DEBUG_PLOCK_STREAM
+#define BRICK_DEBUG_PLOCK_STREAM ((BaseSequentialStream *)NULL)
+#endif
+#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
+    do { \
+        if (BRICK_DEBUG_PLOCK_STREAM != NULL) { \
+            chprintf(BRICK_DEBUG_PLOCK_STREAM, "[PLOCK][%s] param=%u value=%ld t=%lu\r\n", \
+                     (tag), (unsigned)(param), (long)(value), (unsigned long)(time)); \
+        } \
+    } while (0)
+#else
+#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
+    do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
+#endif
+
 #define SEQ_ENGINE_PLAYER_STACK_SIZE   768U
 #define SEQ_ENGINE_MICRO_MAX           12
 #define SEQ_ENGINE_MICRO_DIVISOR       24
@@ -29,7 +46,8 @@ static int64_t _seq_engine_micro_to_delta(systime_t step_duration, int micro);
 static systime_t _seq_engine_saturate_time(int64_t value);
 static void _seq_engine_schedule_plocks(seq_engine_t *engine,
                                         const seq_model_step_t *step,
-                                        systime_t dispatch_time);
+                                        systime_t apply_time,
+                                        systime_t restore_time);
 static void _seq_engine_handle_step(seq_engine_t *engine,
                                     const seq_model_step_t *step,
                                     const clock_step_info_t *info,
@@ -463,7 +481,8 @@ static systime_t _seq_engine_saturate_time(int64_t value) {
 
 static void _seq_engine_schedule_plocks(seq_engine_t *engine,
                                         const seq_model_step_t *step,
-                                        systime_t dispatch_time) {
+                                        systime_t apply_time,
+                                        systime_t restore_time) {
     if ((engine == NULL) || (step == NULL)) {
         return;
     }
@@ -476,11 +495,22 @@ static void _seq_engine_schedule_plocks(seq_engine_t *engine,
         if (_seq_engine_is_track_muted(engine, plock->voice_index)) {
             continue;
         }
+
         seq_engine_event_t ev;
         memset(&ev, 0, sizeof(ev));
         ev.type = SEQ_ENGINE_EVENT_PLOCK;
-        ev.scheduled_time = dispatch_time;
+        ev.scheduled_time = apply_time;
         ev.data.plock.plock = *plock;
+        ev.data.plock.action = SEQ_ENGINE_PLOCK_APPLY;
+        BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_PLOCK", plock->parameter_id, plock->value, apply_time);
+        _seq_engine_schedule_event(engine, &ev);
+
+        memset(&ev, 0, sizeof(ev));
+        ev.type = SEQ_ENGINE_EVENT_PLOCK;
+        ev.scheduled_time = restore_time;
+        ev.data.plock.plock = *plock;
+        ev.data.plock.action = SEQ_ENGINE_PLOCK_RESTORE;
+        BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_PLOCK_RESTORE", plock->parameter_id, plock->value, restore_time);
         _seq_engine_schedule_event(engine, &ev);
     }
 }
@@ -507,9 +537,12 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
     const seq_model_pattern_config_t *cfg = (pattern != NULL) ? &pattern->config : NULL;
     const seq_model_step_offsets_t *offsets = &step->offsets;
 
-    systime_t step_start = info->now;
-    systime_t step_duration = (info->step_st != 0U) ? info->step_st : 1U;
+    const systime_t step_start = info->now;
+    const systime_t step_duration = (info->step_st != 0U) ? info->step_st : 1U;
+    const systime_t step_end = _seq_engine_saturate_time((int64_t)step_start + (int64_t)step_duration);
 
+    seq_engine_event_t note_events[SEQ_MODEL_VOICES_PER_STEP * 2U];
+    size_t note_event_count = 0U;
     systime_t earliest_on = step_start;
     bool any_voice_scheduled = false;
 
@@ -578,14 +611,22 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
             ev.data.note_on.voice = voice_index;
             ev.data.note_on.note = note;
             ev.data.note_on.velocity = (uint8_t)velocity;
-            _seq_engine_schedule_event(engine, &ev);
+            note_events[note_event_count++] = ev;
+            BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_NOTE_ON",
+                                  (uint16_t)(((uint16_t)voice_index << 8) | note),
+                                  velocity,
+                                  note_on_time);
 
             memset(&ev, 0, sizeof(ev));
             ev.type = SEQ_ENGINE_EVENT_NOTE_OFF;
             ev.scheduled_time = note_off_time;
             ev.data.note_off.voice = voice_index;
             ev.data.note_off.note = note;
-            _seq_engine_schedule_event(engine, &ev);
+            note_events[note_event_count++] = ev;
+            BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_NOTE_OFF",
+                                  (uint16_t)(((uint16_t)voice_index << 8) | note),
+                                  0,
+                                  note_off_time);
 
             any_voice_scheduled = true;
             if (note_on_time < earliest_on) {
@@ -605,6 +646,10 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
                 }
             }
         }
-        _seq_engine_schedule_plocks(engine, step, dispatch_time);
+        _seq_engine_schedule_plocks(engine, step, dispatch_time, step_end);
+    }
+
+    for (size_t i = 0U; i < note_event_count; ++i) {
+        _seq_engine_schedule_event(engine, &note_events[i]);
     }
 }

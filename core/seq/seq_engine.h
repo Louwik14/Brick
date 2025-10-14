@@ -29,6 +29,12 @@ typedef enum {
     SEQ_ENGINE_EVENT_PLOCK         /**< Dispatch a parameter lock. */
 } seq_engine_event_type_t;
 
+/** Describes how a parameter lock should be applied by the runner. */
+typedef enum {
+    SEQ_ENGINE_PLOCK_APPLY = 0,  /**< Apply the locked value. */
+    SEQ_ENGINE_PLOCK_RESTORE     /**< Restore the pre-step value. */
+} seq_engine_plock_action_t;
+
 /** NOTE ON payload describing a voice activation. */
 typedef struct {
     uint8_t voice;       /**< Voice index associated with the NOTE ON. */
@@ -44,7 +50,8 @@ typedef struct {
 
 /** Parameter lock payload bridging to the model definition. */
 typedef struct {
-    seq_model_plock_t plock; /**< Parameter lock description. */
+    seq_model_plock_t plock;      /**< Parameter lock description. */
+    seq_engine_plock_action_t action; /**< Apply or restore directive. */
 } seq_engine_plock_t;
 
 /** Scheduled event description consumed by the player. */

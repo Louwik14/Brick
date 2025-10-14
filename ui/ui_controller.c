@@ -73,6 +73,27 @@ static bool ui_menu_ptr_belongs_to_spec(const ui_cart_spec_t* spec,
     return (ptr >= base) && (ptr < end);
 }
 
+static bool _ui_controller_map_hold_param(const ui_menu_spec_t *menu,
+                                          uint8_t page,
+                                          uint8_t param_idx,
+                                          seq_hold_param_id_t *out) {
+    if (out == NULL || menu == NULL || menu->name == NULL) {
+        return false;
+    }
+    if (strcmp(menu->name, "SEQ") != 0) {
+        return false;
+    }
+    if (page == 0U && param_idx < 4U) {
+        *out = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_ALL_TRANSP + param_idx);
+        return true;
+    }
+    if (page >= 1U && page <= 4U && param_idx < 4U) {
+        *out = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_V1_NOTE + ((page - 1U) * 4U) + param_idx);
+        return true;
+    }
+    return false;
+}
+
 static int ui_menu_index_in_spec(const ui_cart_spec_t* spec,
                                  const ui_menu_spec_t* ptr) {
     if (!ui_menu_ptr_belongs_to_spec(spec, ptr)) return -1;
@@ -338,15 +359,35 @@ void ui_on_encoder(int enc_index, int delta) {
                                .params[enc_index];
     if (!ps->label) return;
 
+    const ui_mode_context_t *ctx = ui_backend_get_mode_context();
+    const bool hold_active = (ctx != NULL) && (ctx->seq.held_mask != 0U);
+    const seq_led_bridge_hold_view_t *hold_view = hold_active ? seq_led_bridge_get_hold_view() : NULL;
+    const seq_led_bridge_hold_param_t *hold_param = NULL;
+    seq_hold_param_id_t hold_id = SEQ_HOLD_PARAM_COUNT;
+    if (hold_active && hold_view != NULL) {
+        if (_ui_controller_map_hold_param(menu, (uint8_t)g_ui.cur_page, (uint8_t)enc_index, &hold_id)) {
+            hold_param = &hold_view->params[hold_id];
+        }
+    }
+
+    const int16_t original_value = pv->value;
+
     switch (ps->kind) {
     case UI_PARAM_CONT: {
         int step = (ps->meta.range.step > 0) ? ps->meta.range.step : 1;
-        int v = (int)pv->value + delta * step;
+        int base = (int)pv->value;
+        if (hold_param != NULL && hold_param->available && !hold_param->mixed) {
+            base = (int)hold_param->value;
+        }
+        int v = base + delta * step;
         v = clampi(v, ps->meta.range.min, ps->meta.range.max);
         pv->value = (int16_t)v;
 
         uint8_t w = ui_encode_cont_wire(ps, v);
         ui_backend_param_changed(ps->dest_id, w, ps->is_bitwise, ps->bit_mask);
+        if (hold_active) {
+            pv->value = original_value;
+        }
         ui_mark_dirty();
         break;
     }
@@ -354,13 +395,21 @@ void ui_on_encoder(int enc_index, int delta) {
         int count = ps->meta.en.count;
         if (count <= 0) break;
 
-        int v = (int)pv->value + delta;
+        int base = (int)pv->value;
+        if (hold_param != NULL && hold_param->available && !hold_param->mixed) {
+            base = (int)hold_param->value;
+        }
+        int v = base + delta;
         if (v < 0) v = 0;
         if (v >= count) v = count - 1;
         pv->value = (int16_t)v;
 
         ui_backend_param_changed(ps->dest_id, (uint8_t)v, ps->is_bitwise, ps->bit_mask);
         ui_mark_dirty();
+
+        if (hold_active) {
+            pv->value = original_value;
+        }
 
         /* —— Hook LEDs : Omnichord —— */
         if ((ps->dest_id & UI_DEST_MASK) == UI_DEST_UI) {
@@ -388,6 +437,9 @@ void ui_on_encoder(int enc_index, int delta) {
             ui_backend_param_changed(ps->dest_id, (uint8_t)new_bit, false, 0);
         }
         ui_mark_dirty();
+        if (hold_active) {
+            pv->value = original_value;
+        }
         break;
     }
     default: break;

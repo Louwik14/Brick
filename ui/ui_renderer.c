@@ -299,6 +299,9 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         const seq_led_bridge_hold_param_t *hold_param =
             (hold_active && hold_idx >= 0) ? &hold_view->params[hold_idx] : NULL;
         const bool hold_plocked = (hold_param != NULL) && hold_param->plocked;
+        const bool hold_available = (hold_param != NULL) && hold_param->available;
+        const bool hold_mixed = hold_available && hold_param->mixed;
+        int32_t hold_value = hold_available ? hold_param->value : 0;
 
         /* --- Label param centré --- */
         int tw_label = text_width_px(&FONT_4X6, ps->label);
@@ -318,15 +321,8 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         int  knob_value = (int)pv->value;   /* valeur “numérique” pour knob fallback */
         bool bool_on    = (pv->value != 0);
 
-        bool hold_available = false;
-        int32_t hold_value = 0;
-        if (hold_plocked) {
-            hold_available = !hold_param->mixed;
-            hold_value = hold_param->value;
-        }
-
-        if (hold_plocked) {
-            if (!hold_available) {
+        if (hold_available) {
+            if (hold_mixed) {
                 snprintf(valbuf, sizeof(valbuf), "--");
             } else {
                 if (ps->kind == UI_PARAM_ENUM) {

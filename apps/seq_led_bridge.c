@@ -14,6 +14,28 @@
 #include "ui_mute_backend.h"
 #include "midi.h"
 
+#ifdef BRICK_DEBUG_PLOCK
+#include "chprintf.h"
+#ifndef BRICK_DEBUG_PLOCK_STREAM
+#define BRICK_DEBUG_PLOCK_STREAM ((BaseSequentialStream *)NULL)
+#endif
+#endif
+
+#ifndef BRICK_DEBUG_PLOCK_LOG
+#ifdef BRICK_DEBUG_PLOCK
+#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
+    do { \
+        if (BRICK_DEBUG_PLOCK_STREAM != NULL) { \
+            chprintf(BRICK_DEBUG_PLOCK_STREAM, "[PLOCK][%s] param=%u value=%ld t=%lu\r\n", \
+                     (tag), (unsigned)(param), (long)(value), (unsigned long)(time)); \
+        } \
+    } while (0)
+#else
+#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
+    do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
+#endif
+#endif
+
 #ifndef SEQ_MAX_PAGES
 #define SEQ_MAX_PAGES 16U
 #endif
@@ -128,19 +150,42 @@ static seq_hold_param_id_t _hold_param_for_internal(seq_model_plock_internal_par
 
 static void _hold_collect_step(const seq_model_step_t *step,
                                bool present[SEQ_HOLD_PARAM_COUNT],
+                               bool plocked[SEQ_HOLD_PARAM_COUNT],
                                int32_t values[SEQ_HOLD_PARAM_COUNT]) {
     if ((step == NULL) || (present == NULL) || (values == NULL)) {
         return;
     }
 
+    /* Baseline offsets (All page). */
+    present[SEQ_HOLD_PARAM_ALL_TRANSP] = true;
+    values[SEQ_HOLD_PARAM_ALL_TRANSP] = step->offsets.transpose;
+    present[SEQ_HOLD_PARAM_ALL_VEL] = true;
+    values[SEQ_HOLD_PARAM_ALL_VEL] = step->offsets.velocity;
+    present[SEQ_HOLD_PARAM_ALL_LEN] = true;
+    values[SEQ_HOLD_PARAM_ALL_LEN] = step->offsets.length;
+    present[SEQ_HOLD_PARAM_ALL_MIC] = true;
+    values[SEQ_HOLD_PARAM_ALL_MIC] = step->offsets.micro;
+
+    for (uint8_t voice = 0U; voice < SEQ_MODEL_VOICES_PER_STEP; ++voice) {
+        const seq_model_voice_t *v = &step->voices[voice];
+        const seq_hold_param_id_t base = SEQ_HOLD_PARAM_VOICE_BASE(voice);
+        present[base + 0U] = true;
+        values[base + 0U] = v->note;
+        present[base + 1U] = true;
+        values[base + 1U] = v->velocity;
+        present[base + 2U] = true;
+        values[base + 2U] = v->length;
+        present[base + 3U] = true;
+        values[base + 3U] = v->micro_offset;
+    }
+
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
-        if ((plk->domain != SEQ_MODEL_PLOCK_INTERNAL) ||
-            (plk->voice_index >= SEQ_MODEL_VOICES_PER_STEP)) {
+        if (plk->domain != SEQ_MODEL_PLOCK_INTERNAL) {
             continue;
         }
-        if (plk->parameter_id == UINT16_MAX) {
-            continue; /* Placeholder, ignore for rendering. */
+        if (plk->voice_index >= SEQ_MODEL_VOICES_PER_STEP) {
+            continue;
         }
         const seq_hold_param_id_t pid =
             _hold_param_for_internal(plk->internal_param, plk->voice_index);
@@ -148,6 +193,7 @@ static void _hold_collect_step(const seq_model_step_t *step,
             continue;
         }
         present[pid] = true;
+        plocked[pid] = true;
         values[pid] = plk->value;
     }
 }
@@ -163,6 +209,7 @@ static void _hold_update(uint16_t mask) {
     g.hold.mask = mask;
 
     bool first = true;
+    bool available_all[SEQ_HOLD_PARAM_COUNT] = { false };
     bool plock_all[SEQ_HOLD_PARAM_COUNT] = { false };
     bool mixed[SEQ_HOLD_PARAM_COUNT] = { false };
     int32_t values[SEQ_HOLD_PARAM_COUNT] = { 0 };
@@ -179,28 +226,36 @@ static void _hold_update(uint16_t mask) {
         const seq_model_step_t *step = &g.pattern.steps[absolute];
 
         bool present[SEQ_HOLD_PARAM_COUNT] = { false };
+        bool step_plocked[SEQ_HOLD_PARAM_COUNT] = { false };
         int32_t step_values[SEQ_HOLD_PARAM_COUNT] = { 0 };
-        _hold_collect_step(step, present, step_values);
+        _hold_collect_step(step, present, step_plocked, step_values);
 
         if (first) {
             for (uint8_t i = 0U; i < SEQ_HOLD_PARAM_COUNT; ++i) {
-                plock_all[i] = present[i];
+                available_all[i] = present[i];
                 if (present[i]) {
                     values[i] = step_values[i];
+                    plock_all[i] = step_plocked[i];
+                } else {
+                    plock_all[i] = false;
                 }
             }
             first = false;
         } else {
             for (uint8_t i = 0U; i < SEQ_HOLD_PARAM_COUNT; ++i) {
-                if (!plock_all[i]) {
+                if (!available_all[i]) {
                     continue;
                 }
                 if (!present[i]) {
+                    available_all[i] = false;
                     plock_all[i] = false;
                     continue;
                 }
                 if (values[i] != step_values[i]) {
                     mixed[i] = true;
+                }
+                if (!step_plocked[i]) {
+                    plock_all[i] = false;
                 }
             }
         }
@@ -214,13 +269,14 @@ static void _hold_update(uint16_t mask) {
     }
 
     for (uint8_t i = 0U; i < SEQ_HOLD_PARAM_COUNT; ++i) {
-        if (!plock_all[i]) {
-            continue;
+        g.hold.params[i].available = available_all[i];
+        g.hold.params[i].mixed = mixed[i] && available_all[i];
+        g.hold.params[i].plocked = available_all[i] && plock_all[i];
+        if (available_all[i]) {
+            g.hold.params[i].value = values[i];
+        } else {
+            g.hold.params[i].value = 0;
         }
-        g.hold.params[i].plocked = true;
-        g.hold.params[i].available = true;
-        g.hold.params[i].mixed = mixed[i];
-        g.hold.params[i].value = values[i];
     }
 }
 
@@ -294,6 +350,7 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
 
 static bool _ensure_cart_plock_value(seq_model_step_t *step,
                                      uint16_t parameter_id,
+                                     uint8_t track,
                                      int32_t value) {
     if (step == NULL) {
         return false;
@@ -317,7 +374,7 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
 
     seq_model_plock_t plock = {
         .domain = SEQ_MODEL_PLOCK_CART,
-        .voice_index = 0U,
+        .voice_index = track,
         .parameter_id = parameter_id,
         .value = casted,
         .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
@@ -612,6 +669,7 @@ void seq_led_bridge_plock_clear(void) {
 }
 
 void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
+    BRICK_DEBUG_PLOCK_LOG("UI_HOLD_START", held_mask, 0, chVTGetSystemTimeX());
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = held_mask & 0xFFFFu;
     }
@@ -622,6 +680,7 @@ void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
 void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                                       int32_t value,
                                       uint16_t held_mask) {
+    BRICK_DEBUG_PLOCK_LOG("UI_ENCODER", param_id, value, chVTGetSystemTimeX());
     if ((g.visible_page >= SEQ_MAX_PAGES) || (param_id >= SEQ_HOLD_PARAM_COUNT)) {
         return;
     }
@@ -762,6 +821,7 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 }
 
 void seq_led_bridge_end_plock_preview(void) {
+    BRICK_DEBUG_PLOCK_LOG("UI_HOLD_COMMIT", g.hold.mask, 0, chVTGetSystemTimeX());
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = 0U;
     }
@@ -776,6 +836,7 @@ const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void) {
 void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
                                      int32_t value,
                                      uint16_t held_mask) {
+    BRICK_DEBUG_PLOCK_LOG("UI_ENCODER_CART", parameter_id, value, chVTGetSystemTimeX());
     if (g.visible_page >= SEQ_MAX_PAGES) {
         return;
     }
@@ -792,13 +853,14 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
             continue;
         }
 
+        const uint8_t track = _first_active_voice(step);
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
         if (!had_voice && !had_plock) {
             seq_model_step_make_automation_only(step);
         }
 
-        if (_ensure_cart_plock_value(step, parameter_id, value)) {
+        if (_ensure_cart_plock_value(step, parameter_id, track, value)) {
             mutated = true;
         }
 

@@ -629,7 +629,10 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
             }
             newv = reg;
         }
-        _ui_shadow_set(id, newv);
+
+        if (s_mode_ctx.seq.held_mask == 0U) {
+            _ui_shadow_set(id, newv);
+        }
 
         /* Interception locale UI (facultatif) */
         ui_backend_handle_ui(local_id, newv, bitwise, mask);
