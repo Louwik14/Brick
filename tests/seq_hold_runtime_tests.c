@@ -100,15 +100,6 @@ void midi_all_notes_off(midi_dest_t dest, uint8_t ch) {
     (void)ch;
 }
 
-void seq_recorder_handle_note_on(uint8_t note, uint8_t velocity) {
-    (void)note;
-    (void)velocity;
-}
-
-void seq_recorder_handle_note_off(uint8_t note) {
-    (void)note;
-}
-
 /* ===== Helpers ============================================================ */
 static void reset_runtime(void) {
     g_stub_time = 100U;
@@ -126,6 +117,10 @@ static void reset_runtime(void) {
     assert(g_runtime_valid);
 }
 
+static void set_stub_time(systime_t now) {
+    g_stub_time = now;
+}
+
 static const seq_runtime_t *require_runtime(void) {
     assert(g_runtime_valid);
     return &g_last_runtime;
@@ -140,6 +135,13 @@ static void release_hold(uint16_t held_mask, uint8_t step_index) {
     (void)held_mask;
     seq_led_bridge_plock_remove(step_index);
     seq_led_bridge_end_plock_preview();
+}
+
+static void init_seq_recorder(void) {
+    seq_model_pattern_t *pattern = seq_led_bridge_access_pattern();
+    assert(pattern != NULL);
+    seq_recorder_init(pattern);
+    seq_recorder_set_recording(true);
 }
 
 /* ===== Tests ============================================================= */
@@ -211,6 +213,46 @@ static void test_seq_plock_keeps_velocity_and_length(void) {
     assert(!seq_model_step_is_automation_only(step));
     assert(voice->velocity == 120U);
     assert(voice->length == 12U);
+}
+
+static void test_seq_recorder_commits_length_and_led_state(void) {
+    reset_runtime();
+    init_seq_recorder();
+
+    clock_step_info_t info = {
+        .now = 0,
+        .step_idx_abs = 0,
+        .bpm = 120.0f,
+        .tick_st = 100,
+        .step_st = 600,
+        .ext_clock = false,
+    };
+
+    seq_recorder_on_clock_step(&info);
+
+    set_stub_time(50);
+    seq_recorder_handle_note_on(60, 96);
+
+    info.step_idx_abs = 1;
+    info.now = 600;
+    seq_recorder_on_clock_step(&info);
+
+    set_stub_time(1250);
+    seq_recorder_handle_note_off(60);
+
+    const seq_model_pattern_t *pattern = seq_led_bridge_get_pattern();
+    const seq_model_step_t *step = &pattern->steps[0];
+    const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
+    assert(voice != NULL);
+    assert(voice->velocity == 96U);
+    assert(voice->length >= 2U);
+    assert(seq_model_step_has_seq_plock(step));
+    assert(seq_model_step_has_playable_voice(step));
+    assert(!seq_model_step_is_automation_only(step));
+
+    const seq_runtime_t *rt = require_runtime();
+    assert(rt->steps[0].active);
+    assert(!rt->steps[0].automation);
 }
 
 static void test_live_capture_records_length(void) {
@@ -324,6 +366,7 @@ int main(void) {
     test_seq_plock_commit_updates_step_flags();
     test_cart_plock_only_yields_automation_step();
     test_seq_plock_keeps_velocity_and_length();
+    test_seq_recorder_commits_length_and_led_state();
     test_live_capture_records_length();
     test_keyboard_note_off_does_not_emit_all_notes_off();
 

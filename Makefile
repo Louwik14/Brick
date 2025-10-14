@@ -268,6 +268,8 @@ $(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
 
-$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c
+$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -I. tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -I. \
+		tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c \
+		apps/ui_keyboard_app.c apps/kbd_chords_dict.c -o $@
