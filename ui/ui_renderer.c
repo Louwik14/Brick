@@ -14,10 +14,9 @@
  * Invariants & architecture :
  *  - Aucune logique d’état/entrée — uniquement du **rendu**.
  *  - Ne modifie jamais le modèle (`ui_state_t`).
- *  - Le label du **mode custom actif** est toujours affiché à droite du nom
- *    de cartouche. Source de vérité :
- *      1) `cart->overlay_tag` si présent pour la spec active ;
- *      2) sinon `ui_model_get_active_overlay_tag()` (dernier mode custom actif, ex. "SEQ").
+ *  - Le label du **mode custom actif** est fourni par `ui_backend_get_mode_label()`
+ *    (ex. "SEQ", "ARP", "KEY+1"). Les overlays peuvent temporairement
+ *    écraser ce label via le backend.
  *  - Accès à l’état/cart via fonctions d’accès (forward-declarées).
  *  - Rendu des widgets via `ui_widgets` (switch, icônes par TEXTE, knob).
  *
@@ -30,6 +29,7 @@
 #include "font.h"
 #include "ui_widgets.h"   /* widgets modulaires (switch, icônes via label, knob) */
 #include "ui_types.h"     /* ui_param_kind_t, ui_widget_type_t */
+#include "ui_backend.h"   /* ui_backend_get_mode_label() */
 
 #include <stdio.h>
 #include <string.h>
@@ -56,8 +56,6 @@ const ui_cart_spec_t* ui_get_cart(void);
 /* Résolution de menu (cycles BMx) fournie par le contrôleur, utilisée en lecture seule. */
 const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index);
 
-/* Tag texte du mode custom actif global (persiste hors écran custom). */
-const char* ui_model_get_active_overlay_tag(void);
 #ifdef __cplusplus
 }
 #endif
@@ -205,9 +203,10 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     }
 
     /* 2b) Mode custom actif persistant : police 4x6, non inversé, ligne du bas (baseline = 15) */
-    const char *tag = (cart->overlay_tag && cart->overlay_tag[0])
-                        ? cart->overlay_tag
-                        : ui_model_get_active_overlay_tag();   /* persistant (ex: "SEQ") */
+    const char *tag = ui_backend_get_mode_label();
+    if ((!tag || tag[0] == '\0') && cart->overlay_tag && cart->overlay_tag[0]) {
+        tag = cart->overlay_tag;
+    }
 
     int tw_tag = 0;
     if (tag && tag[0]) {
