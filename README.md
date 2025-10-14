@@ -23,12 +23,12 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 ### Vue en couches (cible)
 
 ```[ Application / Modes customs (futur) — **KEY** runtime actif ]
-│   (Overlay KEYBOARD via SHIFT+SEQ11 ; label dynamique **KEY ±N** ; contexte persistant `s_keys_active`)
+│   (Overlay KEYBOARD via SHIFT+SEQ11 ; label dynamique **KEY ±N** ; contexte persistant dans `ui_mode_context_t`)
 │   (Options Page 2 : Note order Natural/Fifths, Chord override ; Omni ON/Off harmonisé avec OFF)
 ▼
 [ UI Layer (task, input, controller, renderer, widgets) ]
-│     ├─ ui_task       (poll +/− → octave shift si **KEY** actif ; mise à jour label bandeau)
-│     ├─ ui_shortcuts  (raccourcis overlays, MUTE/PMUTE ; **rebuild** KEY si déjà affiché ; restaure LEDs après MUTE)
+│     ├─ ui_task       (thread UI : poll → `ui_backend_process_input` + rendu/refresh LEDs)
+│     ├─ ui_shortcuts  (mapping pur → actions raccourcis, aucun side-effect)
 │     ├─ ui_keyboard_app (quantization commune OFF/ON ; Chord override ; Note order ; clamp [0..127] ; base C4 ; octave shift)
 │     ├─ ui_keyboard_ui  (menu Keyboard p2 : Note order, Chord override)
 │     ├─ kbd_input_mapper (SEQ1..16 → notes/chords app)
@@ -614,9 +614,10 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 ---
 ## 📘 ANNEXE : Mise à jour Phase 5
 
-- `ui_shortcuts.c` : Nouveau module central de gestion des combinaisons clavier, MUTE/PMUTE et overlays.
-- `ui_task.c` : Simplifié — délègue désormais tous les événements à `ui_shortcuts_handle_event()`.
-- `ui_overlay.c` : Conserve la logique d’ouverture/fermeture et de bannière, appelée uniquement depuis `ui_shortcuts`.
+- `ui_shortcuts.c` : Couche de mapping pure (évènement → `ui_shortcut_action_t`), sans effets secondaires.
+- `ui_backend.c` : Conserve le contexte `ui_mode_context_t`, applique les actions (mute, overlays, transport) et publie les tags.
+- `ui_task.c` : Simplifié — délègue désormais tous les événements à `ui_backend_process_input()` et se concentre sur le rendu.
+- `ui_overlay.c` : Conserve la logique d’ouverture/fermeture et de bannière, appelée depuis le backend.
 - `ui_controller.c` / `ui_model.c` : Inchangés, découplés et stables.
 - `ui_renderer.c` : Rendu prioritaire par `overlay_tag` > `model_tag`, permettant un affichage correct des états MUTE/PMUTE.
 - `cart_registry.c` : Sert de registre déclaratif de specs pour les “apps custom” (SEQ, ARP, FX, etc.).
@@ -714,4 +715,4 @@ lorsque **KEY** est le contexte actif (overlay visible ou non) ; mise à jour du
 **label** bandeau en conséquence.
 - `ui/customs/` → `ui_keyboard_ui.*` (menus Keyboard, page 2)
 - `apps/` → `ui_keyboard_app.*`, `kbd_input_mapper.*`, `kbd_chords_dict.*`
-- `ui/` → `ui_shortcuts.*` (raccourcis overlays, MUTE, flag `s_keys_active`)
+- `ui/` → `ui_shortcuts.*` (mapping neutre → actions), `ui_backend.*` (contexte UI + effets secondaires)
