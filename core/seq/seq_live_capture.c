@@ -172,6 +172,10 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         return false;
     }
 
+    if (plan->velocity == 0U) {
+        return true;
+    }
+
     if (!seq_model_step_has_active_voice(step) && (step->plock_count == 0U)) {
         seq_model_step_init_default(step, plan->note);
     }

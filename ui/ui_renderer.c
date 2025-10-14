@@ -30,6 +30,7 @@
 #include "ui_widgets.h"   /* widgets modulaires (switch, icônes via label, knob) */
 #include "ui_types.h"     /* ui_param_kind_t, ui_widget_type_t */
 #include "ui_backend.h"   /* ui_backend_get_mode_label() */
+#include "seq_led_bridge.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -140,6 +141,37 @@ static void display_draw_text_inverted_box(const font_t *font, uint8_t x, uint8_
     display_draw_text_inverted(font, x, y, txt);
 }
 
+static void format_note_label(int value, char *buf, size_t len) {
+    static const char *names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
+    if (buf == NULL || len == 0) {
+        return;
+    }
+    if (value < 0) {
+        value = 0;
+    } else if (value > 127) {
+        value = 127;
+    }
+    int octave = (value / 12) - 2;
+    int pc = value % 12;
+    (void)snprintf(buf, len, "%s%d", names[pc], octave);
+}
+
+static int hold_param_index_for_render(const ui_menu_spec_t *menu, uint8_t page, uint8_t param_idx) {
+    if (!menu || !menu->name) {
+        return -1;
+    }
+    if (strcmp(menu->name, "SEQ") != 0) {
+        return -1;
+    }
+    if (page == 0U && param_idx < 4U) {
+        return param_idx;
+    }
+    if (page >= 1U && page <= 4U && param_idx < 4U) {
+        return (int)(SEQ_HOLD_PARAM_V1_NOTE + ((page - 1U) * 4U) + param_idx);
+    }
+    return -1;
+}
+
 /* ====================================================================== */
 /*                                 ICÔNES                                  */
 /* ====================================================================== */
@@ -182,6 +214,8 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     const ui_page_spec_t *page = &menu->pages[st->cur_page];
 
     char buf[32];
+    const seq_led_bridge_hold_view_t *hold_view = seq_led_bridge_get_hold_view();
+    const bool hold_active = (hold_view != NULL) && hold_view->active && (hold_view->step_count > 0U);
 
     /* ===== Bandeau haut ===== */
 
@@ -261,10 +295,19 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         const ui_param_spec_t *ps = &page->params[i];
         if (!ps->label) continue;
 
+        int hold_idx = hold_param_index_for_render(menu, st->cur_page, (uint8_t)i);
+        const seq_led_bridge_hold_param_t *hold_param =
+            (hold_active && hold_idx >= 0) ? &hold_view->params[hold_idx] : NULL;
+
         /* --- Label param centré --- */
         int tw_label = text_width_px(&FONT_4X6, ps->label);
         int x_label = x + (frame_w - tw_label) / 2;
-        drv_display_draw_text_with_font(&FONT_4X6, x_label, y + 3, ps->label);
+        if (hold_param != NULL) {
+            draw_filled_rect(x_label - 1, y + 2, tw_label + 2, FONT_4X6.height + 2);
+            display_draw_text_inverted(&FONT_4X6, x_label, y + 3, ps->label);
+        } else {
+            drv_display_draw_text_with_font(&FONT_4X6, x_label, y + 3, ps->label);
+        }
 
         /* --- Valeur actuelle --- */
         const ui_param_state_t *pv =
@@ -274,21 +317,41 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         int  knob_value = (int)pv->value;   /* valeur “numérique” pour knob fallback */
         bool bool_on    = (pv->value != 0);
 
-        if (ps->kind == UI_PARAM_ENUM) {
-            const char *s = (pv->value < ps->meta.en.count && ps->meta.en.labels)
-                            ? ps->meta.en.labels[pv->value] : "?";
-            snprintf(valbuf, sizeof(valbuf), "%s", s);
+        bool hold_available = false;
+        int32_t hold_value = 0;
+        if (hold_param != NULL) {
+            hold_available = hold_param->available && !hold_param->mixed;
+            hold_value = hold_param->value;
         }
-        else if (ps->kind == UI_PARAM_BOOL) {
-            /* Pour le texte, on affiche ON/OFF ou label de l’énum si fourni */
-            const char *s = (pv->value < ps->meta.en.count && ps->meta.en.labels)
-                            ? ps->meta.en.labels[pv->value] : (pv->value ? "ON" : "OFF");
-            snprintf(valbuf, sizeof(valbuf), "%s", s);
-            bool_on = (pv->value != 0);
-            knob_value = (int)pv->value;
-        }
-        else { // CONT / autre numérique
-            snprintf(valbuf, sizeof(valbuf), "%d", (int)pv->value);
+
+        if (hold_param != NULL) {
+            if (!hold_available) {
+                snprintf(valbuf, sizeof(valbuf), "--");
+            } else {
+                if (ps->kind == UI_PARAM_ENUM) {
+                    format_note_label((int)hold_value, valbuf, sizeof(valbuf));
+                } else {
+                    snprintf(valbuf, sizeof(valbuf), "%d", (int)hold_value);
+                }
+                knob_value = (int)hold_value;
+                bool_on = (hold_value != 0);
+            }
+        } else {
+            if (ps->kind == UI_PARAM_ENUM) {
+                const char *s = (pv->value < ps->meta.en.count && ps->meta.en.labels)
+                                ? ps->meta.en.labels[pv->value] : "?";
+                snprintf(valbuf, sizeof(valbuf), "%s", s);
+            }
+            else if (ps->kind == UI_PARAM_BOOL) {
+                const char *s = (pv->value < ps->meta.en.count && ps->meta.en.labels)
+                                ? ps->meta.en.labels[pv->value] : (pv->value ? "ON" : "OFF");
+                snprintf(valbuf, sizeof(valbuf), "%s", s);
+                bool_on = (pv->value != 0);
+                knob_value = (int)pv->value;
+            }
+            else { // CONT / autre numérique
+                snprintf(valbuf, sizeof(valbuf), "%d", (int)pv->value);
+            }
         }
 
         /* --- Sélection du widget (famille) — **texte only** --- */
@@ -331,11 +394,13 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         default: {
             /* Dessiner un knob **uniquement** pour les CONT */
             if (ps->kind == UI_PARAM_CONT) {
-                int v = (int)pv->value;
-                int vmin = ps->meta.range.min;
-                int vmax = ps->meta.range.max;
-                if (vmax <= vmin) { vmin = 0; vmax = 255; }
-                uiw_draw_knob(x, y, frame_w, frame_h, v, vmin, vmax);
+                if (!(hold_param != NULL && !hold_available)) {
+                    int v = knob_value;
+                    int vmin = ps->meta.range.min;
+                    int vmax = ps->meta.range.max;
+                    if (vmax <= vmin) { vmin = 0; vmax = 255; }
+                    uiw_draw_knob(x, y, frame_w, frame_h, v, vmin, vmax);
+                }
             }
             /* ENUM/BOOL sans widget spécifique → ne rien dessiner */
         } break;

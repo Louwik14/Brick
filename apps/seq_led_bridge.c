@@ -29,6 +29,7 @@ typedef struct {
     uint8_t             visible_page;  /**< Currently focused page. */
     uint16_t            total_span;    /**< Pattern span exposed to LEDs (pages × 16). */
     uint8_t             last_note;     /**< Last armed note used for quick steps. */
+    seq_led_bridge_hold_view_t hold;   /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
 static seq_led_bridge_state_t g;
@@ -96,6 +97,168 @@ static void _ensure_placeholder_plock(seq_model_step_t *step) {
     (void)seq_model_step_add_plock(step, &placeholder);
 }
 
+static void _hold_reset(void) {
+    memset(&g.hold, 0, sizeof(g.hold));
+}
+
+static seq_hold_param_id_t _hold_param_for_voice(uint8_t voice, uint8_t slot) {
+    if (voice >= SEQ_MODEL_VOICES_PER_STEP || slot >= 4U) {
+        return SEQ_HOLD_PARAM_COUNT;
+    }
+    return (seq_hold_param_id_t)(SEQ_HOLD_PARAM_V1_NOTE + (voice * 4U) + slot);
+}
+
+static seq_hold_param_id_t _hold_param_for_internal(seq_model_plock_internal_param_t internal,
+                                                    uint8_t voice) {
+    switch (internal) {
+        case SEQ_MODEL_PLOCK_PARAM_NOTE:
+            return _hold_param_for_voice(voice, 0U);
+        case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
+            return _hold_param_for_voice(voice, 1U);
+        case SEQ_MODEL_PLOCK_PARAM_LENGTH:
+            return _hold_param_for_voice(voice, 2U);
+        case SEQ_MODEL_PLOCK_PARAM_MICRO:
+            return _hold_param_for_voice(voice, 3U);
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
+            return SEQ_HOLD_PARAM_ALL_TRANSP;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
+            return SEQ_HOLD_PARAM_ALL_VEL;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
+            return SEQ_HOLD_PARAM_ALL_LEN;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
+            return SEQ_HOLD_PARAM_ALL_MIC;
+        default:
+            return SEQ_HOLD_PARAM_COUNT;
+    }
+}
+
+static void _hold_merge_param(seq_led_bridge_hold_param_t *param, int32_t value) {
+    if (param == NULL) {
+        return;
+    }
+    if (!param->available) {
+        param->available = true;
+        param->value = value;
+    } else if (param->value != value) {
+        param->mixed = true;
+    }
+}
+
+static void _hold_accumulate_step(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+
+    g.hold.step_count++;
+
+    _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_TRANSP], step->offsets.transpose);
+    _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_VEL], step->offsets.velocity);
+    _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_LEN], step->offsets.length);
+    _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_MIC], step->offsets.micro);
+
+    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+        const seq_model_voice_t *voice = &step->voices[v];
+        _hold_merge_param(&g.hold.params[_hold_param_for_voice(v, 0U)], voice->note);
+        _hold_merge_param(&g.hold.params[_hold_param_for_voice(v, 1U)], voice->velocity);
+        _hold_merge_param(&g.hold.params[_hold_param_for_voice(v, 2U)], voice->length);
+        _hold_merge_param(&g.hold.params[_hold_param_for_voice(v, 3U)], voice->micro_offset);
+    }
+
+    for (uint8_t p = 0U; p < step->plock_count; ++p) {
+        const seq_model_plock_t *plk = &step->plocks[p];
+        if (plk->domain != SEQ_MODEL_PLOCK_INTERNAL) {
+            continue;
+        }
+        const seq_hold_param_id_t pid =
+            _hold_param_for_internal(plk->internal_param, plk->voice_index);
+        if (pid < SEQ_HOLD_PARAM_COUNT) {
+            g.hold.params[pid].plocked = true;
+        }
+    }
+}
+
+static void _hold_update(uint16_t mask) {
+    _hold_reset();
+
+    if ((mask == 0U) || (g.visible_page >= SEQ_MAX_PAGES)) {
+        return;
+    }
+
+    g.hold.active = true;
+    g.hold.mask = mask;
+
+    const uint16_t base = _page_base(g.visible_page);
+    for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
+        if ((mask & (1U << local)) == 0U) {
+            continue;
+        }
+        const uint16_t absolute = base + (uint16_t)local;
+        if (!_valid_step_index(absolute)) {
+            continue;
+        }
+        _hold_accumulate_step(&g.pattern.steps[absolute]);
+    }
+
+    if (g.hold.step_count == 0U) {
+        _hold_reset();
+    }
+}
+
+static void _hold_refresh_if_active(void) {
+    if (g.hold.active) {
+        _hold_update(g.preview_mask);
+    }
+}
+
+static int32_t _clamp_i32(int32_t value, int32_t min, int32_t max) {
+    if (value < min) {
+        return min;
+    }
+    if (value > max) {
+        return max;
+    }
+    return value;
+}
+
+static bool _ensure_internal_plock_value(seq_model_step_t *step,
+                                         seq_model_plock_internal_param_t param,
+                                         uint8_t voice,
+                                         int32_t value) {
+    if (step == NULL) {
+        return false;
+    }
+    const int16_t casted = (int16_t)value;
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        seq_model_plock_t *plk = &step->plocks[i];
+        if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
+            (plk->internal_param == param) &&
+            (plk->voice_index == voice)) {
+            if (plk->value != casted) {
+                plk->value = casted;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        return false;
+    }
+
+    seq_model_plock_t plock = {
+        .domain = SEQ_MODEL_PLOCK_INTERNAL,
+        .voice_index = voice,
+        .parameter_id = 0U,
+        .value = casted,
+        .internal_param = param
+    };
+
+    if (seq_model_step_add_plock(step, &plock)) {
+        return true;
+    }
+    return false;
+}
+
 static void _update_preview_mask(void) {
     if (g.visible_page >= SEQ_MAX_PAGES) {
         g.preview_mask = 0U;
@@ -140,6 +303,7 @@ static void _rebuild_runtime_from_pattern(void) {
 static void _publish_runtime(void) {
     _update_preview_mask();
     _rebuild_runtime_from_pattern();
+    _hold_refresh_if_active();
 }
 
 /* ===== API =============================================================== */
@@ -241,6 +405,7 @@ void seq_led_bridge_step_clear(uint8_t i) {
     _clear_step_voices(step);
     seq_model_step_clear_plocks(step);
     seq_model_gen_bump(&g.pattern.generation);
+    _hold_refresh_if_active();
 }
 
 void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, uint8_t velocity) {
@@ -261,6 +426,7 @@ void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, 
         g.last_note = voice.note;
     }
     seq_model_gen_bump(&g.pattern.generation);
+    _hold_refresh_if_active();
 }
 
 void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
@@ -279,6 +445,7 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
         seq_model_step_clear_plocks(step);
         seq_model_gen_bump(&g.pattern.generation);
     }
+    _hold_refresh_if_active();
 }
 
 void seq_led_bridge_quick_toggle_step(uint8_t i) {
@@ -297,6 +464,7 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
             g.last_note = voice->note;
         }
         seq_model_gen_bump(&g.pattern.generation);
+        _hold_refresh_if_active();
     }
     seq_led_bridge_publish();
 }
@@ -315,6 +483,7 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
         seq_model_step_clear_plocks(step);
         seq_model_gen_bump(&g.pattern.generation);
     }
+    _hold_refresh_if_active();
     seq_led_bridge_publish();
 }
 
@@ -328,6 +497,7 @@ void seq_led_bridge_on_stop(void) {
         g.page_hold_mask[g.visible_page] = 0U;
     }
     g.preview_mask = 0U;
+    _hold_update(0U);
     seq_led_bridge_publish();
 }
 
@@ -335,6 +505,7 @@ void seq_led_bridge_set_plock_mask(uint16_t mask) {
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = mask;
     }
+    _hold_update(mask);
     seq_led_bridge_publish();
 }
 
@@ -343,6 +514,7 @@ void seq_led_bridge_plock_add(uint8_t i) {
         return;
     }
     g.page_hold_mask[g.visible_page] |= (1u << i);
+    _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
 
@@ -351,6 +523,7 @@ void seq_led_bridge_plock_remove(uint8_t i) {
         return;
     }
     g.page_hold_mask[g.visible_page] &= (uint16_t)~(1u << i);
+    _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
 
@@ -358,6 +531,7 @@ void seq_led_bridge_plock_clear(void) {
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = 0U;
     }
+    _hold_update(0U);
     seq_led_bridge_publish();
 }
 
@@ -365,34 +539,132 @@ void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = held_mask & 0xFFFFu;
     }
+    _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
 
-void seq_led_bridge_apply_plock_param(uint8_t param_id, int32_t delta, uint16_t held_mask) {
-    (void)param_id;
-    (void)delta;
-
-    if (g.visible_page >= SEQ_MAX_PAGES) {
+void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
+                                      int32_t value,
+                                      uint16_t held_mask) {
+    if ((g.visible_page >= SEQ_MAX_PAGES) || (param_id >= SEQ_HOLD_PARAM_COUNT)) {
         return;
     }
 
     bool mutated = false;
+
     for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
-        if ((held_mask & (1u << i)) == 0U) {
+        if ((held_mask & (1U << i)) == 0U) {
             continue;
         }
         seq_model_step_t *step = _step_from_page(i);
         if (step == NULL) {
             continue;
         }
-        const uint16_t before = step->plock_count;
-        _ensure_placeholder_plock(step);
-        mutated |= (step->plock_count != before);
+
+        switch (param_id) {
+            case SEQ_HOLD_PARAM_ALL_TRANSP: {
+                int32_t v = _clamp_i32(value, -12, 12);
+                if (step->offsets.transpose != v) {
+                    step->offsets.transpose = (int8_t)v;
+                    mutated = true;
+                }
+                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+                break;
+            }
+            case SEQ_HOLD_PARAM_ALL_VEL: {
+                int32_t v = _clamp_i32(value, -127, 127);
+                if (step->offsets.velocity != v) {
+                    step->offsets.velocity = (int16_t)v;
+                    mutated = true;
+                }
+                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+                break;
+            }
+            case SEQ_HOLD_PARAM_ALL_LEN: {
+                int32_t v = _clamp_i32(value, -32, 32);
+                if (step->offsets.length != v) {
+                    step->offsets.length = (int8_t)v;
+                    mutated = true;
+                }
+                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+                break;
+            }
+            case SEQ_HOLD_PARAM_ALL_MIC: {
+                int32_t v = _clamp_i32(value, -12, 12);
+                if (step->offsets.micro != v) {
+                    step->offsets.micro = (int8_t)v;
+                    mutated = true;
+                }
+                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+                break;
+            }
+            default: {
+                const int32_t base = (int32_t)SEQ_HOLD_PARAM_V1_NOTE;
+                if (param_id < base) {
+                    break;
+                }
+                int32_t rel = (int32_t)param_id - base;
+                uint8_t voice = (uint8_t)(rel / 4);
+                uint8_t slot = (uint8_t)(rel % 4);
+                if (voice >= SEQ_MODEL_VOICES_PER_STEP) {
+                    break;
+                }
+                seq_model_voice_t voice_state = step->voices[voice];
+                switch (slot) {
+                    case 0: { /* Note */
+                        int32_t v = _clamp_i32(value, 0, 127);
+                        if (voice_state.note != (uint8_t)v) {
+                            voice_state.note = (uint8_t)v;
+                            mutated = true;
+                        }
+                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+                        if ((voice == 0U) && (voice_state.state == SEQ_MODEL_VOICE_ENABLED) && (voice_state.velocity > 0U)) {
+                            g.last_note = voice_state.note;
+                        }
+                        break;
+                    }
+                    case 1: { /* Velocity */
+                        int32_t v = _clamp_i32(value, 0, 127);
+                        if (voice_state.velocity != (uint8_t)v) {
+                            voice_state.velocity = (uint8_t)v;
+                            mutated = true;
+                        }
+                        voice_state.state = (voice_state.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
+                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+                        break;
+                    }
+                    case 2: { /* Length */
+                        int32_t v = _clamp_i32(value, 1, 64);
+                        if (voice_state.length != (uint8_t)v) {
+                            voice_state.length = (uint8_t)v;
+                            mutated = true;
+                        }
+                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+                        break;
+                    }
+                    case 3: { /* Micro */
+                        int32_t v = _clamp_i32(value, -12, 12);
+                        if (voice_state.micro_offset != (int8_t)v) {
+                            voice_state.micro_offset = (int8_t)v;
+                            mutated = true;
+                        }
+                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                step->voices[voice] = voice_state;
+                break;
+            }
+        }
     }
 
     if (mutated) {
         seq_model_gen_bump(&g.pattern.generation);
     }
+
+    _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
 
@@ -400,7 +672,12 @@ void seq_led_bridge_end_plock_preview(void) {
     if (g.visible_page < SEQ_MAX_PAGES) {
         g.page_hold_mask[g.visible_page] = 0U;
     }
+    _hold_update(0U);
     seq_led_bridge_publish();
+}
+
+const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void) {
+    return &g.hold;
 }
 
 seq_model_pattern_t *seq_led_bridge_access_pattern(void) {

@@ -32,8 +32,10 @@
 #include "ui_overlay.h"
 #include "ui_mute_backend.h"
 #include "seq_led_bridge.h"
+#include "seq_recorder.h"
 #include "clock_manager.h"
 #include "ui_seq_ui.h"
+#include "ui_seq_ids.h"
 #include "ui_arp_ui.h"
 #include "ui_keyboard_ui.h"
 #include "ui_keyboard_app.h"
@@ -149,6 +151,43 @@ static void _restore_overlay_visuals_after_mute(void) {
 static void _update_seq_runtime_from_bridge(void) {
     s_mode_ctx.seq.page_count = seq_led_bridge_get_max_pages();
     s_mode_ctx.seq.page_index = seq_led_bridge_get_visible_page();
+}
+
+static bool _resolve_seq_param(uint16_t local_id,
+                               seq_hold_param_id_t *out_param,
+                               const ui_param_state_t **out_state) {
+    ui_state_t *state = ui_model_get_state();
+    if (state == NULL) {
+        return false;
+    }
+
+    if (local_id <= SEQ_UI_LOCAL_ALL_MIC) {
+        if (out_param != NULL) {
+            *out_param = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_ALL_TRANSP + (local_id - SEQ_UI_LOCAL_ALL_TRANSP));
+        }
+        if (out_state != NULL) {
+            *out_state = &state->vals.menus[0].pages[0].params[local_id - SEQ_UI_LOCAL_ALL_TRANSP];
+        }
+        return true;
+    }
+
+    if (local_id >= SEQ_UI_LOCAL_V1_NOTE && local_id <= SEQ_UI_LOCAL_V4_MIC) {
+        uint16_t rel = (uint16_t)(local_id - SEQ_UI_LOCAL_V1_NOTE);
+        uint8_t voice = (uint8_t)(rel / 4U);
+        uint8_t slot = (uint8_t)(rel % 4U);
+        if (voice >= 4U || slot >= 4U) {
+            return false;
+        }
+        if (out_param != NULL) {
+            *out_param = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_V1_NOTE + rel);
+        }
+        if (out_state != NULL) {
+            *out_state = &state->vals.menus[0].pages[1U + voice].params[slot];
+        }
+        return true;
+    }
+
+    return false;
 }
 
 static void _handle_shortcut_action(const ui_shortcut_action_t *act);
@@ -316,6 +355,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state       = UI_MUTE_STATE_OFF;
         s_mode_ctx.mute_plus_down   = false;
         s_mode_ctx.mute_shift_latched = ui_input_shift_is_pressed();
+        ui_mute_backend_cancel();
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
         ui_mark_dirty();
@@ -364,6 +404,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     case UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE:
         s_mode_ctx.transport.recording = !s_mode_ctx.transport.recording;
         ui_led_backend_set_record_mode(s_mode_ctx.transport.recording);
+        seq_recorder_set_recording(s_mode_ctx.transport.recording);
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_PAGE_NEXT:
@@ -384,13 +425,21 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
 
     case UI_SHORTCUT_ACTION_SEQ_STEP_HOLD:
         seq_led_bridge_plock_add(act->data.seq_step.index);
+        seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+        ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_STEP_RELEASE:
         seq_led_bridge_plock_remove(act->data.seq_step.index);
+        if (s_mode_ctx.seq.held_mask != 0U) {
+            seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+        } else {
+            seq_led_bridge_end_plock_preview();
+        }
         if (!act->data.seq_step.long_press) {
             seq_led_bridge_quick_toggle_step(act->data.seq_step.index);
         }
+        ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_ENCODER_TOUCH: {
@@ -400,6 +449,8 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
                 seq_led_bridge_set_step_param_only(i, true);
             }
         }
+        seq_led_bridge_begin_plock_preview(mask);
+        ui_mark_dirty();
         break;
     }
 
@@ -628,8 +679,28 @@ void ui_backend_all_notes_off(void) {
 /* UI interne                                                                 */
 /* -------------------------------------------------------------------------- */
 static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
-    (void)local_id; (void)val; (void)bitwise; (void)mask;
-    /* Ici, tu peux gérer des hooks UI si nécessaire (NOP par défaut). */
+    (void)val;
+    (void)bitwise;
+    (void)mask;
+
+    if (s_mode_ctx.seq.held_mask == 0U) {
+        return;
+    }
+
+    seq_hold_param_id_t param_id;
+    const ui_param_state_t *state_param = NULL;
+    if (!_resolve_seq_param(local_id, &param_id, &state_param)) {
+        return;
+    }
+
+    int32_t value = 0;
+    if (state_param != NULL) {
+        value = state_param->value;
+    }
+
+    seq_led_bridge_apply_plock_param(param_id, value, s_mode_ctx.seq.held_mask);
+    seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+    ui_mark_dirty();
 }
 
 /* -------------------------------------------------------------------------- */

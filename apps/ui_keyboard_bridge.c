@@ -20,6 +20,7 @@
 
 /* LEDs (observateur passif) */
 #include "ui_led_backend.h"
+#include "seq_recorder.h"
 
 /* IDs UI de la vitrine Keyboard (omni/scale/root + page 2) */
 #include "ui_keyboard_ui.h"
@@ -46,11 +47,13 @@ extern void ui_backend_all_notes_off(void);
 
 static void sink_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
   (void)ch;
+  seq_recorder_handle_note_on(note, vel);
   ui_backend_note_on(note, (vel ? vel : DEFAULT_VELOCITY));
 }
 
 static void sink_note_off(uint8_t ch, uint8_t note, uint8_t vel) {
   (void)ch; (void)vel;
+  seq_recorder_handle_note_off(note);
   ui_backend_note_off(note);
 }
 
