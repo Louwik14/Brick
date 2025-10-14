@@ -176,7 +176,7 @@ Maintien + tweak paramètre → p-lock créé ; si le step n’était pas neutre
 2. Pas de logique métier dans le renderer.
 3. Chaque étape doit compiler.
 4. Conserver logs, guards, structures.
-5. Référer à `ARCHITECTURE_FR.md` et à ce document en cas de doute.
+5. Référer à `ARCHITECTURE_FR.md`, 'SEQ_BEHAVIOR.md' et à ce document en cas de doute.
 
 ---
 ### 🧩 Correction proactive des erreurs de typage
