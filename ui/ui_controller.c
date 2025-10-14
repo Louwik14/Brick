@@ -388,6 +388,14 @@ void ui_on_encoder(int enc_index, int delta) {
         }
         int v = base + delta * step;
         v = clampi(v, ps->meta.range.min, ps->meta.range.max);
+
+        if (hold_active && hold_id < SEQ_HOLD_PARAM_COUNT) {
+            seq_led_bridge_apply_plock_param(hold_id, v, ctx->seq.held_mask);
+            seq_led_bridge_begin_plock_preview(ctx->seq.held_mask);
+            ui_mark_dirty();
+            break;
+        }
+
         pv->value = (int16_t)v;
 
         uint8_t w = ui_encode_cont_wire(ps, v);
@@ -409,6 +417,14 @@ void ui_on_encoder(int enc_index, int delta) {
         int v = base + delta;
         if (v < 0) v = 0;
         if (v >= count) v = count - 1;
+
+        if (hold_active && hold_id < SEQ_HOLD_PARAM_COUNT) {
+            seq_led_bridge_apply_plock_param(hold_id, v, ctx->seq.held_mask);
+            seq_led_bridge_begin_plock_preview(ctx->seq.held_mask);
+            ui_mark_dirty();
+            break;
+        }
+
         pv->value = (int16_t)v;
 
         ui_backend_param_changed(ps->dest_id, (uint8_t)v, ps->is_bitwise, ps->bit_mask);
