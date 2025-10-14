@@ -144,12 +144,24 @@ static void _hold_merge_param(seq_led_bridge_hold_param_t *param, int32_t value)
     }
 }
 
-static void _hold_accumulate_step(const seq_model_step_t *step) {
+static void _hold_accumulate_step(const seq_model_step_t *step, uint8_t absolute_index) {
     if (step == NULL) {
         return;
     }
 
+    if ((absolute_index < SEQ_MODEL_STEPS_PER_PATTERN) &&
+        (g.hold.step_count < SEQ_MODEL_STEPS_PER_PATTERN)) {
+        g.hold.step_indexes[g.hold.step_count] = absolute_index;
+    }
     g.hold.step_count++;
+
+    const bool has_voice = seq_model_step_has_active_voice(step);
+    if (!has_voice && (step->plock_count > 0U)) {
+        g.hold.has_param_only = true;
+    }
+    if (step->plock_count > 0U) {
+        g.hold.has_plock_preview = true;
+    }
 
     _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_TRANSP], step->offsets.transpose);
     _hold_merge_param(&g.hold.params[SEQ_HOLD_PARAM_ALL_VEL], step->offsets.velocity);
@@ -185,7 +197,6 @@ static void _hold_update(uint16_t mask) {
     }
 
     g.hold.active = true;
-    g.hold.mask = mask;
 
     const uint16_t base = _page_base(g.visible_page);
     for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
@@ -196,7 +207,7 @@ static void _hold_update(uint16_t mask) {
         if (!_valid_step_index(absolute)) {
             continue;
         }
-        _hold_accumulate_step(&g.pattern.steps[absolute]);
+        _hold_accumulate_step(&g.pattern.steps[absolute], (uint8_t)absolute);
     }
 
     if (g.hold.step_count == 0U) {

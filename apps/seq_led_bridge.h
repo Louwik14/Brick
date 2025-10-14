@@ -65,8 +65,10 @@ typedef struct {
 
 typedef struct {
     bool active;                               /**< Hold/tweak mode currently active. */
-    uint16_t mask;                             /**< Mask of held steps on the visible page. */
+    uint8_t step_indexes[SEQ_MODEL_STEPS_PER_PATTERN]; /**< Absolute held step indexes (0-63). */
     uint8_t step_count;                        /**< Number of steps contributing to the view. */
+    bool has_param_only;                       /**< True when any held step is automation-only. */
+    bool has_plock_preview;                    /**< True if preview exposes at least one p-lock. */
     seq_led_bridge_hold_param_t params[SEQ_HOLD_PARAM_COUNT]; /**< Aggregated parameters. */
 } seq_led_bridge_hold_view_t;
 
