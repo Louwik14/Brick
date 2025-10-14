@@ -5,7 +5,7 @@
  *
  * @details
  * - Fait office de routeur de rendu selon le mode actif (MUTE / KEYBOARD / SEQ / …).
- * - Reçoit des événements (MUTE/PMUTE, TICK, …) via `ui_led_backend_process_event`.
+ * - Reçoit des événements (MUTE/PMUTE, TICK, …) via la queue `ui_led_backend_post_event[_i]`.
  * - **NOUVEAU** : en mode `UI_LED_MODE_SEQ`, délègue le rendu à `ui_led_seq_render()`
  *   et relaie les ticks clock vers `ui_led_seq_on_clock_tick()`.
  */
@@ -41,12 +41,20 @@ typedef enum {
 void ui_led_backend_init(void);
 
 /**
- * @brief Injection d’évènement LED.
+ * @brief File un évènement LED dans la queue non bloquante (contexte thread).
  * @param event Type d’événement (MUTE/PMUTE/CLK/…)
  * @param index Index associé (ex: step 0..15 pour CLOCK_TICK)
  * @param state Booléen associé si pertinent
  */
-void ui_led_backend_process_event(ui_led_event_t event, uint8_t index, bool state);
+void ui_led_backend_post_event(ui_led_event_t event, uint8_t index, bool state);
+
+/**
+ * @brief Variante ISR de @ref ui_led_backend_post_event (ne bloque jamais).
+ * @param event Type d’événement
+ * @param index Index associé
+ * @param state Booléen associé si pertinent
+ */
+void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state);
 
 /** @brief Rendu par mode (à appeler périodiquement avant drv_leds_addr_render()). */
 void ui_led_backend_refresh(void);
