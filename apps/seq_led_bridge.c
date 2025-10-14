@@ -680,12 +680,14 @@ static void _rebuild_runtime_from_pattern(void) {
 
         const seq_model_step_t *src = &g.pattern.steps[absolute];
         const bool has_voice = seq_model_step_has_playable_voice(src);
-        const bool automation = seq_model_step_is_automation_only(src);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(src);
+        const bool has_cart_plock = seq_model_step_has_cart_plock(src);
+        const bool automation = (!has_voice) && !has_seq_plock && has_cart_plock;
         const uint8_t track = _first_active_voice(src);
         const bool muted = ui_mute_backend_is_muted(track);
 
-        dst->active = has_voice;
-        dst->recorded = has_voice;
+        dst->active = has_voice || has_seq_plock;
+        dst->recorded = has_voice || has_seq_plock || has_cart_plock;
         dst->param_only = automation;
         dst->automation = automation;
         dst->muted = muted;
