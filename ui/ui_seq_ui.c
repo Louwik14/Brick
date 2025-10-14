@@ -18,6 +18,7 @@
  */
 
 #include "ui_seq_ui.h"
+#include "ui_seq_ids.h"
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -26,30 +27,6 @@
 /* ===========================================================================
  *  Espace d'adressage local pour le SEQ (13 bits utiles via UI_DEST_ID)
  * ===========================================================================*/
-
-enum {
-    /* --- SEQ (pages principales) --- */
-    SEQ_ALL_TRANSP = 0x0000,
-    SEQ_ALL_VEL,
-    SEQ_ALL_LEN,
-    SEQ_ALL_MIC,
-
-    SEQ_V1_NOTE, SEQ_V1_VEL, SEQ_V1_LEN, SEQ_V1_MIC,
-    SEQ_V2_NOTE, SEQ_V2_VEL, SEQ_V2_LEN, SEQ_V2_MIC,
-    SEQ_V3_NOTE, SEQ_V3_VEL, SEQ_V3_LEN, SEQ_V3_MIC,
-    SEQ_V4_NOTE, SEQ_V4_VEL, SEQ_V4_LEN, SEQ_V4_MIC,
-
-    /* --- SETUP (General / MIDI) --- */
-    SEQ_SETUP_CLOCK,   /* 0:Int / 1:Ext */
-    SEQ_SETUP_SWING,   /* 0..100 */
-    SEQ_SETUP_STEPS,   /* 1..64 */
-    SEQ_SETUP_QUANT,   /* Off/1_8/1_16/1_32 */
-
-    SEQ_SETUP_CH1,     /* 1..16 */
-    SEQ_SETUP_CH2,
-    SEQ_SETUP_CH3,
-    SEQ_SETUP_CH4
-};
 
 /* Helper macro pour encoder un dest_id purement UI. */
 #define SEQ_UI(idlocal) (UI_DEST_UI | ((uint16_t)(idlocal) & 0x1FFF))
@@ -79,13 +56,13 @@ static const char* const midi_note_labels[128] = {
 
 static const ui_page_spec_t seq_page_all = {
     .params = {
-        { .label="Transp", .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_ALL_TRANSP), .default_value=0,
+        { .label="Transp", .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_ALL_TRANSP), .default_value=0,
           .meta.range={.min=-12, .max=12, .step=1}, .is_bitwise=false },
-        { .label="Vel",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_ALL_VEL),    .default_value=0,
+        { .label="Vel",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_ALL_VEL),    .default_value=0,
           .meta.range={.min=-127, .max=127, .step=1}, .is_bitwise=false },
-        { .label="Len",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_ALL_LEN),    .default_value=0,
+        { .label="Len",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_ALL_LEN),    .default_value=0,
           .meta.range={.min=-32, .max=32, .step=1}, .is_bitwise=false },
-        { .label="Mic",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_ALL_MIC),    .default_value=0,
+        { .label="Mic",    .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_ALL_MIC),    .default_value=0,
           .meta.range={.min=-12, .max=12, .step=1}, .is_bitwise=false }
     },
     .header_label = "All"
@@ -93,13 +70,13 @@ static const ui_page_spec_t seq_page_all = {
 
 static const ui_page_spec_t seq_page_voix1 = {
     .params = {
-        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_V1_NOTE),
+        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_NOTE),
           .default_value=60, .meta.en={midi_note_labels,128}, .is_bitwise=false },
-        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V1_VEL),
+        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_VEL),
           .default_value=100, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false },
-        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V1_LEN),
+        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_LEN),
           .default_value=1, .meta.range={.min=1,.max=64,.step=1}, .is_bitwise=false },
-        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V1_MIC),
+        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_MIC),
           .default_value=0, .meta.range={.min=-12,.max=12,.step=1}, .is_bitwise=false }
     },
     .header_label = "Voix1"
@@ -107,13 +84,13 @@ static const ui_page_spec_t seq_page_voix1 = {
 
 static const ui_page_spec_t seq_page_voix2 = {
     .params = {
-        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_V2_NOTE),
+        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V2_NOTE),
           .default_value=60, .meta.en={midi_note_labels,128}, .is_bitwise=false },
-        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V2_VEL),
+        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V2_VEL),
           .default_value=0, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false },
-        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V2_LEN),
+        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V2_LEN),
           .default_value=1, .meta.range={.min=1,.max=64,.step=1}, .is_bitwise=false },
-        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V2_MIC),
+        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V2_MIC),
           .default_value=0, .meta.range={.min=-12,.max=12,.step=1}, .is_bitwise=false }
     },
     .header_label = "Voix2"
@@ -121,13 +98,13 @@ static const ui_page_spec_t seq_page_voix2 = {
 
 static const ui_page_spec_t seq_page_voix3 = {
     .params = {
-        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_V3_NOTE),
+        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V3_NOTE),
           .default_value=60, .meta.en={midi_note_labels,128}, .is_bitwise=false },
-        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V3_VEL),
+        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V3_VEL),
           .default_value=0, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false },
-        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V3_LEN),
+        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V3_LEN),
           .default_value=1, .meta.range={.min=1,.max=64,.step=1}, .is_bitwise=false },
-        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V3_MIC),
+        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V3_MIC),
           .default_value=0, .meta.range={.min=-12,.max=12,.step=1}, .is_bitwise=false }
     },
     .header_label = "Voix3"
@@ -135,13 +112,13 @@ static const ui_page_spec_t seq_page_voix3 = {
 
 static const ui_page_spec_t seq_page_voix4 = {
     .params = {
-        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_V4_NOTE),
+        { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V4_NOTE),
           .default_value=60, .meta.en={midi_note_labels,128}, .is_bitwise=false },
-        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V4_VEL),
+        { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V4_VEL),
           .default_value=0, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false },
-        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V4_LEN),
+        { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V4_LEN),
           .default_value=1, .meta.range={.min=1,.max=64,.step=1}, .is_bitwise=false },
-        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_V4_MIC),
+        { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V4_MIC),
           .default_value=0, .meta.range={.min=-12,.max=12,.step=1}, .is_bitwise=false }
     },
     .header_label = "Voix4"
@@ -160,13 +137,13 @@ static const ui_menu_spec_t seq_menu = {
 
 /* Page 1 : General */
 static const ui_param_spec_t seq_setup_page_general_params[4] = {
-    { .label = "Clock", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_SETUP_CLOCK),
+    { .label = "Clock", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CLOCK),
       .meta.en = { .labels = (const char*[]){"Int", "Ext"}, .count = 2 } },
-    { .label = "Swing", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_SWING),
+    { .label = "Swing", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_SWING),
       .meta.range = { .min = 0, .max = 100, .step = 1 } },
-    { .label = "Steps", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_STEPS),
+    { .label = "Steps", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_STEPS),
       .meta.range = { .min = 1, .max = 64, .step = 1 } },
-    { .label = "Quant", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_SETUP_QUANT),
+    { .label = "Quant", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_QUANT),
       .meta.en = { .labels = (const char*[]){"Off", "1/8", "1/16", "1/32"}, .count = 4 } }
 };
 
@@ -182,13 +159,13 @@ static const ui_page_spec_t seq_setup_page_general = {
 
 /* Page 2 : MIDI */
 static const ui_param_spec_t seq_setup_page_midi_params[4] = {
-    { .label = "Ch1", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_CH1),
+    { .label = "Ch1", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CH1),
       .meta.range = { .min = 1, .max = 16, .step = 1 } },
-    { .label = "Ch2", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_CH2),
+    { .label = "Ch2", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CH2),
       .meta.range = { .min = 1, .max = 16, .step = 1 } },
-    { .label = "Ch3", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_CH3),
+    { .label = "Ch3", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CH3),
       .meta.range = { .min = 1, .max = 16, .step = 1 } },
-    { .label = "Ch4", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_SETUP_CH4),
+    { .label = "Ch4", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CH4),
       .meta.range = { .min = 1, .max = 16, .step = 1 } }
 };
 

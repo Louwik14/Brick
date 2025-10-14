@@ -29,6 +29,7 @@
 #define UI_LED_COL_SEQ_RECORDED   (led_color_t){255, 255, 0}    /* Jaune */
 #define UI_LED_COL_SEQ_PARAM      (led_color_t){0,   0,   255}  /* Bleu  */
 #define UI_LED_COL_SEQ_PLOCKED    (led_color_t){0,   128, 255}  /* Violet */
+#define UI_LED_COL_SEQ_AUTOMATION (led_color_t){64,  0,   255}  /* Cyan atténué */
 
 /* ===== États globaux — GRB ============================================= */
 #define UI_LED_COL_MUTE_RED       (led_color_t){0,   180, 0}

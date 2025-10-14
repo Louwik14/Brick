@@ -32,6 +32,9 @@
 #include "ui_backend.h"
 #include "clock_manager.h"
 #include "ui_led_backend.h"
+#include "seq_led_bridge.h"
+#include "seq_engine_runner.h"
+#include "seq_recorder.h"
 
 /* Keyboard runtime */
 #include "ui_keyboard_bridge.h"
@@ -66,6 +69,8 @@ static void _on_clock_step(const clock_step_info_t* info) {
   if (!info) return;
   const uint8_t step_abs = (uint8_t)(info->step_idx_abs & 0xFFu);  /* <-- plus de & 15U */
   ui_led_backend_post_event_i(UI_LED_EVENT_CLOCK_TICK, step_abs, true);
+  seq_recorder_on_clock_step(info);
+  seq_engine_runner_on_clock_step(info);
 }
 
 /* ============================================================================
@@ -97,10 +102,13 @@ static THD_FUNCTION(UIThread, arg) {
   ui_backend_init_runtime();
   ui_keyboard_bridge_init();
   ui_keyboard_bridge_update_from_model();
+  seq_recorder_init(seq_led_bridge_access_pattern());
+  seq_engine_runner_init(seq_led_bridge_access_pattern());
 
   ui_input_event_t evt;
 
   for (;;) {
+    const systime_t now = chVTGetSystemTimeX();
     const bool got = ui_input_poll(&evt, TIME_MS2I(UI_TASK_POLL_MS));
 
     if (got) {
@@ -109,6 +117,7 @@ static THD_FUNCTION(UIThread, arg) {
 
     /* Sync Keyboard runtime (root/scale/omni & p2) */
     ui_keyboard_bridge_update_from_model();
+    ui_keyboard_bridge_tick(now); // --- ARP: tick moteur ---
 
     /* LEDs + affichage */
     ui_led_backend_refresh();

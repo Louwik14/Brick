@@ -66,6 +66,14 @@ void ui_mute_backend_toggle_prepare(uint8_t track) {
     ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, track, s_pmute_prepare[track]);
 }
 
+void ui_mute_backend_publish_state(void) {
+    // --- FIX: réinitialiser l'état LED PMUTE/MUTE à chaque entrée dans le mode ---
+    for (uint8_t i = 0; i < NUM_TRACKS; ++i) {
+        ui_led_backend_post_event(UI_LED_EVENT_MUTE_STATE, i, s_muted[i]);
+        ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, i, s_pmute_prepare[i]);
+    }
+}
+
 void ui_mute_backend_commit(void) {
     /* Applique toutes les préparations en inversant l'état réel */
     for (uint8_t i = 0; i < NUM_TRACKS; ++i) {

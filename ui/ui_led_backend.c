@@ -25,6 +25,7 @@
 
 /* ===== ÉTAT ===== */
 static bool     s_track_muted[NUM_STEPS];
+static bool     s_track_pmutes[NUM_STEPS];
 static uint8_t  s_cart_tracks[4] = {4,4,4,4};
 static bool     s_rec_active = false;
 static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
@@ -78,9 +79,14 @@ static void _apply_event(const ui_led_backend_evt_t *evt) {
 
     switch (evt->event) {
         case UI_LED_EVENT_MUTE_STATE:
-        case UI_LED_EVENT_PMUTE_STATE:
             if ((evt->index & 15u) < NUM_STEPS) {
                 s_track_muted[evt->index & 15u] = evt->state;
+            }
+            break;
+
+        case UI_LED_EVENT_PMUTE_STATE:
+            if ((evt->index & 15u) < NUM_STEPS) {
+                s_track_pmutes[evt->index & 15u] = evt->state;
             }
             break;
 
@@ -135,7 +141,10 @@ static inline void _render_mute_mode(void) {
             _set_led(led_idx, UI_LED_COL_OFF, LED_MODE_OFF);
             continue;
         }
-        if (s_track_muted[t]) {
+        const bool muted   = s_track_muted[t];
+        const bool preview = s_track_pmutes[t];
+
+        if (muted || preview) {
             _set_led(led_idx, UI_LED_COL_MUTE_RED, LED_MODE_ON);
             continue;
         }
@@ -181,6 +190,7 @@ static inline void _render_keyboard_omnichord(void) {
 /* ===== API ===== */
 void ui_led_backend_init(void) {
     memset(s_track_muted, 0, sizeof(s_track_muted));
+    memset(s_track_pmutes, 0, sizeof(s_track_pmutes));
     s_cart_tracks[0] = s_cart_tracks[1] = s_cart_tracks[2] = s_cart_tracks[3] = 4;
     s_rec_active = false;
     s_mode = UI_LED_MODE_NONE;

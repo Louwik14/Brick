@@ -1,212 +1,116 @@
-## ✅ `agents.md` — Brick Firmware Agent Definition (2025-10-14)
+# ===========================================================================
+# agent.txt — Codex Context Definition (Safe Version for Brick Sequencer)
+# ===========================================================================
 
-### 🧠 Rôle principal
-
-Tu es **Codex**, un développeur C embarqué senior spécialisé en **ChibiOS 21.11.x / STM32F4**.
-Tu contribues au firmware **Brick**, un **cerveau de contrôle modulaire** pour des cartouches DSP externes et une interface MIDI (USB & DIN).
-Brick ne génère **aucun son** : il orchestre transport, séquenceur, p-locks, automations et distribution de paramètres vers les cartouches.
-
----
-
-### ⚙️ Objectif global
-
-Maintenir et étendre un firmware clair, stable et Elektron-like :
-
-1. **Respecter la séparation stricte des couches :**
-
-   ```
-   Model → Engine → UI → Drivers
-   ```
-
-   * Model : structures pures, sérialisables, sans I/O.
-   * Engine : logique temps réel, clock, scheduler, player.
-   * UI : rendu OLED/LED, modes, interactions.
-   * Drivers : matériel pur (GPIO, SPI, DMA, UART…).
-
-2. **Toujours compiler** (`make`, `make check-host`, `make lint-cppcheck`)
-   et maintenir la documentation Doxygen + guards.
-
-3. **Jamais casser les invariants de timing :**
-
-   * Aucune opération bloquante en ISR.
-   * NOTE_OFF jamais droppé.
-   * Communication par queues ou callbacks planifiés.
-   * Threads Clock > Cart > Player > UI > Drivers.
+## 🎯 Objectif
+Ce fichier décrit uniquement les principes généraux du projet “Brick”.
+Il **ne doit pas** primer sur les instructions données dans les prompts.
+Codex doit se conformer à la logique décrite dans les prompts récents,
+et ne pas réimposer de comportements par défaut contraires à ces instructions.
 
 ---
 
-## 🎚️ Comportement SEQ — Spécification prioritaire (2025-10-14)
+## ⚙️ 1. Architecture générale
 
-> Cette section **prime sur toute directive antérieure.**
-
-### Structure
-
-* **64 steps**, **4 voix/step**.
-* Chaque step contient des **p-locks**, des offsets “All” et un statut :
-
-  * `neutral` : quick-step de base (notes jouables).
-  * `automate` : uniquement des p-locks (pas de note).
+- Système embarqué STM32F429 sous ChibiOS 21.11.x.
+- Organisation stricte Model / Engine / Runner / UI / Cart / MIDI.
+- Le séquenceur est event-driven : chaque tick clock appelle le moteur via SEQ_ENGINE_EVENT_CLOCK_STEP.
+- L’UI et le LED bridge sont synchronisés via les callbacks du runner.
 
 ---
 
-### 🔹 Quick Step (step neutre)
+## ⏱️ 2. Transport et Clock
 
-Quand l’utilisateur pose un step :
-
-* Le step est initialisé avec les **valeurs neutres** :
-
-  ```
-  all offsets = 0
-  voix1: vel=100, len=1, mic=0
-  voix2..4: vel=0 (aucune note)
-  ```
-* Le step devient **actif (non muté)** et envoie les NOTE ON/OFF des voix dont `vel > 0`.
-
-> ⚠️ `vel == 0` = aucune note à envoyer (doit être complètement ignoré dans le scheduler pour éviter toute saturation MIDI).
+- Le transport génère des ticks à fréquence fixe (clock tempo).
+- Chaque tick déclenche :
+  - un `SEQ_ENGINE_EVENT_CLOCK_STEP` vers le moteur,
+  - un `seq_led_bridge_tick()` vers l’UI,
+  - et un message MIDI clock (F8).
+- Les fonctions d’arrêt (`STOP`, `panic`) peuvent envoyer un *All Notes Off* global,
+  **mais uniquement dans ces cas explicites.**
+- En conditions normales : **aucun All Notes Off automatique** ne doit être émis.
+- Le moteur doit continuer à émettre clock + playback tant que le transport est actif.
 
 ---
 
-### 🔹 Automation Steps
+## 🎹 3. Enregistrement live
 
-* Si l’utilisateur maintient un step et tweak un paramètre **(SEQ ou cart)**, un **p-lock** est créé.
-* Si ce step n’était pas “neutre”, il devient `automate` :
-
-  * Toutes les voix sont `vel = 0` (aucune note MIDI).
-  * Les p-locks définissent le comportement du pas.
-* Les p-locks sont typés : `INTERNAL` (note, vel, len, micro) ou `CART` (param cartouche).
-
----
-
-### 🔹 Enregistrement live (REC)
-
-* Si **REC + PLAY actifs** :
-
-  * Les NOTE ON reçus du **ui_keyboard_bridge** sont capturés par `seq_live_capture`.
-  * `seq_live_capture_plan_step()` calcule le micro-offset réel (mesuré), **sans quantize immédiat**.
-  * `seq_live_capture_commit_step()` écrit la note et ses paramètres dans le modèle (quick-step neutre si nécessaire).
-  * Les offsets globaux (`all`) sont appliqués à l’écriture.
-* Si **REC actif pendant STOP**, on “pré-arme” la pattern ; l’enregistrement démarre à PLAY.
-* Si **REC désactivé**, aucune capture.
-
-> 🎯 Le quantize est appliqué **a posteriori**, comme une correction.
-> Les micro-offsets doivent toujours être préservés dans le modèle.
+- Le live recorder capture les événements note-on/note-off clavier.
+- À chaque paire press/release, il enregistre :
+  - note,
+  - vélocité,
+  - longueur (durée),
+  - micro-timing (offset).
+- Ces quatre valeurs deviennent des **p-locks SEQ** du step correspondant.
+- Aucune modification d’état global (vel globale, note par défaut) ne doit être appliquée.
+- Le recorder ne doit jamais bloquer la clock ni suspendre le scheduler.
 
 ---
 
-### 🔹 MUTE / PMUTE
+## 🔄 4. Gestion des p-locks
 
-* **MUTE** = stoppe uniquement les NOTE ON pour la track concernée, les NOTE OFF continuent.
-* **PMUTE (pattern mute)** = désactive totalement le pattern (aucun tick lu).
-* LED :
-
-  * 🔴 rouge = muté
-  * 🟢 couleur de track = actif
-  * ⚪ blanc = playhead
-
----
-
-### 🔹 Renderer / UI comportement
-
-#### 1. **Hold / P-lock edit**
-
-* Si un step est **maintenu**, et qu’un paramètre (SEQ ou cart) est tourné :
-
-  * Le **titre du paramètre s’inverse** (couleur inversée).
-  * Le tweak crée ou modifie un p-lock.
-* Quand le step est **relâché**, l’affichage revient au **live view** (valeurs en temps réel).
-
-#### 2. **Hold multiple steps**
-
-* Si plusieurs steps sont maintenus :
-
-  * Si tous partagent les mêmes p-locks → affiche leurs valeurs.
-  * S’ils ont des valeurs différentes sur un même paramètre → affiche un indicateur mixte (ex. “—”) ou une couleur neutre.
-  * Si l’utilisateur modifie ce paramètre → **applique la nouvelle valeur à tous** (valeur absolue, sans offset).
-
-#### 3. **View / Mode**
-
-* Renderer “live” montre playhead + steps actifs + p-locks visuels.
-* Renderer “hold” montre la configuration de step(s) maintenus.
-* Les inversions de texte / couleurs indiquent les p-locks existants.
+- Deux familles :
+  - **SEQ** : note, vélocité, longueur, micro-timing.
+  - **CART** : paramètres d’effet, modulation, etc.
+- Les p-locks SEQ sont considérés “musical” ; ils **ne convertissent jamais** le step en automation.
+- Les p-locks CART seuls définissent une automation.
+- Les p-locks SEQ et CART peuvent coexister sur le même step.
 
 ---
 
-### 🔹 Engine / Player
+## 💡 5. Classification de steps et LEDs
 
-* Reader → Scheduler → Player.
-* Reader saute les steps où **toutes les voix ont `vel = 0`**.
-* Scheduler planifie :
+| Type de step | Couleur | Détails |
+|---------------|----------|---------|
+| Quick Step (tap court, pas de p-lock) | 🟩 Vert | Note simple, vel normale |
+| SEQ-lock Step (≥1 p-lock SEQ) | 🟩 Vert | Musical, aucune réinitialisation par défaut |
+| Automate Step (p-locks CART uniquement) | 🟦 Bleu | Automation pure, vel 1 = 0 |
 
-  * p-locks à `t_on – tick/2` (clamp ≥ now)
-  * NOTE ON/OFF à `t_on`, `t_off`
-* NOTE_OFF jamais droppé, même si STOP arrive.
-* STOP = All Notes Off + purge des p-locks futurs.
-
----
-
-## 🧩 UI / Backend règles d’intégration
-
-* `ui_backend` = **seul pont** entre UI et le reste.
-* `ui_task` = thread de rendu **stateless**.
-* `ui_shortcuts` = mapping pur (SHIFT, BSx, BMx, +, −).
-* `ui_led_backend` = file d’évènements non bloquante.
-* `ui_keyboard_bridge` = canal d’entrée MIDI local vers `seq_live_capture`.
-* Aucun appel direct UI → engine / drivers / cart.
+- La couleur se décide **à la release** selon le contenu réel du step.
+- Aucun “état par défaut” ne doit être réappliqué pour les steps verts.
+- Une vélocité 0 ne change pas la classification (reste vert si SEQ).
 
 ---
 
-## 🧠 Bonnes pratiques d’implémentation
+## 🎛️ 6. LED Bridge et UI
 
-* **Thread priorities :**
-
-  | Thread      | Priorité       | Rôle                    |
-  | ----------- | -------------- | ----------------------- |
-  | Clock (GPT) | `NORMALPRIO+3` | Diffusion ticks         |
-  | Cart TX     | `+2`           | UART cart               |
-  | Player      | `+1`           | Dépile events MIDI/cart |
-  | UI          | `NORMALPRIO`   | Render loop             |
-  | Drivers     | `LOWPRIO`      | ADC/DMA LED             |
-
-* **Style :**
-
-  * Doxygen en tête de chaque fichier.
-  * Include guards `#ifndef BRICK_<PATH>_H`.
-  * Pas de `printf()` en temps réel.
-  * `systime_t` pour tous les timestamps.
-  * Alignement mémoire DMA.
+- Le LED bridge lit la classification du modèle via `step_info` ou équivalent.
+- L’UI affiche :
+  - titre inversé pour indiquer un hold actif,
+  - LEDs vertes ou bleues selon le type de step.
+- L’UI ne doit pas forcer de couleur ou d’état : elle reflète uniquement le modèle.
 
 ---
 
-## 🧩 Docs de référence
+## 🧠 7. Comportement global
 
-* `docs/ARCHITECTURE_FR.md` : vue pyramidale complète du firmware.
-* `docs/SEQ_BEHAVIOR.md` : (ce document ou section actuelle) → spécification normative SEQ.
-* `docs/seq_refactor_plan.md` : plan de refactor et statut des étapes.
-
----
-
-## 🔒 Directives globales Codex
-
-1. Respecte les invariants du modèle : **Model ↛ UI**, **Engine ↛ UI**.
-2. Ne jamais “cacher” de logique métier dans le renderer.
-3. Garder chaque étape compilable et documentée.
-4. Appliquer les conventions de logs, guards et structures déjà en place.
-5. En cas de doute, se référer à `ARCHITECTURE_FR.md` et à cette spec SEQ.
+- Le moteur doit rester **non-bloquant** : aucune opération lourde en ISR.
+- Les ticks clock, LED updates et p-locks apply/restore se déclenchent à fréquence régulière.
+- Les routines de recorder, runner et transport sont **coopératives**, jamais concurrentes.
 
 ---
 
-### ✅ TL;DR pour Codex
+## 🚫 8. Règles à ne pas imposer à Codex
 
-* Brick = cerveau MIDI + cartouches DSP, pas de son.
-* Architecture en couches, découplée.
-* SEQ = 64 steps × 4 voix, p-locks, automate, quantize différé.
-* REC live = capture micro-offsets, sans quantize immédiat.
-* Renderer = affiche p-locks avec texte inversé pendant hold.
-* `vel = 0` = step silencieux (pas de NOTE ON).
-* NOTE_OFF jamais perdu.
-* STOP vide tout.
-* Cette spec **prime** sur tout ce qui est antérieur.
+- Ne jamais forcer de :
+  - “All Notes Off” global hors STOP,
+  - “états par défaut” sur steps verts,
+  - re-classifications automatiques ignorantes des p-locks,
+  - suppression du clock scheduler,
+  - override de prompt.
+- Les comportements détaillés dans les prompts **priment** sur cette description.
 
 ---
 
-Souhaites-tu que je t’ajoute aussi la version courte correspondante pour `docs/SEQ_BEHAVIOR.md` (à placer à côté de `ARCHITECTURE_FR.md` pour que Codex la lise séparément) ?
+## ✅ 9. Résumé d’intention
+
+Codex doit :
+- respecter les prompts récents comme source prioritaire de vérité,  
+- garantir que le transport, la clock et les ticks fonctionnent toujours,  
+- maintenir la cohérence visuelle (LED/UI) avec le modèle,  
+- ne jamais interrompre la musique sans commande explicite.
+
+---
+
+# Fin du fichier agent.txt (version neutre)
+# ===========================================================================

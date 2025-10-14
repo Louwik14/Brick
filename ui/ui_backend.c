@@ -32,9 +32,14 @@
 #include "ui_overlay.h"
 #include "ui_mute_backend.h"
 #include "seq_led_bridge.h"
+#include "seq_engine_runner.h"
+#include "seq_recorder.h"
 #include "clock_manager.h"
 #include "ui_seq_ui.h"
+#include "ui_seq_ids.h"
 #include "ui_arp_ui.h"
+#include "ui_arp_menu.h" // --- ARP: sous-menu clavier ---
+#include "ui_keyboard_bridge.h" // --- ARP: STOP clavier ---
 #include "ui_keyboard_ui.h"
 #include "ui_keyboard_app.h"
 #include "ui_controller.h"
@@ -58,7 +63,8 @@ static ui_cart_spec_t s_seq_mode_spec_banner;
 static ui_cart_spec_t s_seq_setup_spec_banner;
 static ui_cart_spec_t s_arp_mode_spec_banner;
 static ui_cart_spec_t s_arp_setup_spec_banner;
-static ui_cart_spec_t s_kbd_spec_banner;
+static ui_cart_spec_t s_kbd_keyboard_spec_banner; // --- ARP: vitrine clavier ---
+static ui_cart_spec_t s_kbd_arp_config_spec_banner; // --- ARP: vitrine arpégiateur ---
 
 static void _set_mode_label(const char *label) {
     if (!label || label[0] == '\0') {
@@ -75,7 +81,8 @@ static void _reset_overlay_banner_tags(void) {
     s_seq_setup_spec_banner.overlay_tag = tag;
     s_arp_mode_spec_banner.overlay_tag  = tag;
     s_arp_setup_spec_banner.overlay_tag = tag;
-    s_kbd_spec_banner.overlay_tag       = tag;
+    s_kbd_keyboard_spec_banner.overlay_tag       = tag;
+    s_kbd_arp_config_spec_banner.overlay_tag     = tag;
 }
 
 static void _publish_keyboard_tag(int8_t shift) {
@@ -102,8 +109,9 @@ static void _neutralize_overlay_for_mute(void) {
     } else if (cur == &s_arp_mode_spec_banner || cur == &s_arp_setup_spec_banner) {
         s_arp_mode_spec_banner.overlay_tag  = NULL;
         s_arp_setup_spec_banner.overlay_tag = NULL;
-    } else if (cur == &s_kbd_spec_banner) {
-        s_kbd_spec_banner.overlay_tag = NULL;
+    } else if ((cur == &s_kbd_keyboard_spec_banner) || (cur == &s_kbd_arp_config_spec_banner)) {
+        s_kbd_keyboard_spec_banner.overlay_tag = NULL;
+        s_kbd_arp_config_spec_banner.overlay_tag = NULL;
     }
 }
 
@@ -125,18 +133,21 @@ static void _restore_overlay_visuals_after_mute(void) {
         s_mode_ctx.overlay_id         = UI_OVERLAY_ARP;
         s_mode_ctx.overlay_submode    = (cur == &s_arp_setup_spec_banner) ? 1u : 0u;
         s_mode_ctx.keyboard.overlay_visible = false;
-    } else if (cur == &s_kbd_spec_banner) {
+    } else if ((cur == &s_kbd_keyboard_spec_banner) || (cur == &s_kbd_arp_config_spec_banner)) {
         s_mode_ctx.overlay_active     = true;
         s_mode_ctx.overlay_id         = UI_OVERLAY_SEQ;
-        s_mode_ctx.overlay_submode    = 0u;
+        s_mode_ctx.keyboard.arp_submenu_active = (cur == &s_kbd_arp_config_spec_banner); // --- ARP: restaurer sélection ---
+        s_mode_ctx.overlay_submode    = s_mode_ctx.keyboard.arp_submenu_active ? 1u : 0u;
         s_mode_ctx.keyboard.overlay_visible = true;
         _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-        s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+        s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+        s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
         ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
     } else {
         if (s_mode_ctx.keyboard.active) {
             _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-            s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+            s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+            s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
             ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
         } else {
             _set_mode_label("SEQ");
@@ -151,6 +162,43 @@ static void _update_seq_runtime_from_bridge(void) {
     s_mode_ctx.seq.page_index = seq_led_bridge_get_visible_page();
 }
 
+static bool _resolve_seq_param(uint16_t local_id,
+                               seq_hold_param_id_t *out_param,
+                               const ui_param_state_t **out_state) {
+    ui_state_t *state = ui_model_get_state();
+    if (state == NULL) {
+        return false;
+    }
+
+    if (local_id <= SEQ_UI_LOCAL_ALL_MIC) {
+        if (out_param != NULL) {
+            *out_param = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_ALL_TRANSP + (local_id - SEQ_UI_LOCAL_ALL_TRANSP));
+        }
+        if (out_state != NULL) {
+            *out_state = &state->vals.menus[0].pages[0].params[local_id - SEQ_UI_LOCAL_ALL_TRANSP];
+        }
+        return true;
+    }
+
+    if (local_id >= SEQ_UI_LOCAL_V1_NOTE && local_id <= SEQ_UI_LOCAL_V4_MIC) {
+        uint16_t rel = (uint16_t)(local_id - SEQ_UI_LOCAL_V1_NOTE);
+        uint8_t voice = (uint8_t)(rel / 4U);
+        uint8_t slot = (uint8_t)(rel % 4U);
+        if (voice >= 4U || slot >= 4U) {
+            return false;
+        }
+        if (out_param != NULL) {
+            *out_param = (seq_hold_param_id_t)(SEQ_HOLD_PARAM_V1_NOTE + rel);
+        }
+        if (out_state != NULL) {
+            *out_state = &state->vals.menus[0].pages[1U + voice].params[slot];
+        }
+        return true;
+    }
+
+    return false;
+}
+
 static void _handle_shortcut_action(const ui_shortcut_action_t *act);
 static void _route_default_event(const ui_input_event_t *evt, bool consumed);
 
@@ -161,6 +209,7 @@ void ui_backend_init_runtime(void) {
     s_mode_ctx.overlay_active  = false;
     s_mode_ctx.overlay_submode = 0u;
     s_mode_ctx.keyboard.octave = ui_keyboard_app_get_octave_shift();
+    s_mode_ctx.keyboard.arp_submenu_active = false; // --- ARP: état initial ---
     s_mode_ctx.transport.playing   = false;
     s_mode_ctx.transport.recording = false;
 
@@ -264,15 +313,32 @@ static void _apply_arp_overlay_cycle(void) {
     ui_mark_dirty();
 }
 
-static void _apply_keyboard_overlay(void) {
-    if (ui_overlay_is_active() && ui_overlay_get_spec() == &s_kbd_spec_banner) {
-        ui_overlay_exit();
-    }
-
-    s_kbd_spec_banner = ui_keyboard_spec;
+static void _prepare_keyboard_specs(void) {
     const ui_cart_spec_t *cart_spec = ui_get_cart();
-    s_kbd_spec_banner.cart_name   = cart_spec ? cart_spec->cart_name : "";
-    s_kbd_spec_banner.overlay_tag = NULL;
+    const char *banner = cart_spec ? cart_spec->cart_name : "";
+    s_kbd_keyboard_spec_banner = ui_keyboard_spec;
+    s_kbd_keyboard_spec_banner.cart_name   = banner;
+    s_kbd_keyboard_spec_banner.overlay_tag = NULL;
+
+    s_kbd_arp_config_spec_banner = ui_keyboard_arp_menu_spec;
+    s_kbd_arp_config_spec_banner.cart_name   = banner;
+    s_kbd_arp_config_spec_banner.overlay_tag = NULL;
+}
+
+static void _apply_keyboard_overlay(void) {
+    _prepare_keyboard_specs();
+
+    const ui_cart_spec_t *current = ui_overlay_is_active() ? ui_overlay_get_spec() : NULL;
+    const ui_cart_spec_t *target = s_mode_ctx.keyboard.arp_submenu_active
+                                       ? &s_kbd_arp_config_spec_banner
+                                       : &s_kbd_keyboard_spec_banner;
+
+    if (!ui_overlay_is_active() ||
+        (current != &s_kbd_keyboard_spec_banner && current != &s_kbd_arp_config_spec_banner)) {
+        ui_overlay_enter(UI_OVERLAY_SEQ, target);
+    } else if (current != target) {
+        ui_overlay_switch_subspec(target);
+    }
 
     s_mode_ctx.keyboard.active          = true;
     s_mode_ctx.keyboard.overlay_visible = true;
@@ -280,14 +346,19 @@ static void _apply_keyboard_overlay(void) {
     s_mode_ctx.custom_mode              = UI_CUSTOM_NONE;
     s_mode_ctx.overlay_active           = true;
     s_mode_ctx.overlay_id               = UI_OVERLAY_SEQ;
-    s_mode_ctx.overlay_submode          = 0u;
+    s_mode_ctx.overlay_submode          = s_mode_ctx.keyboard.arp_submenu_active ? 1u : 0u;
 
     ui_overlay_set_custom_mode(UI_CUSTOM_NONE);
-    ui_overlay_enter(UI_OVERLAY_SEQ, &s_kbd_spec_banner);
     ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
     _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-    s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+    s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+    s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
     ui_mark_dirty();
+}
+
+static void _keyboard_toggle_submenu(void) {
+    s_mode_ctx.keyboard.arp_submenu_active = !s_mode_ctx.keyboard.arp_submenu_active; // --- ARP: cycle submenu ---
+    _apply_keyboard_overlay();
 }
 
 static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
@@ -309,6 +380,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         _neutralize_overlay_for_mute();
         ui_led_backend_set_mode(UI_LED_MODE_MUTE);
         _set_mode_label("PMUTE");
+        ui_mute_backend_publish_state(); // --- FIX: re-synchroniser les LEDs préparées à chaque entrée PMUTE ---
         ui_mark_dirty();
         break;
 
@@ -316,6 +388,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state       = UI_MUTE_STATE_OFF;
         s_mode_ctx.mute_plus_down   = false;
         s_mode_ctx.mute_shift_latched = ui_input_shift_is_pressed();
+        ui_mute_backend_cancel();
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
         ui_mark_dirty();
@@ -348,14 +421,26 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     case UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY:
         _apply_keyboard_overlay();
         break;
+    case UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU:
+        if (!ui_overlay_is_active() ||
+            (ui_overlay_get_spec() != &s_kbd_keyboard_spec_banner &&
+             ui_overlay_get_spec() != &s_kbd_arp_config_spec_banner)) {
+            _apply_keyboard_overlay();
+        } else {
+            _keyboard_toggle_submenu();
+        }
+        break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_PLAY:
+        seq_engine_runner_on_transport_play();
         clock_manager_start();
         seq_led_bridge_on_play();
         s_mode_ctx.transport.playing = true;
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_STOP:
+        ui_keyboard_bridge_on_transport_stop(); // --- ARP: flush avant STOP ---
+        seq_engine_runner_on_transport_stop();
         clock_manager_stop();
         seq_led_bridge_on_stop();
         s_mode_ctx.transport.playing = false;
@@ -364,6 +449,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     case UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE:
         s_mode_ctx.transport.recording = !s_mode_ctx.transport.recording;
         ui_led_backend_set_record_mode(s_mode_ctx.transport.recording);
+        seq_recorder_set_recording(s_mode_ctx.transport.recording);
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_PAGE_NEXT:
@@ -384,13 +470,21 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
 
     case UI_SHORTCUT_ACTION_SEQ_STEP_HOLD:
         seq_led_bridge_plock_add(act->data.seq_step.index);
+        seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+        ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_STEP_RELEASE:
         seq_led_bridge_plock_remove(act->data.seq_step.index);
+        if (s_mode_ctx.seq.held_mask != 0U) {
+            seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+        } else {
+            seq_led_bridge_end_plock_preview();
+        }
         if (!act->data.seq_step.long_press) {
             seq_led_bridge_quick_toggle_step(act->data.seq_step.index);
         }
+        ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_ENCODER_TOUCH: {
@@ -400,6 +494,8 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
                 seq_led_bridge_set_step_param_only(i, true);
             }
         }
+        seq_led_bridge_begin_plock_preview(mask);
+        ui_mark_dirty();
         break;
     }
 
@@ -550,6 +646,12 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
 
     switch (dest) {
     case UI_DEST_CART:
+        if (s_mode_ctx.seq.held_mask != 0U) {
+            seq_led_bridge_apply_cart_param(local_id, (int32_t)val, s_mode_ctx.seq.held_mask);
+            seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+            ui_mark_dirty();
+            break;
+        }
         /* Route vers la cartouche active (shadow + éventuelle propagation) */
         cart_link_param_changed(local_id, val, bitwise, mask);
         break;
@@ -569,7 +671,10 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
             }
             newv = reg;
         }
-        _ui_shadow_set(id, newv);
+
+        if (s_mode_ctx.seq.held_mask == 0U) {
+            _ui_shadow_set(id, newv);
+        }
 
         /* Interception locale UI (facultatif) */
         ui_backend_handle_ui(local_id, newv, bitwise, mask);
@@ -628,8 +733,28 @@ void ui_backend_all_notes_off(void) {
 /* UI interne                                                                 */
 /* -------------------------------------------------------------------------- */
 static void ui_backend_handle_ui(uint16_t local_id, uint8_t val, bool bitwise, uint8_t mask) {
-    (void)local_id; (void)val; (void)bitwise; (void)mask;
-    /* Ici, tu peux gérer des hooks UI si nécessaire (NOP par défaut). */
+    (void)val;
+    (void)bitwise;
+    (void)mask;
+
+    if (s_mode_ctx.seq.held_mask == 0U) {
+        return;
+    }
+
+    seq_hold_param_id_t param_id;
+    const ui_param_state_t *state_param = NULL;
+    if (!_resolve_seq_param(local_id, &param_id, &state_param)) {
+        return;
+    }
+
+    int32_t value = 0;
+    if (state_param != NULL) {
+        value = state_param->value;
+    }
+
+    seq_led_bridge_apply_plock_param(param_id, value, s_mode_ctx.seq.held_mask);
+    seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+    ui_mark_dirty();
 }
 
 /* -------------------------------------------------------------------------- */

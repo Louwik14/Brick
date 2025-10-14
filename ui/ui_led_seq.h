@@ -18,6 +18,9 @@ typedef struct {
     bool active;
     bool recorded;
     bool param_only;
+    bool automation;
+    bool muted;
+    uint8_t track;
 } seq_step_state_t;
 
 typedef struct {

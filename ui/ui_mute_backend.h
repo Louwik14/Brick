@@ -71,6 +71,11 @@ void ui_mute_backend_commit(void);
  */
 void ui_mute_backend_cancel(void);
 
+/**
+ * @brief Republie l'état courant MUTE/PMUTE vers le backend LED.
+ */
+void ui_mute_backend_publish_state(void);
+
 /* (Optionnel) Getters pour debug ou UI future : */
 bool ui_mute_backend_is_muted(uint8_t track);
 bool ui_mute_backend_is_prepared(uint8_t track);

@@ -445,6 +445,48 @@ void midi_system_reset(midi_dest_t d){
   midi_send(MIDI_DEST_BOTH,m,1);
 }
 
+// --- FIX: centraliser les Channel Mode messages (All Notes Off & cie) dans midi.c ---
+static void midi_channel_mode_cc(midi_dest_t dest, uint8_t ch, uint8_t control, uint8_t value) {
+  uint8_t msg[3] = {
+      (uint8_t)(0xB0 | (ch & 0x0F)),
+      (uint8_t)(control & 0x7F),
+      (uint8_t)(value & 0x7F)
+  };
+  midi_send(dest, msg, 3);
+}
+
+void midi_all_sound_off(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 120U, 0U);
+}
+
+void midi_reset_all_controllers(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 121U, 0U);
+}
+
+void midi_local_control(midi_dest_t dest, uint8_t ch, bool on) {
+  midi_channel_mode_cc(dest, ch, 122U, on ? 127U : 0U);
+}
+
+void midi_all_notes_off(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 123U, 0U);
+}
+
+void midi_omni_mode_off(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 124U, 0U);
+}
+
+void midi_omni_mode_on(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 125U, 0U);
+}
+
+void midi_mono_mode_on(midi_dest_t dest, uint8_t ch, uint8_t num_channels) {
+  midi_channel_mode_cc(dest, ch, 126U, num_channels);
+}
+
+void midi_poly_mode_on(midi_dest_t dest, uint8_t ch) {
+  midi_channel_mode_cc(dest, ch, 127U, 0U);
+}
+
 /**
  * @brief Réinitialise les statistiques de transmission MIDI.
  */

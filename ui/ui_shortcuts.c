@@ -13,7 +13,7 @@
 /* Constantes locales                                                         */
 /* ========================================================================== */
 #ifndef SEQ_LONG_PRESS_MS
-#define SEQ_LONG_PRESS_MS (250)
+#define SEQ_LONG_PRESS_MS (500)
 #endif
 
 /* ========================================================================== */
@@ -75,7 +75,8 @@ static bool _map_mute(const ui_input_event_t *evt,
     }
 
     if (ctx->mute_state == UI_MUTE_STATE_QUICK) {
-        if (_is_seq_pad(evt->btn_id)) {
+        if (_is_seq_pad(evt->btn_id) && evt->btn_pressed) {
+            // --- FIX: ne toggler la track qu'à l'appui pour obtenir un mute en latch ---
             ui_shortcut_action_t *act =
                 _push_action(res, UI_SHORTCUT_ACTION_TOGGLE_MUTE_TRACK);
             if (act) {
@@ -89,7 +90,8 @@ static bool _map_mute(const ui_input_event_t *evt,
             consumed = true;
         }
     } else if (ctx->mute_state == UI_MUTE_STATE_PMUTE) {
-        if (_is_seq_pad(evt->btn_id)) {
+        if (_is_seq_pad(evt->btn_id) && evt->btn_pressed) {
+            // --- FIX: PMUTE reste préparé après relâchement, on déclenche seulement sur l'appui ---
             ui_shortcut_action_t *act =
                 _push_action(res, UI_SHORTCUT_ACTION_PREPARE_PMUTE_TRACK);
             if (act) {
@@ -125,7 +127,7 @@ static bool _map_overlays(const ui_input_event_t *evt,
         res->consumed = true;
         return true;
     case UI_BTN_SEQ10:
-        (void)_push_action(res, UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY);
+        (void)_push_action(res, UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU); // --- ARP: cycle clavier/arp ---
         res->consumed = true;
         return true;
     case UI_BTN_SEQ11:

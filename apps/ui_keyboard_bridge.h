@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "ch.h" // --- ARP: systime_t pour tick ---
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,7 +36,12 @@ void ui_keyboard_bridge_update_from_model(void);
 /**
  * @brief Tick optionnel (placeholder pour intégrations futures, ex: ARP).
  */
-void ui_keyboard_bridge_tick(uint32_t elapsed_ms);
+void ui_keyboard_bridge_tick(systime_t now); // --- ARP: tick haute résolution ---
+
+/**
+ * @brief Panic clavier/ARP lors d'un STOP transport.
+ */
+void ui_keyboard_bridge_on_transport_stop(void); // --- ARP: flush note engine ---
 
 #ifdef __cplusplus
 }
