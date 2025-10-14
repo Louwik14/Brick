@@ -1,8 +1,7 @@
 #include "ui_arp_menu.h"
+#include <string.h>
 
 // --- ARP: Spécification UI du sous-menu Arpégiateur Keyboard ---
-
-#include <string.h>
 
 static const char* const s_onoff_labels[]       = { "Off", "On" };
 static const char* const s_rate_labels[]        = { "1/4", "1/8", "1/16", "1/32", "Tri" };
@@ -93,15 +92,13 @@ static const ui_page_spec_t s_page_creative = {
 static const ui_menu_spec_t s_menu_arp = {
   .name = "ARPEGIATOR",
   .page_titles = { "Core", "Groove", "Strum", "Pitch", "Creative" },
-  // --- ARP FIX: value copies keep the layout constexpr-compatible (see ui_spec.h) ---
-  .pages = { s_page_core, s_page_groove, s_page_strum, s_page_pitch, s_page_creative }
+  .pages = { &s_page_core, &s_page_groove, &s_page_strum, &s_page_pitch, &s_page_creative }
 };
 
 // --- ARP: Cartouche exportée ---
 const ui_cart_spec_t ui_keyboard_arp_menu_spec = {
   .cart_name = "",
-  // --- ARP FIX: match ui_keyboard_ui.c by embedding the menu spec by value ---
-  .menus = { [0] = s_menu_arp },
+  .menus = { &s_menu_arp },
   .cycles = {
     [0] = { .count=0 }, [1] = { .count=0 }, [2] = { .count=0 }, [3] = { .count=0 },
     [4] = { .count=0 }, [5] = { .count=0 }, [6] = { .count=0 }, [7] = { .count=0 }
