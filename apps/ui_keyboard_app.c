@@ -228,7 +228,7 @@ void ui_keyboard_app_init(const ui_keyboard_note_sink_t *sink){
     g.sink.note_on = NULL; g.sink.note_off = NULL; g.sink.all_notes_off = NULL;
     g.sink.midi_channel = 0; g.sink.velocity = 100;
   }
-  ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+  // --- FIX: laisser le mode LED courant (SEQ au boot) tant qu'on n'entre pas dans l'overlay clavier ---
   ui_led_backend_set_keyboard_omnichord(g.omnichord);
 }
 

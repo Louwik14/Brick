@@ -127,7 +127,7 @@ static bool _map_overlays(const ui_input_event_t *evt,
         res->consumed = true;
         return true;
     case UI_BTN_SEQ10:
-        (void)_push_action(res, UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY);
+        (void)_push_action(res, UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU); // --- ARP: cycle clavier/arp ---
         res->consumed = true;
         return true;
     case UI_BTN_SEQ11:
