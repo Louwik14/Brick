@@ -23,12 +23,12 @@ La documentation complète du firmware (générée automatiquement avec **Doxyge
 ### Vue en couches (cible)
 
 ```[ Application / Modes customs (futur) — **KEY** runtime actif ]
-│   (Overlay KEYBOARD via SHIFT+SEQ11 ; label dynamique **KEY ±N** ; contexte persistant `s_keys_active`)
+│   (Overlay KEYBOARD via SHIFT+SEQ11 ; label dynamique **KEY ±N** ; contexte persistant dans `ui_mode_context_t`)
 │   (Options Page 2 : Note order Natural/Fifths, Chord override ; Omni ON/Off harmonisé avec OFF)
 ▼
 [ UI Layer (task, input, controller, renderer, widgets) ]
-│     ├─ ui_task       (poll +/− → octave shift si **KEY** actif ; mise à jour label bandeau)
-│     ├─ ui_shortcuts  (raccourcis overlays, MUTE/PMUTE ; **rebuild** KEY si déjà affiché ; restaure LEDs après MUTE)
+│     ├─ ui_task       (thread UI : poll → `ui_backend_process_input` + rendu/refresh LEDs)
+│     ├─ ui_shortcuts  (mapping pur → actions raccourcis, aucun side-effect)
 │     ├─ ui_keyboard_app (quantization commune OFF/ON ; Chord override ; Note order ; clamp [0..127] ; base C4 ; octave shift)
 │     ├─ ui_keyboard_ui  (menu Keyboard p2 : Note order, Chord override)
 │     ├─ kbd_input_mapper (SEQ1..16 → notes/chords app)
@@ -109,7 +109,7 @@ ui_task  (tick: scan entrées + logique périodique + 60 FPS rendu)             
 
 Ordre d’initialisation recommandé (implémenté dans `main.c`) :
 
-> Remarque : `ui_model_init()` initialise l'état UI et **définit le mode custom par défaut** à "SEQ". En cas d'appel anticipé du renderer, `ui_model_get_active_overlay_tag()` renvoie aussi "SEQ" par **fail-safe**.
+> Remarque : `ui_backend_init_runtime()` initialise le label de mode à « SEQ ». En cas d'appel anticipé du renderer, `ui_backend_get_mode_label()` renvoie toujours un libellé valide (fail-safe « SEQ »).
 
 ```c
 static void system_init(void) {
@@ -157,13 +157,13 @@ int main(void) {
 
 #### État global du **mode custom actif** (tag persistant)
 
-- Le modèle maintient un **tag texte persistant** du **dernier mode custom actif** (ex.: "SEQ", "ARP").  
-  API :
+- Le backend expose `ui_backend_get_mode_label()` pour récupérer le label affiché dans le bandeau ("SEQ", "ARP", "KEY±n", "MUTE", etc.).
+- Le modèle conserve un **tag texte persistant** du dernier mode custom actif pour compatibilité (synchronisé par le backend) :
   ```c
   void        ui_model_set_active_overlay_tag(const char *tag);
   const char* ui_model_get_active_overlay_tag(void);
   ```
-- **Valeur par défaut** : "SEQ". Le getter applique un **fail-safe** : si aucun tag n’a encore été défini lors du tout premier rendu, il retourne "SEQ".
+- **Valeur par défaut** : "SEQ". `ui_backend_get_mode_label()` applique un fail-safe identique lors du tout premier rendu.
 
 
 #### Mode **KEYBOARD** (runtime musical, Phase 6½ — *Orchid-inspired*)
@@ -325,8 +325,8 @@ Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/
 ---
 
 ## Horloge / MIDI / Clock
-- `clock_manager.[ch]` : publie un **index de pas absolu** (0..∞). `ui_task` le forwarde au backend via `UI_LED_EVENT_CLOCK_TICK` (sans modulo 16).  
-- `ui_led_backend` relaie cet index au renderer **SEQ** (`ui_led_seq_on_clock_tick()`), qui applique le modulo sur `pages×16` et rend le **pas courant** stable (LED pleine).
+- `clock_manager.[ch]` : publie un **index de pas absolu** (0..∞). `ui_task` le forwarde vers la file d’événements de `ui_led_backend_post_event_i()` (sans modulo 16, non bloquant).
+- `ui_led_backend` relaye ensuite l’index depuis sa queue vers le renderer **SEQ** (`ui_led_seq_on_clock_tick()`), qui applique le modulo sur `pages×16` et rend le **pas courant** stable (LED pleine).
 
 **Nota (2025‑10‑13)** — Le renderer SEQ met en œuvre un **latch `has_tick`** : le playhead n’est affiché qu’à partir du **premier tick** après PLAY, évitant tout effet de double allumage au redémarrage.
 
@@ -465,11 +465,12 @@ int main(void) {
 
 ---
 
-## Préparation SEQ (Model + Engine) — à venir
+## Fondations SEQ (Model + Engine + Capture)
 
 - `seq_model.[ch]` : modèle **pur** (64 steps × 4 voix, p-locks, micro).
 - `seq_engine.[ch]` : Reader → Scheduler → Player (file triée, timestamps absolus).
-- **Live record** : capture temps réel (clavier/arp) → écriture atomique sur step courant.
+- `seq_live_capture.[ch]` : façade live record → calcule quantize/strength, micro-offset et planifie la mutation sans toucher au modèle.
+- **Live record** : capture temps réel (clavier/arp) → mutation pattern à implémenter (placeholder de planification prêt).
 - **API** : le moteur consomme une queue d’événements, pas d’appel direct depuis l’UI.
 
 ---
@@ -599,7 +600,7 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 ### 5. Rendu (`ui_renderer`) — **implémenté**
 
 - Affichage du **mode custom actif** (*overlay_tag*) **en 4×6 non inversé**, sous le **nom de cartouche** (4×6 non inversé).
-- Si la spec active ne fournit pas de `overlay_tag`, le renderer utilise `ui_model_get_active_overlay_tag()` (dernier mode actif persistant, **par défaut "SEQ"** au démarrage).
+- Si la spec active ne fournit pas de `overlay_tag`, le renderer utilise `ui_backend_get_mode_label()` (dernière valeur gérée par le backend, **par défaut « SEQ »** au démarrage).
 - Le **titre du menu** est **centré dans un cadre** à coins ouverts (voir *Rendu (`ui_renderer.c`)*). 
 - Invariants respectés : aucune logique d’état dans le renderer ; pas d’accès bus/driver hors `drv_display`/primitives.
 
@@ -614,9 +615,10 @@ const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 ---
 ## 📘 ANNEXE : Mise à jour Phase 5
 
-- `ui_shortcuts.c` : Nouveau module central de gestion des combinaisons clavier, MUTE/PMUTE et overlays.
-- `ui_task.c` : Simplifié — délègue désormais tous les événements à `ui_shortcuts_handle_event()`.
-- `ui_overlay.c` : Conserve la logique d’ouverture/fermeture et de bannière, appelée uniquement depuis `ui_shortcuts`.
+- `ui_shortcuts.c` : Couche de mapping pure (évènement → `ui_shortcut_action_t`), sans effets secondaires.
+- `ui_backend.c` : Conserve le contexte `ui_mode_context_t`, applique les actions (mute, overlays, transport) et publie les tags.
+- `ui_task.c` : Simplifié — délègue désormais tous les événements à `ui_backend_process_input()` et se concentre sur le rendu.
+- `ui_overlay.c` : Conserve la logique d’ouverture/fermeture et de bannière, appelée depuis le backend.
 - `ui_controller.c` / `ui_model.c` : Inchangés, découplés et stables.
 - `ui_renderer.c` : Rendu prioritaire par `overlay_tag` > `model_tag`, permettant un affichage correct des états MUTE/PMUTE.
 - `cart_registry.c` : Sert de registre déclaratif de specs pour les “apps custom” (SEQ, ARP, FX, etc.).
@@ -662,7 +664,7 @@ Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’ar
 
   - `ui_led_seq.c/.h` : **renderer SEQ** (playhead absolu, pages, priorités d’état, sans dépendre de `clock_manager`).
 - `ui/seq/`
-  - `seq_led_bridge.c/.h` : **pont SEQ ↔ renderer** (pages, P-Lock mask, publication snapshot, total_span `pages×16`).
+  - `seq_led_bridge.c/.h` : **pont SEQ ↔ renderer** (pages, P-Lock mask, publication snapshot, total_span `pages×16`) adossé au `seq_model_pattern_t` partagé.
 - `ui/customs/`
   - `ui_keyboard_ui.c/.h` : **vitrine UI KEYBOARD** (menu unique **Mode** avec 4 paramètres : *Gamme*, *Root*, *Arp On/Off*, *Omnichord On/Off*).
 
@@ -714,4 +716,4 @@ lorsque **KEY** est le contexte actif (overlay visible ou non) ; mise à jour du
 **label** bandeau en conséquence.
 - `ui/customs/` → `ui_keyboard_ui.*` (menus Keyboard, page 2)
 - `apps/` → `ui_keyboard_app.*`, `kbd_input_mapper.*`, `kbd_chords_dict.*`
-- `ui/` → `ui_shortcuts.*` (raccourcis overlays, MUTE, flag `s_keys_active`)
+- `ui/` → `ui_shortcuts.*` (mapping neutre → actions), `ui_backend.*` (contexte UI + effets secondaires)

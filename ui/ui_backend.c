@@ -26,11 +26,449 @@
 #include "cart_registry.h"
 #include "brick_config.h"
 
+#include "ui_shortcuts.h"
+#include "ui_led_backend.h"
+#include "ui_model.h"
+#include "ui_overlay.h"
+#include "ui_mute_backend.h"
+#include "seq_led_bridge.h"
+#include "clock_manager.h"
+#include "ui_seq_ui.h"
+#include "ui_arp_ui.h"
+#include "ui_keyboard_ui.h"
+#include "ui_keyboard_app.h"
+#include "ui_controller.h"
+#include "kbd_input_mapper.h"
+
 #include "midi.h"                /* midi_note_on/off(), midi_cc() */
 
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
+#include <stdio.h>
+
+/* -------------------------------------------------------------------------- */
+/* Runtime UI mode context + helpers                                          */
+/* -------------------------------------------------------------------------- */
+
+static ui_mode_context_t s_mode_ctx;
+static char s_mode_label[8] = "SEQ";
+
+static ui_cart_spec_t s_seq_mode_spec_banner;
+static ui_cart_spec_t s_seq_setup_spec_banner;
+static ui_cart_spec_t s_arp_mode_spec_banner;
+static ui_cart_spec_t s_arp_setup_spec_banner;
+static ui_cart_spec_t s_kbd_spec_banner;
+
+static void _set_mode_label(const char *label) {
+    if (!label || label[0] == '\0') {
+        label = "SEQ";
+    }
+    (void)snprintf(s_mode_label, sizeof(s_mode_label), "%s", label);
+    s_mode_label[sizeof(s_mode_label) - 1U] = '\0';
+    ui_model_set_active_overlay_tag(s_mode_label);
+}
+
+static void _reset_overlay_banner_tags(void) {
+    const char *tag = ui_backend_get_mode_label();
+    s_seq_mode_spec_banner.overlay_tag  = tag;
+    s_seq_setup_spec_banner.overlay_tag = tag;
+    s_arp_mode_spec_banner.overlay_tag  = tag;
+    s_arp_setup_spec_banner.overlay_tag = tag;
+    s_kbd_spec_banner.overlay_tag       = tag;
+}
+
+static void _publish_keyboard_tag(int8_t shift) {
+    char tag[32];
+    if (shift == 0) {
+        (void)snprintf(tag, sizeof(tag), "KEY");
+    } else {
+        (void)snprintf(tag, sizeof(tag), "KEY%+d", (int)shift);
+    }
+    _set_mode_label(tag);
+}
+
+static void _neutralize_overlay_for_mute(void) {
+    if (!ui_overlay_is_active()) {
+        return;
+    }
+    const ui_cart_spec_t *cur = ui_overlay_get_spec();
+    if (!cur) {
+        return;
+    }
+    if (cur == &s_seq_mode_spec_banner || cur == &s_seq_setup_spec_banner) {
+        s_seq_mode_spec_banner.overlay_tag  = NULL;
+        s_seq_setup_spec_banner.overlay_tag = NULL;
+    } else if (cur == &s_arp_mode_spec_banner || cur == &s_arp_setup_spec_banner) {
+        s_arp_mode_spec_banner.overlay_tag  = NULL;
+        s_arp_setup_spec_banner.overlay_tag = NULL;
+    } else if (cur == &s_kbd_spec_banner) {
+        s_kbd_spec_banner.overlay_tag = NULL;
+    }
+}
+
+static void _restore_overlay_visuals_after_mute(void) {
+    const ui_cart_spec_t *cur = ui_overlay_get_spec();
+    if (cur == &s_seq_mode_spec_banner || cur == &s_seq_setup_spec_banner) {
+        _set_mode_label("SEQ");
+        _reset_overlay_banner_tags();
+        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        s_mode_ctx.overlay_active     = true;
+        s_mode_ctx.overlay_id         = UI_OVERLAY_SEQ;
+        s_mode_ctx.overlay_submode    = (cur == &s_seq_setup_spec_banner) ? 1u : 0u;
+        s_mode_ctx.keyboard.overlay_visible = false;
+    } else if (cur == &s_arp_mode_spec_banner || cur == &s_arp_setup_spec_banner) {
+        _set_mode_label("ARP");
+        _reset_overlay_banner_tags();
+        ui_led_backend_set_mode(UI_LED_MODE_ARP);
+        s_mode_ctx.overlay_active     = true;
+        s_mode_ctx.overlay_id         = UI_OVERLAY_ARP;
+        s_mode_ctx.overlay_submode    = (cur == &s_arp_setup_spec_banner) ? 1u : 0u;
+        s_mode_ctx.keyboard.overlay_visible = false;
+    } else if (cur == &s_kbd_spec_banner) {
+        s_mode_ctx.overlay_active     = true;
+        s_mode_ctx.overlay_id         = UI_OVERLAY_SEQ;
+        s_mode_ctx.overlay_submode    = 0u;
+        s_mode_ctx.keyboard.overlay_visible = true;
+        _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
+        s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+        ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+    } else {
+        if (s_mode_ctx.keyboard.active) {
+            _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
+            s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+            ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+        } else {
+            _set_mode_label("SEQ");
+            _reset_overlay_banner_tags();
+            ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        }
+    }
+}
+
+static void _update_seq_runtime_from_bridge(void) {
+    s_mode_ctx.seq.page_count = seq_led_bridge_get_max_pages();
+    s_mode_ctx.seq.page_index = seq_led_bridge_get_visible_page();
+}
+
+static void _handle_shortcut_action(const ui_shortcut_action_t *act);
+static void _route_default_event(const ui_input_event_t *evt, bool consumed);
+
+void ui_backend_init_runtime(void) {
+    ui_shortcut_map_init(&s_mode_ctx);
+    s_mode_ctx.custom_mode     = ui_overlay_get_custom_mode();
+    s_mode_ctx.overlay_id      = UI_OVERLAY_NONE;
+    s_mode_ctx.overlay_active  = false;
+    s_mode_ctx.overlay_submode = 0u;
+    s_mode_ctx.keyboard.octave = ui_keyboard_app_get_octave_shift();
+    s_mode_ctx.transport.playing   = false;
+    s_mode_ctx.transport.recording = false;
+
+    _set_mode_label("SEQ");
+    _reset_overlay_banner_tags();
+    _update_seq_runtime_from_bridge();
+
+    ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+}
+
+const ui_mode_context_t *ui_backend_get_mode_context(void) {
+    return &s_mode_ctx;
+}
+
+const char *ui_backend_get_mode_label(void) {
+    if (s_mode_label[0] == '\0') {
+        _set_mode_label("SEQ");
+    }
+    return s_mode_label;
+}
+
+void ui_backend_process_input(const ui_input_event_t *evt) {
+    if (!evt) {
+        return;
+    }
+
+    ui_shortcut_map_result_t map = ui_shortcut_map_process(evt, &s_mode_ctx);
+
+    for (uint8_t i = 0; i < map.action_count; ++i) {
+        _handle_shortcut_action(&map.actions[i]);
+    }
+
+    _update_seq_runtime_from_bridge();
+
+    _route_default_event(evt, map.consumed);
+}
+
+static void _apply_seq_overlay_cycle(void) {
+    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    _set_mode_label("SEQ");
+    ui_overlay_prepare_banner(&seq_ui_spec, &seq_setup_ui_spec,
+                              &s_seq_mode_spec_banner, &s_seq_setup_spec_banner,
+                              cart_spec, ui_backend_get_mode_label());
+    _reset_overlay_banner_tags();
+
+    if (!ui_overlay_is_active()) {
+        ui_overlay_enter(UI_OVERLAY_SEQ, &s_seq_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    } else if (ui_overlay_get_spec() == &s_seq_mode_spec_banner) {
+        ui_overlay_switch_subspec(&s_seq_setup_spec_banner);
+        s_mode_ctx.overlay_submode = 1u;
+    } else if (ui_overlay_get_spec() == &s_seq_setup_spec_banner) {
+        ui_overlay_switch_subspec(&s_seq_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    } else {
+        ui_overlay_enter(UI_OVERLAY_SEQ, &s_seq_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    }
+
+    s_mode_ctx.overlay_active            = true;
+    s_mode_ctx.overlay_id                = UI_OVERLAY_SEQ;
+    s_mode_ctx.custom_mode               = UI_CUSTOM_SEQ;
+    s_mode_ctx.keyboard.active           = false;
+    s_mode_ctx.keyboard.overlay_visible  = false;
+
+    ui_overlay_set_custom_mode(UI_CUSTOM_SEQ);
+    ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+    ui_mark_dirty();
+}
+
+static void _apply_arp_overlay_cycle(void) {
+    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    _set_mode_label("ARP");
+    ui_overlay_prepare_banner(&arp_ui_spec, &arp_setup_ui_spec,
+                              &s_arp_mode_spec_banner, &s_arp_setup_spec_banner,
+                              cart_spec, ui_backend_get_mode_label());
+    _reset_overlay_banner_tags();
+
+    if (!ui_overlay_is_active()) {
+        ui_overlay_enter(UI_OVERLAY_ARP, &s_arp_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    } else if (ui_overlay_get_spec() == &s_arp_mode_spec_banner) {
+        ui_overlay_switch_subspec(&s_arp_setup_spec_banner);
+        s_mode_ctx.overlay_submode = 1u;
+    } else if (ui_overlay_get_spec() == &s_arp_setup_spec_banner) {
+        ui_overlay_switch_subspec(&s_arp_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    } else {
+        ui_overlay_enter(UI_OVERLAY_ARP, &s_arp_mode_spec_banner);
+        s_mode_ctx.overlay_submode = 0u;
+    }
+
+    s_mode_ctx.overlay_active            = true;
+    s_mode_ctx.overlay_id                = UI_OVERLAY_ARP;
+    s_mode_ctx.custom_mode               = UI_CUSTOM_ARP;
+    s_mode_ctx.keyboard.active           = false;
+    s_mode_ctx.keyboard.overlay_visible  = false;
+
+    ui_overlay_set_custom_mode(UI_CUSTOM_ARP);
+    ui_led_backend_set_mode(UI_LED_MODE_ARP);
+    ui_mark_dirty();
+}
+
+static void _apply_keyboard_overlay(void) {
+    if (ui_overlay_is_active() && ui_overlay_get_spec() == &s_kbd_spec_banner) {
+        ui_overlay_exit();
+    }
+
+    s_kbd_spec_banner = ui_keyboard_spec;
+    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    s_kbd_spec_banner.cart_name   = cart_spec ? cart_spec->cart_name : "";
+    s_kbd_spec_banner.overlay_tag = NULL;
+
+    s_mode_ctx.keyboard.active          = true;
+    s_mode_ctx.keyboard.overlay_visible = true;
+    s_mode_ctx.keyboard.octave          = ui_keyboard_app_get_octave_shift();
+    s_mode_ctx.custom_mode              = UI_CUSTOM_NONE;
+    s_mode_ctx.overlay_active           = true;
+    s_mode_ctx.overlay_id               = UI_OVERLAY_SEQ;
+    s_mode_ctx.overlay_submode          = 0u;
+
+    ui_overlay_set_custom_mode(UI_CUSTOM_NONE);
+    ui_overlay_enter(UI_OVERLAY_SEQ, &s_kbd_spec_banner);
+    ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
+    _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
+    s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+    ui_mark_dirty();
+}
+
+static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
+    if (!act) {
+        return;
+    }
+
+    switch (act->type) {
+    case UI_SHORTCUT_ACTION_ENTER_MUTE_QUICK:
+        s_mode_ctx.mute_state = UI_MUTE_STATE_QUICK;
+        _neutralize_overlay_for_mute();
+        ui_led_backend_set_mode(UI_LED_MODE_MUTE);
+        _set_mode_label("MUTE");
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE:
+        s_mode_ctx.mute_state = UI_MUTE_STATE_PMUTE;
+        _neutralize_overlay_for_mute();
+        ui_led_backend_set_mode(UI_LED_MODE_MUTE);
+        _set_mode_label("PMUTE");
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_EXIT_MUTE:
+        s_mode_ctx.mute_state       = UI_MUTE_STATE_OFF;
+        s_mode_ctx.mute_plus_down   = false;
+        s_mode_ctx.mute_shift_latched = ui_input_shift_is_pressed();
+        _reset_overlay_banner_tags();
+        _restore_overlay_visuals_after_mute();
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_TOGGLE_MUTE_TRACK:
+        ui_mute_backend_toggle(act->data.mute.track);
+        break;
+
+    case UI_SHORTCUT_ACTION_PREPARE_PMUTE_TRACK:
+        ui_mute_backend_toggle_prepare(act->data.mute.track);
+        break;
+
+    case UI_SHORTCUT_ACTION_COMMIT_PMUTE:
+        ui_mute_backend_commit();
+        s_mode_ctx.mute_state = UI_MUTE_STATE_OFF;
+        _reset_overlay_banner_tags();
+        _restore_overlay_visuals_after_mute();
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_OPEN_SEQ_OVERLAY:
+        _apply_seq_overlay_cycle();
+        break;
+
+    case UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY:
+        _apply_arp_overlay_cycle();
+        break;
+
+    case UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY:
+        _apply_keyboard_overlay();
+        break;
+
+    case UI_SHORTCUT_ACTION_TRANSPORT_PLAY:
+        clock_manager_start();
+        seq_led_bridge_on_play();
+        s_mode_ctx.transport.playing = true;
+        break;
+
+    case UI_SHORTCUT_ACTION_TRANSPORT_STOP:
+        clock_manager_stop();
+        seq_led_bridge_on_stop();
+        s_mode_ctx.transport.playing = false;
+        break;
+
+    case UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE:
+        s_mode_ctx.transport.recording = !s_mode_ctx.transport.recording;
+        ui_led_backend_set_record_mode(s_mode_ctx.transport.recording);
+        break;
+
+    case UI_SHORTCUT_ACTION_SEQ_PAGE_NEXT:
+        seq_led_bridge_page_next();
+        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        _set_mode_label("SEQ");
+        _reset_overlay_banner_tags();
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_SEQ_PAGE_PREV:
+        seq_led_bridge_page_prev();
+        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+        _set_mode_label("SEQ");
+        _reset_overlay_banner_tags();
+        ui_mark_dirty();
+        break;
+
+    case UI_SHORTCUT_ACTION_SEQ_STEP_HOLD:
+        seq_led_bridge_plock_add(act->data.seq_step.index);
+        break;
+
+    case UI_SHORTCUT_ACTION_SEQ_STEP_RELEASE:
+        seq_led_bridge_plock_remove(act->data.seq_step.index);
+        if (!act->data.seq_step.long_press) {
+            seq_led_bridge_quick_toggle_step(act->data.seq_step.index);
+        }
+        break;
+
+    case UI_SHORTCUT_ACTION_SEQ_ENCODER_TOUCH: {
+        uint16_t mask = act->data.seq_mask.mask;
+        for (uint8_t i = 0; i < 16; ++i) {
+            if (mask & (1u << i)) {
+                seq_led_bridge_set_step_param_only(i, true);
+            }
+        }
+        break;
+    }
+
+    case UI_SHORTCUT_ACTION_KEY_OCTAVE_UP: {
+        int8_t shift = s_mode_ctx.keyboard.octave;
+        if (shift < CUSTOM_KEYS_OCT_SHIFT_MAX) {
+            shift++;
+            s_mode_ctx.keyboard.octave = shift;
+            ui_keyboard_app_set_octave_shift(shift);
+            _publish_keyboard_tag(shift);
+            ui_mark_dirty();
+        }
+        break;
+    }
+
+    case UI_SHORTCUT_ACTION_KEY_OCTAVE_DOWN: {
+        int8_t shift = s_mode_ctx.keyboard.octave;
+        if (shift > CUSTOM_KEYS_OCT_SHIFT_MIN) {
+            shift--;
+            s_mode_ctx.keyboard.octave = shift;
+            ui_keyboard_app_set_octave_shift(shift);
+            _publish_keyboard_tag(shift);
+            ui_mark_dirty();
+        }
+        break;
+    }
+
+    case UI_SHORTCUT_ACTION_NONE:
+    default:
+        break;
+    }
+}
+
+static void _route_default_event(const ui_input_event_t *evt, bool consumed) {
+    if (!evt || consumed) {
+        return;
+    }
+
+    if (evt->has_button) {
+        if (evt->btn_id >= UI_BTN_SEQ1 && evt->btn_id <= UI_BTN_SEQ16) {
+            const uint8_t seq_index = (uint8_t)(1u + (evt->btn_id - UI_BTN_SEQ1));
+            kbd_input_mapper_process(seq_index, evt->btn_pressed);
+        } else if (evt->btn_pressed) {
+            switch (evt->btn_id) {
+            case UI_BTN_PARAM1: ui_on_button_menu(0); break;
+            case UI_BTN_PARAM2: ui_on_button_menu(1); break;
+            case UI_BTN_PARAM3: ui_on_button_menu(2); break;
+            case UI_BTN_PARAM4: ui_on_button_menu(3); break;
+            case UI_BTN_PARAM5: ui_on_button_menu(4); break;
+            case UI_BTN_PARAM6: ui_on_button_menu(5); break;
+            case UI_BTN_PARAM7: ui_on_button_menu(6); break;
+            case UI_BTN_PARAM8: ui_on_button_menu(7); break;
+
+            case UI_BTN_PAGE1: ui_on_button_page(0); break;
+            case UI_BTN_PAGE2: ui_on_button_page(1); break;
+            case UI_BTN_PAGE3: ui_on_button_page(2); break;
+            case UI_BTN_PAGE4: ui_on_button_page(3); break;
+            case UI_BTN_PAGE5: ui_on_button_page(4); break;
+
+            default:
+                break;
+            }
+        }
+    }
+
+    if (evt->has_encoder && evt->enc_delta != 0) {
+        ui_on_encoder((int)evt->encoder, (int)evt->enc_delta);
+    }
+}
 
 /* -------------------------------------------------------------------------- */
 /* Masques de destination (répliqués pour compilation locale)                 */

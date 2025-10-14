@@ -50,20 +50,20 @@ void ui_mute_backend_apply(uint8_t track, bool mute) {
     if (!_valid(track)) return;
     s_muted[track] = mute;
     /* Visuel immédiat : MUTE_STATE = true/false */
-    ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
+    ui_led_backend_post_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
 }
 
 void ui_mute_backend_toggle(uint8_t track) {
     if (!_valid(track)) return;
     s_muted[track] = !s_muted[track];
-    ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
+    ui_led_backend_post_event(UI_LED_EVENT_MUTE_STATE, track, s_muted[track]);
 }
 
 void ui_mute_backend_toggle_prepare(uint8_t track) {
     if (!_valid(track)) return;
     s_pmute_prepare[track] = !s_pmute_prepare[track];
     /* PMUTE = même rendu visuel que MUTE côté LEDs */
-    ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, track, s_pmute_prepare[track]);
+    ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, track, s_pmute_prepare[track]);
 }
 
 void ui_mute_backend_commit(void) {
@@ -72,11 +72,11 @@ void ui_mute_backend_commit(void) {
         if (s_pmute_prepare[i]) {
             s_muted[i] = !s_muted[i];
             /* Publier l'état réel mis à jour */
-            ui_led_backend_process_event(UI_LED_EVENT_MUTE_STATE, i, s_muted[i]);
+            ui_led_backend_post_event(UI_LED_EVENT_MUTE_STATE, i, s_muted[i]);
 
             /* Nettoyer le flag préparé + notifier PMUTE=false */
             s_pmute_prepare[i] = false;
-            ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, i, false);
+            ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, i, false);
         }
     }
 }
@@ -86,7 +86,7 @@ void ui_mute_backend_cancel(void) {
     for (uint8_t i = 0; i < NUM_TRACKS; ++i) {
         if (s_pmute_prepare[i]) {
             s_pmute_prepare[i] = false;
-            ui_led_backend_process_event(UI_LED_EVENT_PMUTE_STATE, i, false);
+            ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, i, false);
         }
     }
 }
