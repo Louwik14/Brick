@@ -155,7 +155,7 @@ static void _seq_engine_reader_refresh_flags(seq_engine_reader_t *reader) {
     const seq_model_step_t *step = &reader->pattern->steps[reader->step_index];
     const bool has_voice = seq_model_step_has_active_voice(step);
     reader->step_has_playable_voice = has_voice;
-    reader->step_has_automation = (!has_voice) && (step->plock_count > 0U);
+    reader->step_has_automation = seq_model_step_is_automation_only(step);
 }
 
 static void _seq_engine_player_init(seq_engine_player_t *player) {

@@ -15,9 +15,10 @@ extern "C" {
 #endif
 
 typedef struct {
-    bool active;
-    bool recorded;
-    bool param_only;
+    bool active;        /* True when at least one voice plays on the step. */
+    bool automation;    /* True when the step only carries parameter locks. */
+    bool muted;         /* True when the owning track is muted. */
+    uint8_t track_index;/* Voice/track index used for colour mapping. */
 } seq_step_state_t;
 
 typedef struct {

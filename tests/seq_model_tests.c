@@ -35,16 +35,12 @@ static void test_default_step_initialisation(void) {
         const seq_model_voice_t *voice = seq_model_step_get_voice(&step, i);
         assert(voice != NULL);
 
-        if (i == 0U) {
-            assert(voice->state == SEQ_MODEL_VOICE_ENABLED);
-            assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY);
-        } else {
-            assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
-            assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY);
-        }
+        (void)i;
+        assert(voice->state == SEQ_MODEL_VOICE_DISABLED);
+        assert(voice->velocity == SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY);
 
-        assert(voice->note == 60U);
-        assert(voice->length == 16U);
+        assert(voice->note == SEQ_MODEL_DEFAULT_NOTE);
+        assert(voice->length == 1U);
         assert(voice->micro_offset == 0);
     }
 

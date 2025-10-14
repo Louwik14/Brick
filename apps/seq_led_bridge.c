@@ -9,6 +9,7 @@
 
 #include "core/seq/seq_model.h"
 #include "seq_led_bridge.h"
+#include "ui_mute_backend.h"
 
 #ifndef SEQ_MAX_PAGES
 #define SEQ_MAX_PAGES 16U
@@ -81,6 +82,27 @@ static inline void _clear_step_voices(seq_model_step_t *step) {
         voice.velocity = 0U;
         step->voices[v] = voice;
     }
+}
+
+static bool _step_primary_voice(const seq_model_step_t *step, uint8_t *out_voice) {
+    if (step == NULL) {
+        return false;
+    }
+
+    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+        const seq_model_voice_t *voice = &step->voices[v];
+        if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
+            if (out_voice != NULL) {
+                *out_voice = v;
+            }
+            return true;
+        }
+    }
+
+    if (out_voice != NULL) {
+        *out_voice = 0U;
+    }
+    return false;
 }
 
 static void _ensure_placeholder_plock(seq_model_step_t *step) {
@@ -281,19 +303,22 @@ static void _rebuild_runtime_from_pattern(void) {
 
         if (!_valid_step_index(absolute)) {
             dst->active = false;
-            dst->recorded = false;
-            dst->param_only = false;
+            dst->automation = false;
+            dst->muted = false;
+            dst->track_index = 0U;
             continue;
         }
 
         const seq_model_step_t *src = &g.pattern.steps[absolute];
         const bool has_voice = seq_model_step_has_active_voice(src);
-        const bool held = ((g.preview_mask >> local) & 0x1U) != 0U;
-        const bool has_plock = (src->plock_count > 0U);
+        const bool automation = seq_model_step_is_automation_only(src);
+        uint8_t primary_voice = 0U;
+        const bool voice_found = _step_primary_voice(src, &primary_voice);
 
         dst->active = has_voice;
-        dst->recorded = has_voice;
-        dst->param_only = (!has_voice) && (has_plock || held);
+        dst->automation = automation;
+        dst->track_index = voice_found ? primary_voice : 0U;
+        dst->muted = voice_found ? ui_mute_backend_is_muted(primary_voice) : false;
     }
 
     ui_led_seq_set_total_span(g.total_span);
@@ -310,7 +335,7 @@ static void _publish_runtime(void) {
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
     seq_model_pattern_init(&g.pattern);
-    g.last_note = 60U;
+    g.last_note = SEQ_MODEL_DEFAULT_NOTE;
 
     g.max_pages = (SEQ_DEFAULT_PAGES > SEQ_MAX_PAGES) ? SEQ_MAX_PAGES : SEQ_DEFAULT_PAGES;
     g.total_span = _clamp_total_span((uint16_t)g.max_pages * SEQ_LED_BRIDGE_STEPS_PER_PAGE);
@@ -561,41 +586,44 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             continue;
         }
 
+        bool step_mutated = false;
+        const bool automation_before = seq_model_step_is_automation_only(step);
+
         switch (param_id) {
             case SEQ_HOLD_PARAM_ALL_TRANSP: {
                 int32_t v = _clamp_i32(value, -12, 12);
                 if (step->offsets.transpose != v) {
                     step->offsets.transpose = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_VEL: {
                 int32_t v = _clamp_i32(value, -127, 127);
                 if (step->offsets.velocity != v) {
                     step->offsets.velocity = (int16_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_LEN: {
                 int32_t v = _clamp_i32(value, -32, 32);
                 if (step->offsets.length != v) {
                     step->offsets.length = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_MIC: {
                 int32_t v = _clamp_i32(value, -12, 12);
                 if (step->offsets.micro != v) {
                     step->offsets.micro = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
                 break;
             }
             default: {
@@ -615,9 +643,9 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                         int32_t v = _clamp_i32(value, 0, 127);
                         if (voice_state.note != (uint8_t)v) {
                             voice_state.note = (uint8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
                         if ((voice == 0U) && (voice_state.state == SEQ_MODEL_VOICE_ENABLED) && (voice_state.velocity > 0U)) {
                             g.last_note = voice_state.note;
                         }
@@ -627,28 +655,28 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                         int32_t v = _clamp_i32(value, 0, 127);
                         if (voice_state.velocity != (uint8_t)v) {
                             voice_state.velocity = (uint8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
                         voice_state.state = (voice_state.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
                         break;
                     }
                     case 2: { /* Length */
                         int32_t v = _clamp_i32(value, 1, 64);
                         if (voice_state.length != (uint8_t)v) {
                             voice_state.length = (uint8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
                         break;
                     }
                     case 3: { /* Micro */
                         int32_t v = _clamp_i32(value, -12, 12);
                         if (voice_state.micro_offset != (int8_t)v) {
                             voice_state.micro_offset = (int8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
                         break;
                     }
                     default:
@@ -657,6 +685,16 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                 step->voices[voice] = voice_state;
                 break;
             }
+        }
+
+        const bool automation_after = seq_model_step_is_automation_only(step);
+        if (!automation_before && automation_after) {
+            seq_model_step_make_automate(step);
+            step_mutated = true;
+        }
+
+        if (step_mutated) {
+            mutated = true;
         }
     }
 

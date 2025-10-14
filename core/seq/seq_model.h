@@ -21,6 +21,8 @@ extern "C" {
 /** Maximum number of parameter locks attached to a step. */
 #define SEQ_MODEL_MAX_PLOCKS_PER_STEP 24U
 
+/** Default note assigned to voices when initialising. */
+#define SEQ_MODEL_DEFAULT_NOTE               60U
 /** Default velocity applied to the first voice when arming a step. */
 #define SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY   100U
 /** Default velocity applied to secondary voices when arming a step. */
@@ -178,6 +180,8 @@ const seq_model_step_offsets_t *seq_model_step_get_offsets(const seq_model_step_
 
 /** Return true if at least one voice is enabled with a non-zero velocity. */
 bool seq_model_step_has_active_voice(const seq_model_step_t *step);
+/** Return true when the step only carries parameter locks (no playable voice). */
+bool seq_model_step_is_automation_only(const seq_model_step_t *step);
 /** Convert a step into an automation-only placeholder (all voices muted). */
 void seq_model_step_make_automate(seq_model_step_t *step);
 
