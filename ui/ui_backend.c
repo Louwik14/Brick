@@ -32,6 +32,7 @@
 #include "ui_overlay.h"
 #include "ui_mute_backend.h"
 #include "seq_led_bridge.h"
+#include "seq_engine_runner.h"
 #include "seq_recorder.h"
 #include "clock_manager.h"
 #include "ui_seq_ui.h"
@@ -390,12 +391,14 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_PLAY:
+        seq_engine_runner_on_transport_play();
         clock_manager_start();
         seq_led_bridge_on_play();
         s_mode_ctx.transport.playing = true;
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_STOP:
+        seq_engine_runner_on_transport_stop();
         clock_manager_stop();
         seq_led_bridge_on_stop();
         s_mode_ctx.transport.playing = false;
@@ -601,6 +604,12 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
 
     switch (dest) {
     case UI_DEST_CART:
+        if (s_mode_ctx.seq.held_mask != 0U) {
+            seq_led_bridge_apply_cart_param(local_id, (int32_t)val, s_mode_ctx.seq.held_mask);
+            seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+            ui_mark_dirty();
+            break;
+        }
         /* Route vers la cartouche active (shadow + éventuelle propagation) */
         cart_link_param_changed(local_id, val, bitwise, mask);
         break;
@@ -620,7 +629,10 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
             }
             newv = reg;
         }
-        _ui_shadow_set(id, newv);
+
+        if (s_mode_ctx.seq.held_mask == 0U) {
+            _ui_shadow_set(id, newv);
+        }
 
         /* Interception locale UI (facultatif) */
         ui_backend_handle_ui(local_id, newv, bitwise, mask);

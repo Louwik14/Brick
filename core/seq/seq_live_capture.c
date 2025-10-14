@@ -21,6 +21,18 @@ static void _seq_live_capture_divmod(int64_t value, int64_t divisor, int64_t *qu
 static int8_t _seq_live_capture_micro_from_delta(int64_t delta, int64_t step_duration);
 static int8_t _seq_live_capture_micro_from_within(int64_t within_step, int64_t step_duration);
 static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta);
+static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
+                                                 uint8_t requested,
+                                                 uint8_t note);
+static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture);
+static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
+                                                    seq_model_plock_internal_param_t param,
+                                                    uint8_t voice,
+                                                    int32_t value);
+static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
+                                                      systime_t start_time,
+                                                      systime_t end_time,
+                                                      systime_t step_duration_snapshot);
 
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
     chDbgCheck(capture != NULL);
@@ -158,44 +170,129 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         return false;
     }
 
+    if ((plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_ON) &&
+        (plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF)) {
+        return false;
+    }
+
+    if (plan->type == SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF) {
+        if (plan->step_index >= SEQ_MODEL_STEPS_PER_PATTERN) {
+            return false;
+        }
+
+        uint8_t slot = SEQ_MODEL_VOICES_PER_STEP;
+        for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+            if (!capture->voices[i].active) {
+                continue;
+            }
+            if ((capture->voices[i].note == plan->note) &&
+                (capture->voices[i].voice_slot == plan->voice_index)) {
+                slot = capture->voices[i].voice_slot;
+                break;
+            }
+            if ((slot >= SEQ_MODEL_VOICES_PER_STEP) &&
+                (capture->voices[i].note == plan->note)) {
+                slot = capture->voices[i].voice_slot;
+            }
+        }
+        if (slot >= SEQ_MODEL_VOICES_PER_STEP) {
+            slot = (plan->voice_index < SEQ_MODEL_VOICES_PER_STEP) ? plan->voice_index : 0U;
+        }
+
+        size_t target_step = plan->step_index;
+        if ((slot < SEQ_MODEL_VOICES_PER_STEP) && capture->voices[slot].active) {
+            target_step = capture->voices[slot].step_index;
+        }
+        target_step %= SEQ_MODEL_STEPS_PER_PATTERN;
+
+        seq_model_step_t *step = &capture->pattern->steps[target_step];
+        const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
+        seq_model_voice_t voice;
+        if (voice_src != NULL) {
+            voice = *voice_src;
+        } else {
+            seq_model_voice_init(&voice, slot == 0U);
+        }
+
+        const systime_t start_time = capture->voices[slot].active ?
+                                      capture->voices[slot].start_time : plan->scheduled_time;
+        const systime_t start_step_duration = capture->voices[slot].active ?
+                                              capture->voices[slot].step_duration : capture->clock_step_duration;
+        const uint8_t length_steps = _seq_live_capture_compute_length_steps(capture,
+                                                                            start_time,
+                                                                            plan->scheduled_time,
+                                                                            start_step_duration);
+
+        if (voice.length != length_steps) {
+            voice.length = length_steps;
+        }
+        if (voice.state != SEQ_MODEL_VOICE_ENABLED) {
+            voice.state = (voice.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
+        }
+
+        if (!seq_model_step_set_voice(step, slot, &voice)) {
+            return false;
+        }
+
+        (void)_seq_live_capture_upsert_internal_plock(step,
+                                                      SEQ_MODEL_PLOCK_PARAM_LENGTH,
+                                                      slot,
+                                                      length_steps);
+
+        capture->voices[slot].active = false;
+        capture->voices[slot].note = 0U;
+
+        seq_model_gen_bump(&capture->pattern->generation);
+        return true;
+    }
+
     if (plan->step_index >= SEQ_MODEL_STEPS_PER_PATTERN) {
         return false;
     }
 
     seq_model_step_t *step = &capture->pattern->steps[plan->step_index];
 
-    if (plan->type != SEQ_LIVE_CAPTURE_EVENT_NOTE_ON) {
-        return false;
+    if (!seq_model_step_has_playable_voice(step) && !seq_model_step_has_any_plock(step)) {
+        seq_model_step_make_neutral(step);
     }
 
-    if (plan->voice_index >= SEQ_MODEL_VOICES_PER_STEP) {
-        return false;
-    }
-
-    if (plan->velocity == 0U) {
-        return true;
-    }
-
-    if (!seq_model_step_has_active_voice(step) && (step->plock_count == 0U)) {
-        seq_model_step_init_default(step, plan->note);
-    }
-
-    const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, plan->voice_index);
+    uint8_t slot = _seq_live_capture_pick_voice_slot(step, plan->voice_index, plan->note);
+    const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
     seq_model_voice_t voice;
     if (voice_src != NULL) {
         voice = *voice_src;
     } else {
-        seq_model_voice_init(&voice, plan->voice_index == 0U);
+        seq_model_voice_init(&voice, slot == 0U);
     }
 
     voice.note = plan->note;
     voice.velocity = plan->velocity;
+    voice.state = (voice.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
+    if (voice.length == 0U) {
+        voice.length = 1U;
+    }
     voice.micro_offset = plan->micro_offset;
-    voice.state = (plan->velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
 
-    if (!seq_model_step_set_voice(step, plan->voice_index, &voice)) {
+    if (!seq_model_step_set_voice(step, slot, &voice)) {
         return false;
     }
+
+    (void)_seq_live_capture_upsert_internal_plock(step, SEQ_MODEL_PLOCK_PARAM_NOTE, slot, voice.note);
+    (void)_seq_live_capture_upsert_internal_plock(step,
+                                                  SEQ_MODEL_PLOCK_PARAM_VELOCITY,
+                                                  slot,
+                                                  voice.velocity);
+    (void)_seq_live_capture_upsert_internal_plock(step,
+                                                  SEQ_MODEL_PLOCK_PARAM_MICRO,
+                                                  slot,
+                                                  voice.micro_offset);
+
+    capture->voices[slot].active = true;
+    capture->voices[slot].step_index = plan->step_index;
+    capture->voices[slot].start_time = plan->scheduled_time;
+    capture->voices[slot].step_duration = capture->clock_step_duration;
+    capture->voices[slot].voice_slot = slot;
+    capture->voices[slot].note = plan->note;
 
     seq_model_gen_bump(&capture->pattern->generation);
     return true;
@@ -206,6 +303,7 @@ static void _seq_live_capture_reset_context(seq_live_capture_t *capture) {
     capture->quantize.enabled = false;
     capture->quantize.grid = SEQ_MODEL_QUANTIZE_1_16;
     capture->quantize.strength = 100U;
+    _seq_live_capture_clear_voice_trackers(capture);
 }
 
 static void _seq_live_capture_bind_pattern(seq_live_capture_t *capture, seq_model_pattern_t *pattern) {
@@ -213,6 +311,7 @@ static void _seq_live_capture_bind_pattern(seq_live_capture_t *capture, seq_mode
     if (pattern != NULL) {
         capture->quantize = pattern->config.quantize;
     }
+    _seq_live_capture_clear_voice_trackers(capture);
 }
 
 static bool _seq_live_capture_compute_grid(const seq_live_capture_t *capture,
@@ -331,4 +430,115 @@ static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta) {
     }
     step %= SEQ_MODEL_STEPS_PER_PATTERN;
     return (size_t)step;
+}
+
+static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
+                                                 uint8_t requested,
+                                                 uint8_t note) {
+    if (step == NULL) {
+        return 0U;
+    }
+
+    if (requested < SEQ_MODEL_VOICES_PER_STEP) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, requested);
+        if ((voice == NULL) ||
+            (voice->state != SEQ_MODEL_VOICE_ENABLED) ||
+            (voice->velocity == 0U) ||
+            (voice->note == note)) {
+            return requested;
+        }
+    }
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
+        if ((voice != NULL) && (voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->note == note)) {
+            return i;
+        }
+    }
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
+        if ((voice == NULL) || (voice->state != SEQ_MODEL_VOICE_ENABLED) || (voice->velocity == 0U)) {
+            return i;
+        }
+    }
+
+    return 0U;
+}
+
+static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture) {
+    if (capture == NULL) {
+        return;
+    }
+
+    for (size_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        capture->voices[i].active = false;
+        capture->voices[i].step_index = 0U;
+        capture->voices[i].start_time = 0U;
+        capture->voices[i].step_duration = 0U;
+        capture->voices[i].voice_slot = (uint8_t)i;
+        capture->voices[i].note = 0U;
+    }
+}
+
+static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
+                                                    seq_model_plock_internal_param_t param,
+                                                    uint8_t voice,
+                                                    int32_t value) {
+    if (step == NULL) {
+        return false;
+    }
+
+    const int16_t casted = (int16_t)value;
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        seq_model_plock_t *plk = &step->plocks[i];
+        if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
+            (plk->internal_param == param) &&
+            (plk->voice_index == voice)) {
+            if (plk->value != casted) {
+                plk->value = casted;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        return false;
+    }
+
+    seq_model_plock_t plock = {
+        .domain = SEQ_MODEL_PLOCK_INTERNAL,
+        .voice_index = voice,
+        .parameter_id = 0U,
+        .value = casted,
+        .internal_param = param,
+    };
+
+    return seq_model_step_add_plock(step, &plock);
+}
+
+static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
+                                                      systime_t start_time,
+                                                      systime_t end_time,
+                                                      systime_t step_duration_snapshot) {
+    (void)capture;
+    if (step_duration_snapshot == 0U) {
+        return 1U;
+    }
+
+    int64_t delta = (int64_t)end_time - (int64_t)start_time;
+    if (delta <= 0) {
+        return 1U;
+    }
+
+    int64_t step = (int64_t)step_duration_snapshot;
+    int64_t length = (delta + (step / 2)) / step;
+    if (length < 1) {
+        length = 1;
+    } else if (length > 64) {
+        length = 64;
+    }
+
+    return (uint8_t)length;
 }

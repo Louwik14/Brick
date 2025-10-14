@@ -94,13 +94,16 @@ static inline void _render_one(uint8_t s, bool is_playing_here){
         return;
     }
 
-    /* Priorité: param_only (bleu) > active (vert) > off */
-    if (st->param_only) {
-        _set_led_step(s, UI_LED_COL_SEQ_PARAM, LED_MODE_ON); /* BLEU */
+    if (st->muted) {
+        _set_led_step(s, UI_LED_COL_MUTE_RED, LED_MODE_ON);
+        return;
+    }
+    if (st->automation) {
+        _set_led_step(s, UI_LED_COL_SEQ_PARAM, LED_MODE_ON);
         return;
     }
     if (st->active) {
-        _set_led_step(s, UI_LED_COL_SEQ_ACTIVE, LED_MODE_ON); /* VERT */
+        _set_led_step(s, UI_LED_COL_SEQ_ACTIVE, LED_MODE_ON);
         return;
     }
     _set_led_step(s, UI_LED_COL_OFF, LED_MODE_OFF);

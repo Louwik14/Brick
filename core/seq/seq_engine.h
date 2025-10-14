@@ -12,6 +12,7 @@
 
 #include "ch.h"
 
+#include "clock_manager.h"
 #include "seq_model.h"
 
 #ifdef __cplusplus
@@ -28,6 +29,12 @@ typedef enum {
     SEQ_ENGINE_EVENT_PLOCK         /**< Dispatch a parameter lock. */
 } seq_engine_event_type_t;
 
+/** Describes how a parameter lock should be applied by the runner. */
+typedef enum {
+    SEQ_ENGINE_PLOCK_APPLY = 0,  /**< Apply the locked value. */
+    SEQ_ENGINE_PLOCK_RESTORE     /**< Restore the pre-step value. */
+} seq_engine_plock_action_t;
+
 /** NOTE ON payload describing a voice activation. */
 typedef struct {
     uint8_t voice;       /**< Voice index associated with the NOTE ON. */
@@ -43,7 +50,8 @@ typedef struct {
 
 /** Parameter lock payload bridging to the model definition. */
 typedef struct {
-    seq_model_plock_t plock; /**< Parameter lock description. */
+    seq_model_plock_t plock;      /**< Parameter lock description. */
+    seq_engine_plock_action_t action; /**< Apply or restore directive. */
 } seq_engine_plock_t;
 
 /** Scheduled event description consumed by the player. */
@@ -96,10 +104,14 @@ typedef struct {
     seq_engine_plock_cb_t plock; /**< Parameter lock dispatch callback. */
 } seq_engine_callbacks_t;
 
+/** Callback invoked to query whether a given track is muted. */
+typedef bool (*seq_engine_track_muted_cb_t)(uint8_t track);
+
 /** Configuration provided when initialising the engine. */
 typedef struct {
     seq_model_pattern_t *pattern; /**< Initial pattern handled by the engine. */
     seq_engine_callbacks_t callbacks; /**< Dispatch callbacks. */
+    seq_engine_track_muted_cb_t is_track_muted; /**< Optional track mute query. */
 } seq_engine_config_t;
 
 /** Aggregated engine context exposing reader, scheduler and player. */
@@ -108,7 +120,11 @@ typedef struct {
     seq_engine_scheduler_t scheduler; /**< Event scheduler queue. */
     seq_engine_player_t player;     /**< Player execution stub. */
     seq_engine_config_t config;     /**< Mutable configuration. */
-    bool clock_attached;            /**< True when registered to the clock. */
+    mutex_t scheduler_lock;         /**< Protects scheduler access. */
+    binary_semaphore_t player_sem;  /**< Wakes the player thread. */
+    bool clock_attached;            /**< True when transport is running. */
+    bool voice_active[SEQ_MODEL_VOICES_PER_STEP]; /**< Active voice bookkeeping. */
+    uint8_t voice_note[SEQ_MODEL_VOICES_PER_STEP]; /**< Last note per voice. */
 } seq_engine_t;
 
 void seq_engine_init(seq_engine_t *engine, const seq_engine_config_t *config);
@@ -119,7 +135,10 @@ void seq_engine_stop(seq_engine_t *engine);
 void seq_engine_reset(seq_engine_t *engine);
 bool seq_engine_scheduler_push(seq_engine_scheduler_t *scheduler, const seq_engine_event_t *event);
 bool seq_engine_scheduler_pop(seq_engine_scheduler_t *scheduler, seq_engine_event_t *out_event);
+bool seq_engine_scheduler_peek(const seq_engine_scheduler_t *scheduler, seq_engine_event_t *out_event);
 void seq_engine_scheduler_clear(seq_engine_scheduler_t *scheduler);
+
+void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info);
 
 #ifdef __cplusplus
 }
