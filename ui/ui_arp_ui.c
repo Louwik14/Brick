@@ -10,6 +10,7 @@
  *
  *  Cycle BM1 entre les deux (resume=false).
  *  Tous les dest_id sont internes (UI_DEST_UI).
+ *  Le label de bannière ("ARP") est fourni par le backend partagé.
  */
 
 #include "ui_arp_ui.h"
