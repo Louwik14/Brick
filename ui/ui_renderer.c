@@ -151,7 +151,7 @@ static void format_note_label(int value, char *buf, size_t len) {
     } else if (value > 127) {
         value = 127;
     }
-    int octave = (value / 12) - 2;
+    int octave = (value / 12) - 1;
     int pc = value % 12;
     (void)snprintf(buf, len, "%s%d", names[pc], octave);
 }
@@ -296,8 +296,14 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         if (!ps->label) continue;
 
         int hold_idx = hold_param_index_for_render(menu, st->cur_page, (uint8_t)i);
+        seq_led_bridge_hold_param_t cart_hold_param;
         const seq_led_bridge_hold_param_t *hold_param =
             (hold_active && hold_idx >= 0) ? &hold_view->params[hold_idx] : NULL;
+        if (hold_active && hold_idx < 0 && ((ps->dest_id & UI_DEST_MASK) == UI_DEST_CART)) {
+            if (seq_led_bridge_hold_get_cart_param(UI_DEST_ID(ps->dest_id), &cart_hold_param)) {
+                hold_param = &cart_hold_param;
+            }
+        }
         const bool hold_plocked = (hold_param != NULL) && hold_param->plocked;
         const bool hold_available = (hold_param != NULL) && hold_param->available;
         const bool hold_mixed = hold_available && hold_param->mixed;

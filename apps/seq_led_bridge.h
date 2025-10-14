@@ -74,6 +74,8 @@ typedef struct {
 } seq_led_bridge_hold_view_t;
 
 const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void);
+bool seq_led_bridge_hold_get_cart_param(uint16_t parameter_id,
+                                        seq_led_bridge_hold_param_t *out);
 
 /* Helpers (exposés si besoin moteur) */
 void seq_led_bridge_step_clear(uint8_t i);

@@ -63,6 +63,29 @@ typedef struct {
 
 static seq_led_bridge_state_t g;
 
+typedef struct {
+    bool active;
+    uint16_t absolute_index;
+    seq_model_step_t staged;
+    bool mutated;
+} seq_led_bridge_hold_slot_t;
+
+static seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+
+#ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
+#define SEQ_LED_BRIDGE_MAX_CART_PARAMS 32U
+#endif
+
+typedef struct {
+    bool used;
+    uint16_t parameter_id;
+    seq_led_bridge_hold_param_t view;
+    uint8_t match_count;
+} seq_led_bridge_hold_cart_entry_t;
+
+static seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
+static uint8_t g_hold_cart_param_count;
+
 /* ===== Helpers ============================================================ */
 static inline uint16_t _page_base(uint8_t page) {
     return (uint16_t)page * SEQ_LED_BRIDGE_STEPS_PER_PAGE;
@@ -113,8 +136,153 @@ static inline void _clear_step_voices(seq_model_step_t *step) {
     seq_model_step_recompute_flags(step);
 }
 
+static void _hold_slots_clear(void) {
+    memset(g_hold_slots, 0, sizeof(g_hold_slots));
+}
+
+static void _hold_cart_reset(void) {
+    memset(g_hold_cart_params, 0, sizeof(g_hold_cart_params));
+    g_hold_cart_param_count = 0U;
+}
+
+static bool _hold_commit_slot(uint8_t local) {
+    if (local >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
+        return false;
+    }
+    seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
+    if (!slot->active) {
+        return false;
+    }
+
+    bool mutated = slot->mutated;
+    if (mutated && _valid_step_index(slot->absolute_index)) {
+        g.pattern.steps[slot->absolute_index] = slot->staged;
+        seq_model_step_recompute_flags(&g.pattern.steps[slot->absolute_index]);
+        const seq_model_voice_t *voice =
+            seq_model_step_get_voice(&g.pattern.steps[slot->absolute_index], 0U);
+        if ((voice != NULL) &&
+            (voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
+            g.last_note = voice->note;
+        }
+    }
+
+    memset(slot, 0, sizeof(*slot));
+    return mutated;
+}
+
+static seq_led_bridge_hold_slot_t *_hold_resolve_slot(uint8_t local, bool ensure) {
+    if (local >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
+        return NULL;
+    }
+
+    seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
+    const uint16_t absolute = _page_base(g.visible_page) + (uint16_t)local;
+
+    if (slot->active) {
+        if (slot->absolute_index == absolute) {
+            return slot;
+        }
+        if (!ensure) {
+            return NULL;
+        }
+        bool mutated = _hold_commit_slot(local);
+        if (mutated) {
+            seq_model_gen_bump(&g.pattern.generation);
+        }
+        slot = &g_hold_slots[local];
+    } else if (!ensure) {
+        return NULL;
+    }
+
+    if (g.visible_page >= SEQ_MAX_PAGES) {
+        return NULL;
+    }
+    if (!_valid_step_index(absolute)) {
+        return NULL;
+    }
+
+    slot->active = true;
+    slot->absolute_index = absolute;
+    slot->staged = g.pattern.steps[absolute];
+    slot->mutated = false;
+    return slot;
+}
+
+static void _hold_sync_mask(uint16_t mask) {
+    if (g.visible_page >= SEQ_MAX_PAGES) {
+        return;
+    }
+
+    const uint16_t current = g.page_hold_mask[g.visible_page];
+    bool mutated = false;
+
+    for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
+        const uint16_t bit = (uint16_t)(1U << local);
+        const bool want = (mask & bit) != 0U;
+        const bool had = (current & bit) != 0U;
+
+        if (want) {
+            (void)_hold_resolve_slot(local, true);
+        } else if (had) {
+            if (_hold_commit_slot(local)) {
+                mutated = true;
+            }
+        } else {
+            seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
+            if (slot->active && (slot->absolute_index != (_page_base(g.visible_page) + (uint16_t)local)))) {
+                if (_hold_commit_slot(local)) {
+                    mutated = true;
+                }
+            }
+        }
+    }
+
+    if (mutated) {
+        seq_model_gen_bump(&g.pattern.generation);
+    }
+
+    g.page_hold_mask[g.visible_page] = mask & 0xFFFFu;
+}
+
+static const seq_model_step_t *_hold_step_for_view(uint8_t local, uint16_t absolute) {
+    if (!_valid_step_index(absolute)) {
+        return NULL;
+    }
+
+    const seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
+    if (slot->active && slot->absolute_index == absolute) {
+        return &slot->staged;
+    }
+    return &g.pattern.steps[absolute];
+}
+
+static seq_led_bridge_hold_cart_entry_t *_hold_cart_entry_get(uint16_t parameter_id,
+                                                             bool create) {
+    for (uint8_t i = 0U; i < g_hold_cart_param_count; ++i) {
+        seq_led_bridge_hold_cart_entry_t *entry = &g_hold_cart_params[i];
+        if (entry->used && entry->parameter_id == parameter_id) {
+            return entry;
+        }
+    }
+
+    if (!create || (g_hold_cart_param_count >= SEQ_LED_BRIDGE_MAX_CART_PARAMS)) {
+        return NULL;
+    }
+
+    seq_led_bridge_hold_cart_entry_t *entry = &g_hold_cart_params[g_hold_cart_param_count++];
+    entry->used = true;
+    entry->parameter_id = parameter_id;
+    entry->match_count = 0U;
+    entry->view.available = false;
+    entry->view.mixed = false;
+    entry->view.plocked = false;
+    entry->view.value = 0;
+    return entry;
+}
+
 static void _hold_reset(void) {
     memset(&g.hold, 0, sizeof(g.hold));
+    _hold_cart_reset();
 }
 
 static seq_hold_param_id_t _hold_param_for_voice(uint8_t voice, uint8_t slot) {
@@ -198,6 +366,32 @@ static void _hold_collect_step(const seq_model_step_t *step,
     }
 }
 
+static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        const seq_model_plock_t *plk = &step->plocks[i];
+        if (plk->domain != SEQ_MODEL_PLOCK_CART) {
+            continue;
+        }
+        seq_led_bridge_hold_cart_entry_t *entry =
+            _hold_cart_entry_get(plk->parameter_id, true);
+        if (entry == NULL) {
+            continue;
+        }
+        entry->match_count++;
+        if (!entry->view.available) {
+            entry->view.available = true;
+            entry->view.value = plk->value;
+            entry->view.mixed = false;
+        } else if (entry->view.value != plk->value) {
+            entry->view.mixed = true;
+        }
+    }
+}
+
 static void _hold_update(uint16_t mask) {
     _hold_reset();
 
@@ -223,12 +417,13 @@ static void _hold_update(uint16_t mask) {
         if (!_valid_step_index(absolute)) {
             continue;
         }
-        const seq_model_step_t *step = &g.pattern.steps[absolute];
+        const seq_model_step_t *step = _hold_step_for_view(local, absolute);
 
         bool present[SEQ_HOLD_PARAM_COUNT] = { false };
         bool step_plocked[SEQ_HOLD_PARAM_COUNT] = { false };
         int32_t step_values[SEQ_HOLD_PARAM_COUNT] = { 0 };
         _hold_collect_step(step, present, step_plocked, step_values);
+        _hold_collect_cart_plocks(step);
 
         if (first) {
             for (uint8_t i = 0U; i < SEQ_HOLD_PARAM_COUNT; ++i) {
@@ -266,6 +461,19 @@ static void _hold_update(uint16_t mask) {
     if (g.hold.step_count == 0U) {
         _hold_reset();
         return;
+    }
+
+    for (uint8_t i = 0U; i < g_hold_cart_param_count; ++i) {
+        seq_led_bridge_hold_cart_entry_t *entry = &g_hold_cart_params[i];
+        if (!entry->used) {
+            continue;
+        }
+        if (entry->match_count == g.hold.step_count) {
+            entry->view.plocked = true;
+        } else {
+            entry->view.available = false;
+            entry->view.plocked = false;
+        }
     }
 
     for (uint8_t i = 0U; i < SEQ_HOLD_PARAM_COUNT; ++i) {
@@ -438,6 +646,8 @@ static void _publish_runtime(void) {
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
     seq_model_pattern_init(&g.pattern);
+    _hold_slots_clear();
+    _hold_cart_reset();
     g.last_note = 60U;
     g.max_pages = (SEQ_DEFAULT_PAGES > SEQ_MAX_PAGES) ? SEQ_MAX_PAGES : SEQ_DEFAULT_PAGES;
     g.total_span = _clamp_total_span((uint16_t)g.max_pages * SEQ_LED_BRIDGE_STEPS_PER_PAGE);
@@ -560,17 +770,28 @@ void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, 
 }
 
 void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
-    seq_model_step_t *step = _step_from_page(i);
+    seq_led_bridge_hold_slot_t *slot = _hold_resolve_slot(i, false);
+    seq_model_step_t *step = (slot != NULL) ? &slot->staged : _step_from_page(i);
     if (step == NULL) {
         return;
     }
 
+    bool mutated = false;
     if (on) {
         seq_model_step_make_automation_only(step);
-        seq_model_gen_bump(&g.pattern.generation);
+        mutated = true;
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
-        seq_model_gen_bump(&g.pattern.generation);
+        mutated = true;
+    }
+
+    if (mutated) {
+        seq_model_step_recompute_flags(step);
+        if (slot != NULL) {
+            slot->mutated = true;
+        } else {
+            seq_model_gen_bump(&g.pattern.generation);
+        }
     }
     _hold_refresh_if_active();
 }
@@ -604,17 +825,28 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
 }
 
 void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
-    seq_model_step_t *step = _step_from_page(i);
+    seq_led_bridge_hold_slot_t *slot = _hold_resolve_slot(i, false);
+    seq_model_step_t *step = (slot != NULL) ? &slot->staged : _step_from_page(i);
     if (step == NULL) {
         return;
     }
 
+    bool mutated = false;
     if (on) {
         seq_model_step_make_automation_only(step);
-        seq_model_gen_bump(&g.pattern.generation);
+        mutated = true;
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
-        seq_model_gen_bump(&g.pattern.generation);
+        mutated = true;
+    }
+
+    if (mutated) {
+        seq_model_step_recompute_flags(step);
+        if (slot != NULL) {
+            slot->mutated = true;
+        } else {
+            seq_model_gen_bump(&g.pattern.generation);
+        }
     }
     _hold_refresh_if_active();
     seq_led_bridge_publish();
@@ -626,18 +858,14 @@ void seq_led_bridge_on_play(void) {
 
 void seq_led_bridge_on_stop(void) {
     ui_led_seq_set_running(false);
-    if (g.visible_page < SEQ_MAX_PAGES) {
-        g.page_hold_mask[g.visible_page] = 0U;
-    }
+    _hold_sync_mask(0U);
     g.preview_mask = 0U;
     _hold_update(0U);
     seq_led_bridge_publish();
 }
 
 void seq_led_bridge_set_plock_mask(uint16_t mask) {
-    if (g.visible_page < SEQ_MAX_PAGES) {
-        g.page_hold_mask[g.visible_page] = mask;
-    }
+    _hold_sync_mask(mask);
     _hold_update(mask);
     seq_led_bridge_publish();
 }
@@ -646,7 +874,8 @@ void seq_led_bridge_plock_add(uint8_t i) {
     if (g.visible_page >= SEQ_MAX_PAGES || i >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         return;
     }
-    g.page_hold_mask[g.visible_page] |= (1u << i);
+    uint16_t mask = g.page_hold_mask[g.visible_page] | (uint16_t)(1U << i);
+    _hold_sync_mask(mask);
     _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
@@ -655,24 +884,21 @@ void seq_led_bridge_plock_remove(uint8_t i) {
     if (g.visible_page >= SEQ_MAX_PAGES || i >= SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         return;
     }
-    g.page_hold_mask[g.visible_page] &= (uint16_t)~(1u << i);
+    uint16_t mask = g.page_hold_mask[g.visible_page] & (uint16_t)~(1U << i);
+    _hold_sync_mask(mask);
     _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
 
 void seq_led_bridge_plock_clear(void) {
-    if (g.visible_page < SEQ_MAX_PAGES) {
-        g.page_hold_mask[g.visible_page] = 0U;
-    }
+    _hold_sync_mask(0U);
     _hold_update(0U);
     seq_led_bridge_publish();
 }
 
 void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
     BRICK_DEBUG_PLOCK_LOG("UI_HOLD_START", held_mask, 0, chVTGetSystemTimeX());
-    if (g.visible_page < SEQ_MAX_PAGES) {
-        g.page_hold_mask[g.visible_page] = held_mask & 0xFFFFu;
-    }
+    _hold_sync_mask(held_mask & 0xFFFFu);
     _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
 }
@@ -685,25 +911,27 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
         return;
     }
 
-    bool mutated = false;
+    bool mutated_pattern = false;
 
     for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
         if ((held_mask & (1U << i)) == 0U) {
             continue;
         }
-        seq_model_step_t *step = _step_from_page(i);
+        seq_led_bridge_hold_slot_t *slot = _hold_resolve_slot(i, true);
+        seq_model_step_t *step = (slot != NULL) ? &slot->staged : _step_from_page(i);
         if (step == NULL) {
             continue;
         }
 
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
+        bool step_mutated = false;
         if (!had_voice && !had_plock) {
             seq_model_step_make_automation_only(step);
+            step_mutated = true;
         }
 
         const bool automation = seq_model_step_is_automation_only(step);
-        bool step_mutated = false;
 
         switch (param_id) {
             case SEQ_HOLD_PARAM_ALL_TRANSP: {
@@ -808,11 +1036,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 
         seq_model_step_recompute_flags(step);
         if (step_mutated) {
-            mutated = true;
+            if (slot != NULL) {
+                slot->mutated = true;
+            } else {
+                mutated_pattern = true;
+            }
         }
     }
 
-    if (mutated) {
+    if (mutated_pattern) {
         seq_model_gen_bump(&g.pattern.generation);
     }
 
@@ -822,15 +1054,31 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 
 void seq_led_bridge_end_plock_preview(void) {
     BRICK_DEBUG_PLOCK_LOG("UI_HOLD_COMMIT", g.hold.mask, 0, chVTGetSystemTimeX());
-    if (g.visible_page < SEQ_MAX_PAGES) {
-        g.page_hold_mask[g.visible_page] = 0U;
-    }
+    _hold_sync_mask(0U);
     _hold_update(0U);
     seq_led_bridge_publish();
 }
 
 const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void) {
     return &g.hold;
+}
+
+bool seq_led_bridge_hold_get_cart_param(uint16_t parameter_id,
+                                        seq_led_bridge_hold_param_t *out) {
+    if (out == NULL) {
+        return false;
+    }
+
+    for (uint8_t i = 0U; i < g_hold_cart_param_count; ++i) {
+        const seq_led_bridge_hold_cart_entry_t *entry = &g_hold_cart_params[i];
+        if (entry->used && entry->parameter_id == parameter_id) {
+            *out = entry->view;
+            return true;
+        }
+    }
+
+    memset(out, 0, sizeof(*out));
+    return false;
 }
 
 void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
@@ -841,14 +1089,15 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
         return;
     }
 
-    bool mutated = false;
+    bool mutated_pattern = false;
 
     for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
         if ((held_mask & (1U << i)) == 0U) {
             continue;
         }
 
-        seq_model_step_t *step = _step_from_page(i);
+        seq_led_bridge_hold_slot_t *slot = _hold_resolve_slot(i, true);
+        seq_model_step_t *step = (slot != NULL) ? &slot->staged : _step_from_page(i);
         if (step == NULL) {
             continue;
         }
@@ -858,16 +1107,25 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
         const bool had_plock = seq_model_step_has_any_plock(step);
         if (!had_voice && !had_plock) {
             seq_model_step_make_automation_only(step);
+            if (slot != NULL) {
+                slot->mutated = true;
+            } else {
+                mutated_pattern = true;
+            }
         }
 
         if (_ensure_cart_plock_value(step, parameter_id, track, value)) {
-            mutated = true;
+            if (slot != NULL) {
+                slot->mutated = true;
+            } else {
+                mutated_pattern = true;
+            }
         }
 
         seq_model_step_recompute_flags(step);
     }
 
-    if (mutated) {
+    if (mutated_pattern) {
         seq_model_gen_bump(&g.pattern.generation);
     }
 

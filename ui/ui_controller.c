@@ -364,9 +364,16 @@ void ui_on_encoder(int enc_index, int delta) {
     const seq_led_bridge_hold_view_t *hold_view = hold_active ? seq_led_bridge_get_hold_view() : NULL;
     const seq_led_bridge_hold_param_t *hold_param = NULL;
     seq_hold_param_id_t hold_id = SEQ_HOLD_PARAM_COUNT;
+    seq_led_bridge_hold_param_t cart_hold_param;
     if (hold_active && hold_view != NULL) {
         if (_ui_controller_map_hold_param(menu, (uint8_t)g_ui.cur_page, (uint8_t)enc_index, &hold_id)) {
             hold_param = &hold_view->params[hold_id];
+        }
+    }
+
+    if (hold_active && ((ps->dest_id & UI_DEST_MASK) == UI_DEST_CART)) {
+        if (seq_led_bridge_hold_get_cart_param(UI_DEST_ID(ps->dest_id), &cart_hold_param)) {
+            hold_param = &cart_hold_param;
         }
     }
 

@@ -99,18 +99,11 @@ static inline void _render_one(uint8_t s, bool is_playing_here){
         return;
     }
     if (st->automation) {
-        _set_led_step(s, UI_LED_COL_SEQ_AUTOMATION, LED_MODE_ON);
+        _set_led_step(s, UI_LED_COL_SEQ_PARAM, LED_MODE_ON);
         return;
     }
     if (st->active) {
-        led_color_t color;
-        switch (st->track & 0x03U) {
-            case 0U: color = UI_LED_COL_CART1_ACTIVE; break;
-            case 1U: color = UI_LED_COL_CART2_ACTIVE; break;
-            case 2U: color = UI_LED_COL_CART3_ACTIVE; break;
-            default: color = UI_LED_COL_CART4_ACTIVE; break;
-        }
-        _set_led_step(s, color, LED_MODE_ON);
+        _set_led_step(s, UI_LED_COL_SEQ_ACTIVE, LED_MODE_ON);
         return;
     }
     _set_led_step(s, UI_LED_COL_OFF, LED_MODE_OFF);
