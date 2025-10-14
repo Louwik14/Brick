@@ -91,6 +91,7 @@ typedef struct {
     bool  active;            /**< Mode Keyboard actif (overlay visible ou latched). */
     bool  overlay_visible;   /**< L'overlay Keyboard est affiché. */
     int8_t octave;           /**< Décalage d'octave courant. */
+    bool  arp_submenu_active;/**< true si le sous-menu Arpégiateur est affiché. */ // --- ARP: persistance sous-menu ---
 } ui_keyboard_state_t;
 
 /**

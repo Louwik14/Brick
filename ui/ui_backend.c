@@ -38,6 +38,8 @@
 #include "ui_seq_ui.h"
 #include "ui_seq_ids.h"
 #include "ui_arp_ui.h"
+#include "ui_arp_menu.h" // --- ARP: sous-menu clavier ---
+#include "ui_keyboard_bridge.h" // --- ARP: STOP clavier ---
 #include "ui_keyboard_ui.h"
 #include "ui_keyboard_app.h"
 #include "ui_controller.h"
@@ -61,7 +63,8 @@ static ui_cart_spec_t s_seq_mode_spec_banner;
 static ui_cart_spec_t s_seq_setup_spec_banner;
 static ui_cart_spec_t s_arp_mode_spec_banner;
 static ui_cart_spec_t s_arp_setup_spec_banner;
-static ui_cart_spec_t s_kbd_spec_banner;
+static ui_cart_spec_t s_kbd_keyboard_spec_banner; // --- ARP: vitrine clavier ---
+static ui_cart_spec_t s_kbd_arp_config_spec_banner; // --- ARP: vitrine arpégiateur ---
 
 static void _set_mode_label(const char *label) {
     if (!label || label[0] == '\0') {
@@ -78,7 +81,8 @@ static void _reset_overlay_banner_tags(void) {
     s_seq_setup_spec_banner.overlay_tag = tag;
     s_arp_mode_spec_banner.overlay_tag  = tag;
     s_arp_setup_spec_banner.overlay_tag = tag;
-    s_kbd_spec_banner.overlay_tag       = tag;
+    s_kbd_keyboard_spec_banner.overlay_tag       = tag;
+    s_kbd_arp_config_spec_banner.overlay_tag     = tag;
 }
 
 static void _publish_keyboard_tag(int8_t shift) {
@@ -105,8 +109,9 @@ static void _neutralize_overlay_for_mute(void) {
     } else if (cur == &s_arp_mode_spec_banner || cur == &s_arp_setup_spec_banner) {
         s_arp_mode_spec_banner.overlay_tag  = NULL;
         s_arp_setup_spec_banner.overlay_tag = NULL;
-    } else if (cur == &s_kbd_spec_banner) {
-        s_kbd_spec_banner.overlay_tag = NULL;
+    } else if ((cur == &s_kbd_keyboard_spec_banner) || (cur == &s_kbd_arp_config_spec_banner)) {
+        s_kbd_keyboard_spec_banner.overlay_tag = NULL;
+        s_kbd_arp_config_spec_banner.overlay_tag = NULL;
     }
 }
 
@@ -128,18 +133,21 @@ static void _restore_overlay_visuals_after_mute(void) {
         s_mode_ctx.overlay_id         = UI_OVERLAY_ARP;
         s_mode_ctx.overlay_submode    = (cur == &s_arp_setup_spec_banner) ? 1u : 0u;
         s_mode_ctx.keyboard.overlay_visible = false;
-    } else if (cur == &s_kbd_spec_banner) {
+    } else if ((cur == &s_kbd_keyboard_spec_banner) || (cur == &s_kbd_arp_config_spec_banner)) {
         s_mode_ctx.overlay_active     = true;
         s_mode_ctx.overlay_id         = UI_OVERLAY_SEQ;
-        s_mode_ctx.overlay_submode    = 0u;
+        s_mode_ctx.keyboard.arp_submenu_active = (cur == &s_kbd_arp_config_spec_banner); // --- ARP: restaurer sélection ---
+        s_mode_ctx.overlay_submode    = s_mode_ctx.keyboard.arp_submenu_active ? 1u : 0u;
         s_mode_ctx.keyboard.overlay_visible = true;
         _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-        s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+        s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+        s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
         ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
     } else {
         if (s_mode_ctx.keyboard.active) {
             _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-            s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+            s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+            s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
             ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
         } else {
             _set_mode_label("SEQ");
@@ -201,6 +209,7 @@ void ui_backend_init_runtime(void) {
     s_mode_ctx.overlay_active  = false;
     s_mode_ctx.overlay_submode = 0u;
     s_mode_ctx.keyboard.octave = ui_keyboard_app_get_octave_shift();
+    s_mode_ctx.keyboard.arp_submenu_active = false; // --- ARP: état initial ---
     s_mode_ctx.transport.playing   = false;
     s_mode_ctx.transport.recording = false;
 
@@ -304,15 +313,32 @@ static void _apply_arp_overlay_cycle(void) {
     ui_mark_dirty();
 }
 
-static void _apply_keyboard_overlay(void) {
-    if (ui_overlay_is_active() && ui_overlay_get_spec() == &s_kbd_spec_banner) {
-        ui_overlay_exit();
-    }
-
-    s_kbd_spec_banner = ui_keyboard_spec;
+static void _prepare_keyboard_specs(void) {
     const ui_cart_spec_t *cart_spec = ui_get_cart();
-    s_kbd_spec_banner.cart_name   = cart_spec ? cart_spec->cart_name : "";
-    s_kbd_spec_banner.overlay_tag = NULL;
+    const char *banner = cart_spec ? cart_spec->cart_name : "";
+    s_kbd_keyboard_spec_banner = ui_keyboard_spec;
+    s_kbd_keyboard_spec_banner.cart_name   = banner;
+    s_kbd_keyboard_spec_banner.overlay_tag = NULL;
+
+    s_kbd_arp_config_spec_banner = ui_keyboard_arp_menu_spec;
+    s_kbd_arp_config_spec_banner.cart_name   = banner;
+    s_kbd_arp_config_spec_banner.overlay_tag = NULL;
+}
+
+static void _apply_keyboard_overlay(void) {
+    _prepare_keyboard_specs();
+
+    const ui_cart_spec_t *current = ui_overlay_is_active() ? ui_overlay_get_spec() : NULL;
+    const ui_cart_spec_t *target = s_mode_ctx.keyboard.arp_submenu_active
+                                       ? &s_kbd_arp_config_spec_banner
+                                       : &s_kbd_keyboard_spec_banner;
+
+    if (!ui_overlay_is_active() ||
+        (current != &s_kbd_keyboard_spec_banner && current != &s_kbd_arp_config_spec_banner)) {
+        ui_overlay_enter(UI_OVERLAY_SEQ, target);
+    } else if (current != target) {
+        ui_overlay_switch_subspec(target);
+    }
 
     s_mode_ctx.keyboard.active          = true;
     s_mode_ctx.keyboard.overlay_visible = true;
@@ -320,14 +346,19 @@ static void _apply_keyboard_overlay(void) {
     s_mode_ctx.custom_mode              = UI_CUSTOM_NONE;
     s_mode_ctx.overlay_active           = true;
     s_mode_ctx.overlay_id               = UI_OVERLAY_SEQ;
-    s_mode_ctx.overlay_submode          = 0u;
+    s_mode_ctx.overlay_submode          = s_mode_ctx.keyboard.arp_submenu_active ? 1u : 0u;
 
     ui_overlay_set_custom_mode(UI_CUSTOM_NONE);
-    ui_overlay_enter(UI_OVERLAY_SEQ, &s_kbd_spec_banner);
     ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
     _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
-    s_kbd_spec_banner.overlay_tag = ui_backend_get_mode_label();
+    s_kbd_keyboard_spec_banner.overlay_tag = ui_backend_get_mode_label();
+    s_kbd_arp_config_spec_banner.overlay_tag = ui_backend_get_mode_label();
     ui_mark_dirty();
+}
+
+static void _keyboard_toggle_submenu(void) {
+    s_mode_ctx.keyboard.arp_submenu_active = !s_mode_ctx.keyboard.arp_submenu_active; // --- ARP: cycle submenu ---
+    _apply_keyboard_overlay();
 }
 
 static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
@@ -390,6 +421,15 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     case UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY:
         _apply_keyboard_overlay();
         break;
+    case UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU:
+        if (!ui_overlay_is_active() ||
+            (ui_overlay_get_spec() != &s_kbd_keyboard_spec_banner &&
+             ui_overlay_get_spec() != &s_kbd_arp_config_spec_banner)) {
+            _apply_keyboard_overlay();
+        } else {
+            _keyboard_toggle_submenu();
+        }
+        break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_PLAY:
         seq_engine_runner_on_transport_play();
@@ -399,6 +439,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         break;
 
     case UI_SHORTCUT_ACTION_TRANSPORT_STOP:
+        ui_keyboard_bridge_on_transport_stop(); // --- ARP: flush avant STOP ---
         seq_engine_runner_on_transport_stop();
         clock_manager_stop();
         seq_led_bridge_on_stop();

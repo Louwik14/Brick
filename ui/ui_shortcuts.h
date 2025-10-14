@@ -40,6 +40,7 @@ typedef enum {
     UI_SHORTCUT_ACTION_OPEN_SEQ_OVERLAY,    /**< Active overlay SEQ (MODE/SETUP). */
     UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY,    /**< Active overlay ARP (MODE/SETUP). */
     UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY,    /**< Active overlay Keyboard. */
+    UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU, /**< Cycle Keyboard ↔ Arpégiateur. */ // --- ARP: action dédiée ---
     UI_SHORTCUT_ACTION_TRANSPORT_PLAY,      /**< PLAY global. */
     UI_SHORTCUT_ACTION_TRANSPORT_STOP,      /**< STOP global. */
     UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE,/**< Toggle REC global. */

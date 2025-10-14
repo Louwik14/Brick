@@ -27,12 +27,13 @@ Principes structurants :
 * `seq/seq_model.c` : modèle du pattern + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).
 * `seq/seq_engine.c` : moteur Reader/Scheduler/Player, callbacks `note_on`, `note_off`, `plock`.
 * `seq/seq_live_capture.c` : planifie les événements live (note on/off) en utilisant la clock et enregistre note, vélocité, longueur et micro sous forme de p-locks internes.
+* `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
 ### `apps/`
 * `seq_engine_runner.c` : instancie `seq_engine`, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
 * `seq_led_bridge.c` : conserve un snapshot `seq_model_pattern_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
 * `seq_recorder.c` : relie `ui_keyboard_bridge` au live capture, maintient les voix actives pour mesurer les longueurs de note.
-* `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct tout en relayant les événements vers `seq_recorder`.
+* `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---
 * `kbd_*` : dictionnaire d'accords et mapper clavier.
 
 ### `ui/`
@@ -95,9 +96,15 @@ Principes structurants :
 * `seq_model_step_recompute_flags()` pose `flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock`, garantissant que toute présence de p-lock SEQ garde le step vert.
 
 ### 4.4 Mode clavier & capture live
-1. `ui_keyboard_bridge_init()` lit le shadow UI (`ui_backend_shadow_get()`), configure `ui_keyboard_app` et `kbd_input_mapper`, installe `sink_note_on/off` et laisse le mode LED actif (SEQ) inchangé.
-2. `sink_note_on()` appelle `seq_recorder_handle_note_on()` + `ui_backend_note_on()`. `seq_recorder` planifie via `seq_live_capture_plan_event()`, enregistre micro offset et p-locks, met à jour `s_active_voices`.
-3. `sink_note_off()` appelle `seq_recorder_handle_note_off()` + `ui_backend_note_off()`. Le recorder calcule la durée réelle (`_seq_live_capture_compute_length_steps()`), insère un p-lock LENGTH et relâche la voix. Aucun All Notes Off n'est envoyé (fonction `sink_all_notes_off()` vide).
+1. `ui_keyboard_bridge_init()` lit le shadow UI (`ui_backend_shadow_get()`), configure `ui_keyboard_app`, `kbd_input_mapper` **et** `arp_engine` avec les callbacks MIDI/recorder puis laisse le mode LED actif (SEQ) inchangé. // --- ARP: initialisation bridge ---
+2. `ui_keyboard_bridge_update_from_model()` synchronise Root/Scale/Omnichord, mais aussi les 20 paramètres du sous-menu Arpégiateur (`apps/ui_arp_menu.c`). Toute modification déclenche `arp_set_config()` ; le flag legacy `KBD_UI_LOCAL_ARP` est tenu à jour pour compatibilité. // --- ARP: synchro paramètres ---
+3. `sink_note_on()` route soit directement vers `seq_recorder_handle_note_on()` + `ui_backend_note_on()` (ARP OFF), soit vers `arp_note_input()` (ARP ON). Le moteur planifie swing/strum/repeat et renvoie les notes générées via ses callbacks, qui continuent d'alimenter le recorder avant l'émission MIDI.
+4. `sink_note_off()` applique la même logique (direct MIDI ou `arp_note_input(..., pressed=false)`), garantissant que l'arrêt clavier provoque immédiatement les NOTE_OFF ou un `arp_stop_all()` si nécessaire. // --- ARP: gestion release ---
+5. `ui_keyboard_bridge_tick()` est appelé à chaque boucle UI (`systime_t now`) pour faire avancer `arp_engine` à haute résolution (BPM courant) et désenfiler les note-on/off planifiés.
+
+### 4.5 Modes MUTE / PMUTE
+1. Entrer en PMUTE (`UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE`) bascule le backend LED en mode MUTE, republie l'état courant via `ui_mute_backend_publish_state()` et garantit que les LED reflètent immédiatement les tracks préparées ou commitées.
+2. `ui_mute_backend_toggle_prepare()` émet `UI_LED_EVENT_PMUTE_STATE` pour chaque track préparée ; `ui_mute_backend_commit()` / `ui_mute_backend_cancel()` synchronisent respectivement l'état réel (`UI_LED_EVENT_MUTE_STATE`) ou nettoient l'aperçu.
 
 ### 4.5 Modes MUTE / PMUTE
 1. Entrer en PMUTE (`UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE`) bascule le backend LED en mode MUTE, republie l'état courant via `ui_mute_backend_publish_state()` et garantit que les LED reflètent immédiatement les tracks préparées ou commitées.
@@ -134,6 +141,7 @@ Principes structurants :
 ## 9. Résumé des invariants comportementaux
 
 * Aucun `All Notes Off` implicite : seules `ui_backend_all_notes_off()` (action utilisateur) et le bouton STOP (via `seq_engine_runner_on_transport_stop()`) diffusent CC123 global, tandis que le moteur continue d'émettre des NOTE_OFF individuels.
+* Le STOP invoque désormais `ui_keyboard_bridge_on_transport_stop()` pour purger `arp_engine` avant le CC123 global, garantissant qu'aucune voix arpégiateur ne reste suspendue. // --- ARP: flush STOP ---
 * Un step contenant au moins un p-lock SEQ reste musical (LED verte, vélocité de la voix 1 conservée).
 * `seq_live_capture` enregistre note, vélocité, longueur et micro-timing à partir des timestamps `clock_manager`.
 * `seq_led_bridge` garantit que les steps maintenus reçoivent les p-locks au moment des mouvements d'encodeur, avec commit à la release.
