@@ -56,6 +56,20 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                                       uint16_t held_mask);
 void seq_led_bridge_end_plock_preview(void);
 
+typedef struct {
+    bool available;   /**< True if at least one held step exposed a value. */
+    bool mixed;       /**< True when held steps differ on the parameter. */
+    bool plocked;     /**< True if any held step carries a p-lock for the parameter. */
+    int32_t value;    /**< Aggregated value (valid when !mixed && available). */
+} seq_led_bridge_hold_param_t;
+
+typedef struct {
+    bool active;                               /**< Hold/tweak mode currently active. */
+    uint16_t mask;                             /**< Mask of held steps on the visible page. */
+    uint8_t step_count;                        /**< Number of steps contributing to the view. */
+    seq_led_bridge_hold_param_t params[SEQ_HOLD_PARAM_COUNT]; /**< Aggregated parameters. */
+} seq_led_bridge_hold_view_t;
+
 const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void);
 
 /* Helpers (exposés si besoin moteur) */
@@ -72,17 +86,4 @@ const seq_model_gen_t *seq_led_bridge_get_generation(void);
 #endif
 
 #endif /* BRICK_SEQ_LED_BRIDGE_H */
-typedef struct {
-    bool available;   /**< True if at least one held step exposed a value. */
-    bool mixed;       /**< True when held steps differ on the parameter. */
-    bool plocked;     /**< True if any held step carries a p-lock for the parameter. */
-    int32_t value;    /**< Aggregated value (valid when !mixed && available). */
-} seq_led_bridge_hold_param_t;
-
-typedef struct {
-    bool active;                               /**< Hold/tweak mode currently active. */
-    uint16_t mask;                             /**< Mask of held steps on the visible page. */
-    uint8_t step_count;                        /**< Number of steps contributing to the view. */
-    seq_led_bridge_hold_param_t params[SEQ_HOLD_PARAM_COUNT]; /**< Aggregated parameters. */
-} seq_led_bridge_hold_view_t;
 
