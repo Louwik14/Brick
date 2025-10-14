@@ -116,6 +116,14 @@ void seq_led_bridge_set_visible_page(uint8_t page){
     seq_led_bridge_publish();
 }
 
+uint8_t seq_led_bridge_get_visible_page(void){
+    return g.visible_page;
+}
+
+uint8_t seq_led_bridge_get_max_pages(void){
+    return g.max_pages;
+}
+
 /* ===== Edition simple ==================================================== */
 void seq_led_bridge_step_clear(uint8_t i){
     if (i >= 16) return;

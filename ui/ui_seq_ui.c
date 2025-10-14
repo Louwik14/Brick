@@ -13,6 +13,8 @@
  *
  * Tous les paramètres utilisent des dest_id en espace UI interne (UI_DEST_UI),
  * donc **aucun paquet bus/cart** n’est envoyé (cf. ui_backend).
+ * Le label de bannière ("SEQ") est désormais injecté par le backend via
+ * `ui_mode_context_t`.
  */
 
 #include "ui_seq_ui.h"

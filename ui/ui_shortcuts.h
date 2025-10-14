@@ -19,27 +19,84 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "ui_input.h"  /* ui_input_event_t */
+#include "ui_backend.h"   /* ui_mode_context_t */
+#include "ui_input.h"      /* ui_input_event_t */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Initialise/Reset le moteur de raccourcis. */
-void ui_shortcuts_init(void);
-void ui_shortcuts_reset(void);
+/**
+ * @brief Types d'actions générées par la couche de mapping.
+ */
+typedef enum {
+    UI_SHORTCUT_ACTION_NONE = 0,            /**< Aucun effet secondaire. */
+    UI_SHORTCUT_ACTION_ENTER_MUTE_QUICK,    /**< Entrée dans MUTE rapide. */
+    UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE,    /**< Transition QUICK → PMUTE. */
+    UI_SHORTCUT_ACTION_EXIT_MUTE,           /**< Sortie de MUTE/PMUTE. */
+    UI_SHORTCUT_ACTION_TOGGLE_MUTE_TRACK,   /**< Toggle direct d'une piste (QUICK). */
+    UI_SHORTCUT_ACTION_PREPARE_PMUTE_TRACK, /**< Prépare une piste pour PMUTE. */
+    UI_SHORTCUT_ACTION_COMMIT_PMUTE,        /**< Valide les PMUTE préparés. */
+    UI_SHORTCUT_ACTION_OPEN_SEQ_OVERLAY,    /**< Active overlay SEQ (MODE/SETUP). */
+    UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY,    /**< Active overlay ARP (MODE/SETUP). */
+    UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY,    /**< Active overlay Keyboard. */
+    UI_SHORTCUT_ACTION_TRANSPORT_PLAY,      /**< PLAY global. */
+    UI_SHORTCUT_ACTION_TRANSPORT_STOP,      /**< STOP global. */
+    UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE,/**< Toggle REC global. */
+    UI_SHORTCUT_ACTION_SEQ_PAGE_NEXT,       /**< Page SEQ suivante. */
+    UI_SHORTCUT_ACTION_SEQ_PAGE_PREV,       /**< Page SEQ précédente. */
+    UI_SHORTCUT_ACTION_SEQ_STEP_HOLD,       /**< Maintien d'un pad SEQ. */
+    UI_SHORTCUT_ACTION_SEQ_STEP_RELEASE,    /**< Relâche d'un pad SEQ. */
+    UI_SHORTCUT_ACTION_SEQ_ENCODER_TOUCH,   /**< Mouvement encodeur pendant hold. */
+    UI_SHORTCUT_ACTION_KEY_OCTAVE_UP,       /**< Octave + (mode Keyboard). */
+    UI_SHORTCUT_ACTION_KEY_OCTAVE_DOWN      /**< Octave - (mode Keyboard). */
+} ui_shortcut_action_type_t;
 
 /**
- * @brief Tente de consommer un événement via le moteur de raccourcis.
- * @return true si consommé (l’événement ne doit plus être routé ailleurs).
+ * @brief Données associées à une action de shortcut.
  */
-bool ui_shortcuts_handle_event(const ui_input_event_t *evt);
+typedef struct {
+    ui_shortcut_action_type_t type; /**< Type d'action. */
+    union {
+        struct { uint8_t track; } mute; /**< Index piste (mute). */
+        struct {
+            uint8_t index;             /**< Index step 0..15. */
+            bool    long_press;        /**< Vrai si long-press détecté. */
+        } seq_step;
+        struct { uint16_t mask; } seq_mask; /**< Masque de steps maintenus. */
+    } data;
+} ui_shortcut_action_t;
+
+/** Nombre max d'actions générées par évènement. */
+#define UI_SHORTCUT_MAX_ACTIONS 6u
 
 /**
- * @brief Indique si le contexte Keys (Keyboard) est actif
- *        (même si l’overlay n’est pas visible).
+ * @brief Résultat produit par la couche de mapping.
  */
-bool ui_shortcuts_is_keys_active(void);
+typedef struct {
+    ui_shortcut_action_t actions[UI_SHORTCUT_MAX_ACTIONS]; /**< Actions détectées. */
+    uint8_t action_count;                                  /**< Nombre d'actions. */
+    bool    consumed;                                      /**< true si l'évènement est consommé. */
+} ui_shortcut_map_result_t;
+
+/**
+ * @brief Initialise le contexte runtime côté mapping.
+ */
+void ui_shortcut_map_init(ui_mode_context_t *ctx);
+
+/**
+ * @brief Réinitialise le contexte runtime (alias de init).
+ */
+void ui_shortcut_map_reset(ui_mode_context_t *ctx);
+
+/**
+ * @brief Map un évènement brut vers un ensemble d'actions.
+ * @param evt  Évènement brut.
+ * @param ctx  Contexte runtime partagé (in/out).
+ * @return Résultat contenant les actions + flag consumed.
+ */
+ui_shortcut_map_result_t ui_shortcut_map_process(const ui_input_event_t *evt,
+                                                 ui_mode_context_t *ctx);
 
 #ifdef __cplusplus
 }
