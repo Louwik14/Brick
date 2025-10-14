@@ -126,6 +126,10 @@ void seq_engine_stop(seq_engine_t *engine) {
 
     engine->clock_attached = false;
     engine->player.running = false;
+
+    chMtxLock(&engine->scheduler_lock);
+    seq_engine_scheduler_clear(&engine->scheduler);
+    chMtxUnlock(&engine->scheduler_lock);
     _seq_engine_signal_player(engine);
 
     if (engine->player.thread != NULL) {
@@ -133,11 +137,7 @@ void seq_engine_stop(seq_engine_t *engine) {
         engine->player.thread = NULL;
     }
 
-    chMtxLock(&engine->scheduler_lock);
-    seq_engine_scheduler_clear(&engine->scheduler);
-    chMtxUnlock(&engine->scheduler_lock);
-
-    _seq_engine_all_notes_off(engine);
+    _seq_engine_all_notes_off(engine); // --- FIX: couper immédiatement les notes encore actives lors d'un STOP ---
     _seq_engine_reset_voice_state(engine);
 }
 

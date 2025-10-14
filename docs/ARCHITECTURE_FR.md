@@ -78,6 +78,7 @@ Principes structurants :
    * `seq_recorder_on_clock_step(info)` ⇒ `seq_live_capture_update_clock()` maintient les timestamps pour mesurer les longueurs de note.
    * `seq_engine_runner_on_clock_step(info)` ⇒ `seq_engine_process_step()` lit le modèle, planifie note on/off et p-locks, puis les callbacks runner envoient `midi_note_on/off` ou `cart_link_param_changed`.
 4. `seq_engine_process_step()` trie les évènements planifiés par `scheduled_time` afin de déclencher toutes les voix d'un step simultanément quand leurs micro-offsets sont identiques.
+5. Lors d'un STOP, `seq_engine_stop()` vide la scheduler avant de rejoindre le thread joueur et appelle `_seq_engine_all_notes_off()` pour couper immédiatement toutes les voix encore actives.
 
 ### 4.2 Édition SEQ hold & p-locks
 1. `ui_backend_process_input()` détecte un appui sur un pad SEQ, met à jour `s_mode_ctx.seq.held_mask` et appelle `seq_led_bridge_begin_plock_preview()`.
@@ -98,9 +99,14 @@ Principes structurants :
 2. `sink_note_on()` appelle `seq_recorder_handle_note_on()` + `ui_backend_note_on()`. `seq_recorder` planifie via `seq_live_capture_plan_event()`, enregistre micro offset et p-locks, met à jour `s_active_voices`.
 3. `sink_note_off()` appelle `seq_recorder_handle_note_off()` + `ui_backend_note_off()`. Le recorder calcule la durée réelle (`_seq_live_capture_compute_length_steps()`), insère un p-lock LENGTH et relâche la voix. Aucun All Notes Off n'est envoyé (fonction `sink_all_notes_off()` vide).
 
+### 4.5 Modes MUTE / PMUTE
+1. Entrer en PMUTE (`UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE`) bascule le backend LED en mode MUTE, republie l'état courant via `ui_mute_backend_publish_state()` et garantit que les LED reflètent immédiatement les tracks préparées ou commitées.
+2. `ui_mute_backend_toggle_prepare()` émet `UI_LED_EVENT_PMUTE_STATE` pour chaque track préparée ; `ui_mute_backend_commit()` / `ui_mute_backend_cancel()` synchronisent respectivement l'état réel (`UI_LED_EVENT_MUTE_STATE`) ou nettoient l'aperçu.
+
 ## 5. Politique MIDI et cartouches
 
 * `seq_engine_runner_on_transport_stop()` diffuse désormais un CC123 “All Notes Off” sur les 16 canaux avant de relayer les NOTE_OFF individuels via `_runner_note_off_cb()` et de restaurer les paramètres cart p-lockés ; hors STOP, aucune commande globale n'est émise.
+* `midi.c` centralise l'émission des Channel Mode Messages (CC#120-127) via `midi_all_notes_off()`, `midi_all_sound_off()`, etc., évitant les stubs dispersés.
 * Les p-locks cart sont appliqués via `cart_link_param_changed()` et restaurés lorsque leur profondeur (`slot->depth`) retombe à zéro.
 * `cart_registry_get_active_id()` et `cart_link_shadow_get/set()` fournissent les valeurs courantes aux autres modules.
 

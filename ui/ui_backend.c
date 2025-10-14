@@ -349,6 +349,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         _neutralize_overlay_for_mute();
         ui_led_backend_set_mode(UI_LED_MODE_MUTE);
         _set_mode_label("PMUTE");
+        ui_mute_backend_publish_state(); // --- FIX: re-synchroniser les LEDs préparées à chaque entrée PMUTE ---
         ui_mark_dirty();
         break;
 
