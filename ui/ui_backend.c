@@ -601,6 +601,12 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
 
     switch (dest) {
     case UI_DEST_CART:
+        if (s_mode_ctx.seq.held_mask != 0U) {
+            seq_led_bridge_apply_cart_param(local_id, (int32_t)val, s_mode_ctx.seq.held_mask);
+            seq_led_bridge_begin_plock_preview(s_mode_ctx.seq.held_mask);
+            ui_mark_dirty();
+            break;
+        }
         /* Route vers la cartouche active (shadow + éventuelle propagation) */
         cart_link_param_changed(local_id, val, bitwise, mask);
         break;

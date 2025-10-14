@@ -101,12 +101,16 @@ typedef struct {
 
 /** Full step description including voices and parameter locks. */
 typedef struct {
+    bool active;     /**< True when at least one voice has velocity > 0. */
+    bool automation; /**< True when the step is automation-only (no playable voices, has p-locks). */
+} seq_model_step_flags_t;
+
+typedef struct {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
     seq_model_plock_t plocks[SEQ_MODEL_MAX_PLOCKS_PER_STEP]; /**< Parameter locks. */
     uint8_t plock_count; /**< Number of active parameter locks. */
     seq_model_step_offsets_t offsets; /**< Per-step offsets. */
-    bool has_active_voice; /**< Cached flag indicating at least one audible voice. */
-    bool automation_only;  /**< Flag telling the engine to treat the step as automation-only. */
+    seq_model_step_flags_t flags; /**< Cached step flags (playable / automation). */
 } seq_model_step_t;
 
 /** Quantization configuration applied during live capture. */
@@ -156,6 +160,10 @@ void seq_model_voice_init(seq_model_voice_t *voice, bool primary);
 void seq_model_step_init(seq_model_step_t *step);
 /** Initialise a step using Elektron quick-step defaults for the provided note. */
 void seq_model_step_init_default(seq_model_step_t *step, uint8_t note);
+/** Convert an empty step into a neutral quick-step shell. */
+void seq_model_step_make_neutral(seq_model_step_t *step);
+/** Convert a step into an automation-only placeholder (all voices muted). */
+void seq_model_step_make_automation_only(seq_model_step_t *step);
 /** Reset a full pattern to defaults. */
 void seq_model_pattern_init(seq_model_pattern_t *pattern);
 
@@ -179,11 +187,13 @@ void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_off
 const seq_model_step_offsets_t *seq_model_step_get_offsets(const seq_model_step_t *step);
 
 /** Return true if at least one voice is enabled with a non-zero velocity. */
-bool seq_model_step_has_active_voice(const seq_model_step_t *step);
+bool seq_model_step_has_playable_voice(const seq_model_step_t *step);
 /** Return true if the step should be treated as automation-only. */
 bool seq_model_step_is_automation_only(const seq_model_step_t *step);
-/** Convert a step into an automation-only placeholder (all voices muted). */
-void seq_model_step_make_automate(seq_model_step_t *step);
+/** Return true when the step exposes at least one parameter lock. */
+bool seq_model_step_has_any_plock(const seq_model_step_t *step);
+/** Recompute cached flags after mutating voices or parameter locks. */
+void seq_model_step_recompute_flags(seq_model_step_t *step);
 
 /** Update the quantize configuration of a pattern. */
 void seq_model_pattern_set_quantize(seq_model_pattern_t *pattern, const seq_model_quantize_config_t *config);

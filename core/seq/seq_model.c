@@ -34,8 +34,6 @@ bool seq_model_gen_has_changed(const seq_model_gen_t *lhs, const seq_model_gen_t
     return lhs->value != rhs->value;
 }
 
-static void seq_model_step_recompute_flags(seq_model_step_t *step);
-
 void seq_model_voice_init(seq_model_voice_t *voice, bool primary) {
     if (voice == NULL) {
         return;
@@ -61,8 +59,8 @@ void seq_model_step_init(seq_model_step_t *step) {
 
     seq_model_step_clear_plocks(step);
     seq_model_step_reset_offsets(&step->offsets);
-    step->automation_only = false;
-    seq_model_step_recompute_flags(step);
+    step->flags.active = false;
+    step->flags.automation = false;
 }
 
 void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
@@ -72,23 +70,16 @@ void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
         return;
     }
 
-    seq_model_step_init(step);
+    seq_model_step_make_neutral(step);
 
     for (i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
         seq_model_voice_t *voice = &step->voices[i];
         voice->note = note;
-        voice->length = 1U;
-        voice->micro_offset = 0;
         if (i == 0U) {
-            voice->velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
             voice->state = SEQ_MODEL_VOICE_ENABLED;
-        } else {
-            voice->velocity = SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY;
-            voice->state = SEQ_MODEL_VOICE_DISABLED;
         }
     }
 
-    step->automation_only = false;
     seq_model_step_recompute_flags(step);
 }
 
@@ -121,9 +112,6 @@ bool seq_model_step_set_voice(seq_model_step_t *step, size_t voice_index, const 
     }
 
     step->voices[voice_index] = *voice;
-    if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
-        step->automation_only = false;
-    }
     seq_model_step_recompute_flags(step);
     return true;
 }
@@ -154,7 +142,6 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
 
     memset(step->plocks, 0, sizeof(step->plocks));
     step->plock_count = 0U;
-    step->automation_only = false;
     seq_model_step_recompute_flags(step);
 }
 
@@ -168,9 +155,6 @@ bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index) {
     }
     memset(&step->plocks[step->plock_count - 1U], 0, sizeof(seq_model_plock_t));
     --step->plock_count;
-    if (step->plock_count == 0U) {
-        step->automation_only = false;
-    }
     seq_model_step_recompute_flags(step);
     return true;
 }
@@ -200,12 +184,12 @@ const seq_model_step_offsets_t *seq_model_step_get_offsets(const seq_model_step_
     return &step->offsets;
 }
 
-bool seq_model_step_has_active_voice(const seq_model_step_t *step) {
+bool seq_model_step_has_playable_voice(const seq_model_step_t *step) {
     if (step == NULL) {
         return false;
     }
 
-    return step->has_active_voice;
+    return step->flags.active;
 }
 
 bool seq_model_step_is_automation_only(const seq_model_step_t *step) {
@@ -213,10 +197,18 @@ bool seq_model_step_is_automation_only(const seq_model_step_t *step) {
         return false;
     }
 
-    return step->automation_only;
+    return step->flags.automation;
 }
 
-void seq_model_step_make_automate(seq_model_step_t *step) {
+bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    return step->plock_count > 0U;
+}
+
+void seq_model_step_make_automation_only(seq_model_step_t *step) {
     size_t i;
 
     if (step == NULL) {
@@ -229,7 +221,30 @@ void seq_model_step_make_automate(seq_model_step_t *step) {
         voice->velocity = 0U;
     }
 
-    step->automation_only = true;
+    seq_model_step_recompute_flags(step);
+}
+
+void seq_model_step_make_neutral(seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+
+    seq_model_step_init(step);
+
+    for (size_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        seq_model_voice_t *voice = &step->voices[i];
+        voice->note = 60U;
+        voice->length = 1U;
+        voice->micro_offset = 0;
+        if (i == 0U) {
+            voice->velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+            voice->state = SEQ_MODEL_VOICE_ENABLED;
+        } else {
+            voice->velocity = SEQ_MODEL_DEFAULT_VELOCITY_SECONDARY;
+            voice->state = SEQ_MODEL_VOICE_DISABLED;
+        }
+    }
+
     seq_model_step_recompute_flags(step);
 }
 
@@ -289,7 +304,7 @@ static void seq_model_pattern_reset_config(seq_model_pattern_config_t *config) {
     config->scale.mode = SEQ_MODEL_SCALE_CHROMATIC;
 }
 
-static void seq_model_step_recompute_flags(seq_model_step_t *step) {
+void seq_model_step_recompute_flags(seq_model_step_t *step) {
     if (step == NULL) {
         return;
     }
@@ -303,8 +318,6 @@ static void seq_model_step_recompute_flags(seq_model_step_t *step) {
         }
     }
 
-    step->has_active_voice = has_voice;
-    if (has_voice) {
-        step->automation_only = false;
-    }
+    step->flags.active = has_voice;
+    step->flags.automation = (!has_voice) && (step->plock_count > 0U);
 }

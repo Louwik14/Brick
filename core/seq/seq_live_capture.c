@@ -190,8 +190,8 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         return true;
     }
 
-    if (!seq_model_step_has_active_voice(step) && (step->plock_count == 0U)) {
-        seq_model_step_init_default(step, plan->note);
+    if (!seq_model_step_has_playable_voice(step) && !seq_model_step_has_any_plock(step)) {
+        seq_model_step_make_neutral(step);
     }
 
     uint8_t slot = _seq_live_capture_pick_voice_slot(step, plan->voice_index, plan->note);

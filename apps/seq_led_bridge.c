@@ -88,6 +88,7 @@ static inline void _clear_step_voices(seq_model_step_t *step) {
         voice.velocity = 0U;
         step->voices[v] = voice;
     }
+    seq_model_step_recompute_flags(step);
 }
 
 static void _hold_reset(void) {
@@ -288,10 +289,41 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
         .internal_param = param
     };
 
-    if (seq_model_step_add_plock(step, &plock)) {
-        return true;
+    return seq_model_step_add_plock(step, &plock);
+}
+
+static bool _ensure_cart_plock_value(seq_model_step_t *step,
+                                     uint16_t parameter_id,
+                                     int32_t value) {
+    if (step == NULL) {
+        return false;
     }
-    return false;
+
+    const int16_t casted = (int16_t)value;
+    for (uint8_t i = 0U; i < step->plock_count; ++i) {
+        seq_model_plock_t *plk = &step->plocks[i];
+        if ((plk->domain == SEQ_MODEL_PLOCK_CART) && (plk->parameter_id == parameter_id)) {
+            if (plk->value != casted) {
+                plk->value = casted;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        return false;
+    }
+
+    seq_model_plock_t plock = {
+        .domain = SEQ_MODEL_PLOCK_CART,
+        .voice_index = 0U,
+        .parameter_id = parameter_id,
+        .value = casted,
+        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
+    };
+
+    return seq_model_step_add_plock(step, &plock);
 }
 
 static void _update_preview_mask(void) {
@@ -322,7 +354,7 @@ static void _rebuild_runtime_from_pattern(void) {
         }
 
         const seq_model_step_t *src = &g.pattern.steps[absolute];
-        const bool has_voice = seq_model_step_has_active_voice(src);
+        const bool has_voice = seq_model_step_has_playable_voice(src);
         const bool automation = seq_model_step_is_automation_only(src);
         const uint8_t track = _first_active_voice(src);
         const bool muted = ui_mute_backend_is_muted(track);
@@ -460,7 +492,10 @@ void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, 
     voice.velocity = velocity;
     voice.state = (velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
     step->voices[voice_idx] = voice;
-    if ((voice.state == SEQ_MODEL_VOICE_ENABLED) && (voice.velocity > 0U)) {
+    seq_model_step_recompute_flags(step);
+    if (seq_model_step_has_playable_voice(step) &&
+        (voice_idx == 0U) &&
+        (voice.state == SEQ_MODEL_VOICE_ENABLED) && (voice.velocity > 0U)) {
         g.last_note = voice.note;
     }
     seq_model_gen_bump(&g.pattern.generation);
@@ -474,7 +509,7 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
     }
 
     if (on) {
-        seq_model_step_make_automate(step);
+        seq_model_step_make_automation_only(step);
         seq_model_gen_bump(&g.pattern.generation);
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
@@ -489,9 +524,9 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         return;
     }
 
-    const bool was_on = seq_model_step_has_active_voice(step) ||
+    const bool was_on = seq_model_step_has_playable_voice(step) ||
                         seq_model_step_is_automation_only(step) ||
-                        (step->plock_count > 0U);
+                        seq_model_step_has_any_plock(step);
     if (was_on) {
         seq_led_bridge_step_clear(i);
     } else {
@@ -518,7 +553,7 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
     }
 
     if (on) {
-        seq_model_step_make_automate(step);
+        seq_model_step_make_automation_only(step);
         seq_model_gen_bump(&g.pattern.generation);
     } else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
@@ -602,41 +637,50 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             continue;
         }
 
+        const bool had_voice = seq_model_step_has_playable_voice(step);
+        const bool had_plock = seq_model_step_has_any_plock(step);
+        if (!had_voice && !had_plock) {
+            seq_model_step_make_automation_only(step);
+        }
+
+        const bool automation = seq_model_step_is_automation_only(step);
+        bool step_mutated = false;
+
         switch (param_id) {
             case SEQ_HOLD_PARAM_ALL_TRANSP: {
                 int32_t v = _clamp_i32(value, -12, 12);
                 if (step->offsets.transpose != v) {
                     step->offsets.transpose = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_VEL: {
                 int32_t v = _clamp_i32(value, -127, 127);
                 if (step->offsets.velocity != v) {
                     step->offsets.velocity = (int16_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_LEN: {
                 int32_t v = _clamp_i32(value, -32, 32);
                 if (step->offsets.length != v) {
                     step->offsets.length = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_MIC: {
                 int32_t v = _clamp_i32(value, -12, 12);
                 if (step->offsets.micro != v) {
                     step->offsets.micro = (int8_t)v;
-                    mutated = true;
+                    step_mutated = true;
                 }
-                mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
                 break;
             }
             default: {
@@ -656,40 +700,43 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                         int32_t v = _clamp_i32(value, 0, 127);
                         if (voice_state.note != (uint8_t)v) {
                             voice_state.note = (uint8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
-                        if ((voice == 0U) && (voice_state.state == SEQ_MODEL_VOICE_ENABLED) && (voice_state.velocity > 0U)) {
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+                        if (!automation && (voice == 0U) &&
+                            (voice_state.state == SEQ_MODEL_VOICE_ENABLED) &&
+                            (voice_state.velocity > 0U)) {
                             g.last_note = voice_state.note;
                         }
                         break;
                     }
                     case 1: { /* Velocity */
                         int32_t v = _clamp_i32(value, 0, 127);
-                        if (voice_state.velocity != (uint8_t)v) {
-                            voice_state.velocity = (uint8_t)v;
-                            mutated = true;
+                        uint8_t applied_velocity = automation ? 0U : (uint8_t)v;
+                        if (voice_state.velocity != applied_velocity) {
+                            voice_state.velocity = applied_velocity;
+                            step_mutated = true;
                         }
                         voice_state.state = (voice_state.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
                         break;
                     }
                     case 2: { /* Length */
                         int32_t v = _clamp_i32(value, 1, 64);
                         if (voice_state.length != (uint8_t)v) {
                             voice_state.length = (uint8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
                         break;
                     }
                     case 3: { /* Micro */
                         int32_t v = _clamp_i32(value, -12, 12);
                         if (voice_state.micro_offset != (int8_t)v) {
                             voice_state.micro_offset = (int8_t)v;
-                            mutated = true;
+                            step_mutated = true;
                         }
-                        mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
                         break;
                     }
                     default:
@@ -698,6 +745,11 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                 step->voices[voice] = voice_state;
                 break;
             }
+        }
+
+        seq_model_step_recompute_flags(step);
+        if (step_mutated) {
+            mutated = true;
         }
     }
 
@@ -719,6 +771,46 @@ void seq_led_bridge_end_plock_preview(void) {
 
 const seq_led_bridge_hold_view_t *seq_led_bridge_get_hold_view(void) {
     return &g.hold;
+}
+
+void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
+                                     int32_t value,
+                                     uint16_t held_mask) {
+    if (g.visible_page >= SEQ_MAX_PAGES) {
+        return;
+    }
+
+    bool mutated = false;
+
+    for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
+        if ((held_mask & (1U << i)) == 0U) {
+            continue;
+        }
+
+        seq_model_step_t *step = _step_from_page(i);
+        if (step == NULL) {
+            continue;
+        }
+
+        const bool had_voice = seq_model_step_has_playable_voice(step);
+        const bool had_plock = seq_model_step_has_any_plock(step);
+        if (!had_voice && !had_plock) {
+            seq_model_step_make_automation_only(step);
+        }
+
+        if (_ensure_cart_plock_value(step, parameter_id, value)) {
+            mutated = true;
+        }
+
+        seq_model_step_recompute_flags(step);
+    }
+
+    if (mutated) {
+        seq_model_gen_bump(&g.pattern.generation);
+    }
+
+    _hold_update(g.page_hold_mask[g.visible_page]);
+    seq_led_bridge_publish();
 }
 
 seq_model_pattern_t *seq_led_bridge_access_pattern(void) {
