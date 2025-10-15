@@ -53,22 +53,6 @@ typedef enum {
   ARP_STRUM_COUNT
 } arp_strum_t;
 
-// --- ARP: Modes de déclenchement ---
-typedef enum {
-  ARP_TRIGGER_HOLD = 0,
-  ARP_TRIGGER_RETRIG,
-  ARP_TRIGGER_FREERUN,
-  ARP_TRIGGER_COUNT
-} arp_trigger_mode_t;
-
-// --- ARP: Cible LFO ---
-typedef enum {
-  ARP_LFO_TARGET_GATE = 0,
-  ARP_LFO_TARGET_VELOCITY,
-  ARP_LFO_TARGET_PITCH,
-  ARP_LFO_TARGET_COUNT
-} arp_lfo_target_t;
-
 // --- ARP: Mode de synchronisation ---
 typedef enum {
   ARP_SYNC_INTERNAL = 0,
@@ -87,20 +71,14 @@ typedef struct {
   uint8_t             gate_percent;      // 10..100
   uint8_t             swing_percent;     // 0..75
   arp_accent_t        accent;
-  uint8_t             velocity_random;   // 0..20 (±)
+  uint8_t             vel_accent;        // --- ARP FIX: intensité accent 0..127 ---
   arp_strum_t         strum_mode;
-  uint8_t             strum_offset_ms;   // 0..30
+  uint8_t             strum_offset_ms;   // --- ARP FIX: 0..60 ms ---
   uint8_t             repeat_count;      // 1..4
-  arp_trigger_mode_t  trigger_mode;
   int8_t              transpose;         // ±12
   uint8_t             spread_percent;    // 0..100
   int8_t              octave_shift;      // ±1
   uint8_t             direction_behavior;// 0..2 (Normal/PingPong/RandomWalk)
-  uint8_t             pattern_select;    // 1..8
-  uint8_t             pattern_morph;     // 0..100
-  arp_lfo_target_t    lfo_target;
-  uint8_t             lfo_depth;         // 0..127 generic depth
-  uint8_t             lfo_rate;          // 0..127 generic rate
   arp_sync_mode_t     sync_mode;
 } arp_config_t;
 
@@ -115,9 +93,14 @@ typedef struct {
   arp_config_t   config;
   arp_callbacks_t callbacks;
 
-  uint8_t        held_notes[32];
-  uint8_t        held_velocities[32];
-  uint8_t        held_count;
+  uint8_t        phys_notes[32];
+  uint8_t        phys_velocities[32];
+  uint8_t        phys_count;
+
+  uint8_t        latched_notes[32];
+  uint8_t        latched_velocities[32];
+  uint8_t        latched_count;
+  bool           latched_active;
 
   uint8_t        pattern_notes[32];
   uint8_t        pattern_velocities[32];
@@ -132,6 +115,7 @@ typedef struct {
   uint8_t        repeat_index;
   uint8_t        direction;        // 0 up,1 down
   bool           running;
+  uint8_t        strum_phase;      // --- ARP FIX: alt/rnd strum mémoire ---
 
   uint8_t        active_notes[64];
   systime_t      active_until[64];
@@ -143,8 +127,6 @@ typedef struct {
   uint8_t        pending_on_count;
 
   uint32_t       random_seed;
-
-  bool           arp_notes_latched;
 } arp_engine_t;
 
 // --- ARP: API principale ---

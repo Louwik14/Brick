@@ -34,26 +34,20 @@ static inline void _sanitise_config(arp_config_t *cfg) {
   if (cfg->gate_percent < 10u) cfg->gate_percent = 10u;
   if (cfg->gate_percent > 100u) cfg->gate_percent = 100u;
   if (cfg->swing_percent > 75u) cfg->swing_percent = 75u;
-  if (cfg->velocity_random > 20u) cfg->velocity_random = 20u;
   if (cfg->repeat_count == 0u) cfg->repeat_count = 1u;
   if (cfg->repeat_count > 4u) cfg->repeat_count = 4u;
+  if (cfg->strum_offset_ms > 60u) cfg->strum_offset_ms = 60u;
+  if (cfg->vel_accent > 127u) cfg->vel_accent = 127u;
   if (cfg->transpose < -12) cfg->transpose = -12;
   if (cfg->transpose > 12) cfg->transpose = 12;
   if (cfg->octave_shift < -1) cfg->octave_shift = -1;
   if (cfg->octave_shift > 1) cfg->octave_shift = 1;
-  if (cfg->pattern_select == 0u) cfg->pattern_select = 1u;
-  if (cfg->pattern_select > 8u) cfg->pattern_select = 8u;
-  if (cfg->pattern_morph > 100u) cfg->pattern_morph = 100u;
   if (cfg->spread_percent > 100u) cfg->spread_percent = 100u;
-  if (cfg->lfo_depth > 127u) cfg->lfo_depth = 127u;
-  if (cfg->lfo_rate > 127u) cfg->lfo_rate = 127u;
+  if (cfg->direction_behavior > 2u) cfg->direction_behavior = (cfg->direction_behavior % 3u);
   if (cfg->rate >= ARP_RATE_COUNT) cfg->rate = ARP_RATE_SIXTEENTH;
   if (cfg->pattern >= ARP_PATTERN_COUNT) cfg->pattern = ARP_PATTERN_UP;
   if (cfg->accent >= ARP_ACCENT_COUNT) cfg->accent = ARP_ACCENT_OFF;
   if (cfg->strum_mode >= ARP_STRUM_COUNT) cfg->strum_mode = ARP_STRUM_OFF;
-  if (cfg->trigger_mode >= ARP_TRIGGER_COUNT) cfg->trigger_mode = ARP_TRIGGER_HOLD;
-  if (cfg->direction_behavior > 2u) cfg->direction_behavior = 0u;
-  if (cfg->lfo_target >= ARP_LFO_TARGET_COUNT) cfg->lfo_target = ARP_LFO_TARGET_GATE;
   if (cfg->sync_mode >= ARP_SYNC_COUNT) cfg->sync_mode = ARP_SYNC_INTERNAL;
 }
 
@@ -83,6 +77,89 @@ static systime_t _compute_period(const arp_config_t *cfg, float bpm) {
   return _seconds_to_ticks(duration);
 }
 
+// --- ARP FIX: helpers pour les groupes Hold / Strum ---
+static void _copy_notes(uint8_t *dst_notes, uint8_t *dst_vel, uint8_t *dst_count,
+                        const uint8_t *src_notes, const uint8_t *src_vel, uint8_t src_count) {
+  if (!dst_count) {
+    return;
+  }
+  if (dst_notes && src_notes) {
+    for (uint8_t i = 0u; i < src_count; ++i) {
+      dst_notes[i] = src_notes[i];
+      if (dst_vel && src_vel) {
+        dst_vel[i] = src_vel[i];
+      } else if (dst_vel) {
+        dst_vel[i] = 0u;
+      }
+    }
+  }
+  *dst_count = src_count;
+}
+
+static void _insert_sorted_unique(uint8_t *notes, uint8_t *vel, uint8_t *count,
+                                  uint8_t capacity, uint8_t note, uint8_t velocity) {
+  if (!notes || !count || *count >= capacity) {
+    return;
+  }
+  uint8_t idx = 0u;
+  while (idx < *count && notes[idx] < note) {
+    ++idx;
+  }
+  if (idx < *count && notes[idx] == note) {
+    if (vel) {
+      vel[idx] = velocity;
+    }
+    return;
+  }
+  for (uint8_t j = *count; j > idx; --j) {
+    notes[j] = notes[j - 1u];
+    if (vel) {
+      vel[j] = vel[j - 1u];
+    }
+  }
+  notes[idx] = note;
+  if (vel) {
+    vel[idx] = velocity;
+  }
+  (*count)++;
+}
+
+static void _remove_note(uint8_t *notes, uint8_t *vel, uint8_t *count, uint8_t note) {
+  if (!notes || !count) {
+    return;
+  }
+  for (uint8_t i = 0u; i < *count; ++i) {
+    if (notes[i] == note) {
+      for (uint8_t j = i; j + 1u < *count; ++j) {
+        notes[j] = notes[j + 1u];
+        if (vel) {
+          vel[j] = vel[j + 1u];
+        }
+      }
+      if (*count > 0u) {
+        (*count)--;
+      }
+      break;
+    }
+  }
+}
+
+static void _activate_from_phys(arp_engine_t *engine) {
+  _copy_notes(engine->pattern_notes, engine->pattern_velocities, &engine->pattern_count,
+              engine->phys_notes, engine->phys_velocities, engine->phys_count);
+  if (engine->config.hold_enabled) {
+    engine->latched_active = (engine->latched_count > 0u);
+  } else {
+    engine->latched_active = false;
+  }
+}
+
+static void _activate_from_latched(arp_engine_t *engine) {
+  _copy_notes(engine->pattern_notes, engine->pattern_velocities, &engine->pattern_count,
+              engine->latched_notes, engine->latched_velocities, engine->latched_count);
+  engine->latched_active = (engine->latched_count > 0u);
+}
+
 static void _recompute_periods(arp_engine_t *engine) {
   if (!engine) return;
   const float bpm = clock_manager_get_bpm();
@@ -109,42 +186,31 @@ static void _reset_runtime(arp_engine_t *engine, systime_t now) {
   engine->repeat_index = 0u;
   engine->direction = 0u;
   engine->next_event = now;
-  engine->arp_notes_latched = (engine->pattern_count > 0u);
-}
-
-static void _latch_notes_from_held(arp_engine_t *engine) {
-  engine->pattern_count = engine->held_count;
-  for (uint8_t i = 0; i < engine->held_count; ++i) {
-    engine->pattern_notes[i] = engine->held_notes[i];
-    engine->pattern_velocities[i] = engine->held_velocities[i];
-  }
-  engine->arp_notes_latched = (engine->pattern_count > 0u);
+  engine->strum_phase = 0u;
+  engine->latched_active = (engine->latched_count > 0u);
 }
 
 static void _try_start(arp_engine_t *engine, systime_t now) {
-  bool should_run = engine->config.enabled;
-  if (!should_run) {
+  if (!engine->config.enabled) {
     engine->running = false;
     return;
   }
 
-  if (engine->config.trigger_mode == ARP_TRIGGER_FREERUN) {
-    if (engine->pattern_count == 0u && engine->held_count > 0u) {
-      _latch_notes_from_held(engine);
-    }
-    should_run = (engine->pattern_count > 0u);
-  } else {
-    if (engine->held_count > 0u) {
-      _latch_notes_from_held(engine);
-      should_run = true;
-    } else if (engine->config.hold_enabled && engine->arp_notes_latched && engine->pattern_count > 0u) {
-      should_run = true; // --- ARP FIX: Hold garde l’arp actif après release ---
-    } else {
-      should_run = false;
+  if (engine->pattern_count == 0u) {
+    if (engine->config.hold_enabled && engine->latched_count > 0u) {
+      _activate_from_latched(engine);
+    } else if (engine->phys_count > 0u) {
+      if (engine->config.hold_enabled) {
+        _copy_notes(engine->latched_notes, engine->latched_velocities, &engine->latched_count,
+                    engine->phys_notes, engine->phys_velocities, engine->phys_count);
+        _activate_from_latched(engine);
+      } else {
+        _activate_from_phys(engine);
+      }
     }
   }
 
-  if (!should_run) {
+  if (engine->pattern_count == 0u) {
     engine->running = false;
     return;
   }
@@ -152,27 +218,6 @@ static void _try_start(arp_engine_t *engine, systime_t now) {
   if (!engine->running) {
     _reset_runtime(engine, now);
     engine->running = true;
-  }
-}
-
-static void _update_running_from_release(arp_engine_t *engine, systime_t now) {
-  if (engine->config.trigger_mode == ARP_TRIGGER_FREERUN) {
-    if (engine->pattern_count == 0u && engine->held_count == 0u) {
-      engine->running = false;
-      engine->arp_notes_latched = false;
-    }
-    return;
-  }
-
-  if (engine->held_count == 0u) {
-    if (engine->config.hold_enabled && engine->pattern_count > 0u) {
-      engine->arp_notes_latched = true; // --- ARP FIX: Hold maintient le dernier pattern ---
-      return;
-    }
-    engine->running = false;
-    engine->arp_notes_latched = false;
-    engine->pattern_count = 0u;
-    engine->next_event = now;
   }
 }
 
@@ -235,54 +280,48 @@ static void _dispatch_note_offs(arp_engine_t *engine, systime_t now) {
   engine->active_count = w;
 }
 
-static uint8_t _accent_velocity(const arp_engine_t *engine, uint8_t base, uint32_t step) {
-  uint8_t vel = base;
+static uint8_t _accent_velocity(arp_engine_t *engine, uint8_t base, uint32_t step) {
+  if (!engine) {
+    return base;
+  }
+  if (engine->config.accent == ARP_ACCENT_OFF || engine->config.vel_accent == 0u) {
+    return base;
+  }
+  int32_t delta = 0;
   switch (engine->config.accent) {
-    case ARP_ACCENT_OFF: break;
     case ARP_ACCENT_FIRST:
       if (step == 0u) {
-        vel = _clamp_u7(base + 20);
+        delta = engine->config.vel_accent;
       }
       break;
     case ARP_ACCENT_ALTERNATE:
-      if ((step & 1u) != 0u) {
-        vel = _clamp_u7(base + 12);
+      if ((step & 1u) == 0u) {
+        delta = engine->config.vel_accent;
       }
       break;
     case ARP_ACCENT_RANDOM:
-      vel = _clamp_u7(base + (int8_t)((int32_t)(_lcg_next((arp_engine_t *)engine) % 41u) - 20));
+      delta = (int32_t)(_lcg_next(engine) % (uint32_t)(engine->config.vel_accent + 1u));
       break;
     default:
       break;
   }
-  if (engine->config.velocity_random > 0u) {
-    int32_t spread = (int32_t)(engine->config.velocity_random);
-    int32_t delta = (int32_t)(_lcg_next((arp_engine_t *)engine) % (uint32_t)(spread * 2 + 1)) - (int32_t)spread;
-    vel = _clamp_u7((int32_t)vel + delta);
-  }
-  return vel;
+  return _clamp_u7((int32_t)base + delta);
 }
 
-static void _apply_lfo(arp_engine_t *engine, uint8_t *note, uint8_t *velocity, systime_t now) {
-  if (engine->config.lfo_depth == 0u) {
-    return;
+static uint8_t _apply_strum_variation(arp_engine_t *engine, uint8_t velocity) {
+  if (!engine || engine->config.strum_mode == ARP_STRUM_OFF) {
+    return velocity;
   }
-  uint32_t phase = (uint32_t)(now / TIME_MS2I(10)) * (uint32_t)(engine->config.lfo_rate + 1u);
-  int32_t modulation = (int32_t)((phase & 0xFFu) - 128);
-  modulation = (modulation * engine->config.lfo_depth) / 128;
-  switch (engine->config.lfo_target) {
-    case ARP_LFO_TARGET_GATE:
-      engine->swing_period = (engine->base_period * engine->config.swing_percent) / 100u;
-      break;
-    case ARP_LFO_TARGET_VELOCITY:
-      *velocity = _clamp_u7((int32_t)(*velocity) + modulation / 4);
-      break;
-    case ARP_LFO_TARGET_PITCH:
-      *note = _clamp_note((int32_t)(*note) + modulation / 8);
-      break;
-    default:
-      break;
+  uint8_t percent = (uint8_t)(5u + (_lcg_next(engine) % 6u)); // 5..10%
+  int32_t delta = ((int32_t)velocity * (int32_t)percent) / 100;
+  if ((_lcg_next(engine) & 1u) != 0u) {
+    return _clamp_u7((int32_t)velocity + delta);
   }
+  int32_t lowered = (int32_t)velocity - delta;
+  if (lowered < 1) {
+    lowered = 1;
+  }
+  return (uint8_t)lowered;
 }
 
 static uint8_t _resolve_direction_index(arp_engine_t *engine, uint8_t count) {
@@ -355,28 +394,10 @@ static uint8_t _build_sequence(const arp_engine_t *engine, uint8_t *notes_out, u
   if (count == 0u) {
     return 0u;
   }
-  for (uint8_t i = 0u; i < count; ++i) {
-    const uint8_t morph_target = (uint8_t)((engine->config.pattern_morph * i) / (count ? count : 1u));
-    notes_out[i] = _clamp_note((int32_t)notes_out[i] + morph_target / 12);
-  }
-  if (engine->config.pattern_select > 1u && count > 1u) {
-    uint8_t rotate = (uint8_t)((engine->config.pattern_select - 1u) % count);
-    while (rotate-- > 0u) {
-      uint8_t first_note = notes_out[0];
-      uint8_t first_vel = vel_out[0];
-      for (uint8_t j = 0u; j + 1u < count; ++j) {
-        notes_out[j] = notes_out[j + 1u];
-        vel_out[j] = vel_out[j + 1u];
-      }
-      notes_out[count - 1u] = first_note;
-      vel_out[count - 1u] = first_vel;
-    }
-  }
   return count;
 }
 
 static void _emit_single_note(arp_engine_t *engine, uint8_t note, uint8_t velocity, systime_t now) {
-  _apply_lfo(engine, &note, &velocity, now);
   const systime_t gate_len = (engine->base_period * engine->config.gate_percent) / 100u;
   systime_t off_time = now + gate_len;
   if (off_time <= now) {
@@ -393,20 +414,66 @@ static void _emit_sequence(arp_engine_t *engine, const uint8_t *sequence, const 
     return;
   }
   if (engine->config.pattern == ARP_PATTERN_CHORD || engine->config.strum_mode != ARP_STRUM_OFF) {
+    uint8_t order[64];
+    for (uint8_t i = 0u; i < count; ++i) {
+      order[i] = i;
+    }
+    switch (engine->config.strum_mode) {
+      case ARP_STRUM_DOWN:
+        for (uint8_t i = 0u; i < count / 2u; ++i) {
+          uint8_t j = (uint8_t)(count - 1u - i);
+          uint8_t tmp = order[i];
+          order[i] = order[j];
+          order[j] = tmp;
+        }
+        break;
+      case ARP_STRUM_ALT: {
+        bool down = (engine->strum_phase & 0x1u) != 0u;
+        engine->strum_phase ^= 0x1u;
+        if (down) {
+          for (uint8_t i = 0u; i < count / 2u; ++i) {
+            uint8_t j = (uint8_t)(count - 1u - i);
+            uint8_t tmp = order[i];
+            order[i] = order[j];
+            order[j] = tmp;
+          }
+        }
+        break;
+      }
+      case ARP_STRUM_RANDOM:
+        for (uint8_t i = count; i > 1u; --i) {
+          uint8_t j = (uint8_t)(_lcg_next(engine) % i);
+          uint8_t tmp = order[i - 1u];
+          order[i - 1u] = order[j];
+          order[j] = tmp;
+        }
+        break;
+      case ARP_STRUM_UP:
+      case ARP_STRUM_OFF:
+      default:
+        break;
+    }
+
     systime_t offset = 0u;
     for (uint8_t i = 0u; i < count; ++i) {
-      uint8_t idx = i;
-      switch (engine->config.strum_mode) {
-        case ARP_STRUM_UP: idx = i; break;
-        case ARP_STRUM_DOWN: idx = (uint8_t)(count - 1u - i); break;
-        case ARP_STRUM_ALT: idx = (i & 1u) ? (uint8_t)(count - 1u - i/2u) : (uint8_t)(i/2u); break;
-        case ARP_STRUM_RANDOM: idx = (uint8_t)(_lcg_next(engine) % count); break;
-        default: idx = i; break;
-      }
+      const uint8_t idx = order[i];
       uint8_t vel = _accent_velocity(engine, velocities[idx], engine->step_index + i);
-      uint8_t note = sequence[idx];
-      _apply_lfo(engine, &note, &vel, now + offset);
-      _queue_note_on(engine, note, vel, now + offset);
+      vel = _apply_strum_variation(engine, vel);
+      systime_t target_time = now + offset;
+      if (engine->config.strum_mode == ARP_STRUM_RANDOM && engine->strum_offset > 0u) {
+        systime_t jitter_max = engine->strum_offset / 3u;
+        if (jitter_max > 0u) {
+          systime_t jitter = (systime_t)(_lcg_next(engine) % (jitter_max + 1u));
+          if ((_lcg_next(engine) & 1u) != 0u) {
+            if (jitter < target_time - now) {
+              target_time -= jitter;
+            }
+          } else {
+            target_time += jitter;
+          }
+        }
+      }
+      _queue_note_on(engine, sequence[idx], vel, target_time);
       if (engine->config.strum_mode != ARP_STRUM_OFF) {
         offset += engine->strum_offset;
       }
@@ -437,20 +504,14 @@ void arp_init(arp_engine_t *engine, const arp_config_t *cfg) {
       .gate_percent = 60u,
       .swing_percent = 0u,
       .accent = ARP_ACCENT_OFF,
-      .velocity_random = 0u,
+      .vel_accent = 64u,
       .strum_mode = ARP_STRUM_OFF,
       .strum_offset_ms = 0u,
       .repeat_count = 1u,
-      .trigger_mode = ARP_TRIGGER_HOLD,
       .transpose = 0,
       .spread_percent = 0u,
       .octave_shift = 0,
       .direction_behavior = 0u,
-      .pattern_select = 1u,
-      .pattern_morph = 0u,
-      .lfo_target = ARP_LFO_TARGET_GATE,
-      .lfo_depth = 0u,
-      .lfo_rate = 0u,
       .sync_mode = ARP_SYNC_INTERNAL
     };
     engine->config = def;
@@ -481,55 +542,44 @@ void arp_note_input(arp_engine_t *engine, uint8_t note, uint8_t velocity, bool p
   if (!engine) return;
   systime_t now = chVTGetSystemTimeX();
   if (pressed) {
-    bool exists = false;
-    uint8_t insert_at = engine->held_count;
-    for (uint8_t i = 0u; i < engine->held_count; ++i) {
-      if (engine->held_notes[i] == note) {
-        engine->held_velocities[i] = velocity;
-        exists = true;
-        break;
+    const bool had_phys = (engine->phys_count > 0u);
+    _insert_sorted_unique(engine->phys_notes, engine->phys_velocities, &engine->phys_count,
+                          ARP_ARRAY_SIZE(engine->phys_notes), note, velocity);
+    if (engine->config.hold_enabled) {
+      // --- ARP FIX: hold group latch (ajout progressif tant que touches physiques actives) ---
+      if (!had_phys) {
+        engine->latched_count = 0u;
       }
-      if (engine->held_notes[i] > note) {
-        insert_at = i;
-        break;
+      if (engine->latched_count == 0u) {
+        _copy_notes(engine->latched_notes, engine->latched_velocities, &engine->latched_count,
+                    engine->phys_notes, engine->phys_velocities, engine->phys_count);
+      } else if (had_phys) {
+        _insert_sorted_unique(engine->latched_notes, engine->latched_velocities, &engine->latched_count,
+                              ARP_ARRAY_SIZE(engine->latched_notes), note, velocity);
       }
-    }
-    if (!exists && engine->held_count < ARP_ARRAY_SIZE(engine->held_notes)) {
-      for (uint8_t j = engine->held_count; j > insert_at; --j) {
-        engine->held_notes[j] = engine->held_notes[j-1u];
-        engine->held_velocities[j] = engine->held_velocities[j-1u];
-      }
-      engine->held_notes[insert_at] = note;
-      engine->held_velocities[insert_at] = velocity;
-      engine->held_count++;
-    }
-    if (engine->config.trigger_mode == ARP_TRIGGER_RETRIG) {
-      engine->running = false;
+      _activate_from_latched(engine);
+    } else {
+      // --- ARP FIX: mode direct (Hold off) → pattern = notes physiques ---
+      _activate_from_phys(engine);
     }
     _try_start(engine, now);
   } else {
-    for (uint8_t i = 0u; i < engine->held_count; ++i) {
-      if (engine->held_notes[i] == note) {
-        for (uint8_t j = i; j + 1u < engine->held_count; ++j) {
-          engine->held_notes[j] = engine->held_notes[j+1u];
-          engine->held_velocities[j] = engine->held_velocities[j+1u];
-        }
-        engine->held_count--;
-        break;
+    _remove_note(engine->phys_notes, engine->phys_velocities, &engine->phys_count, note);
+    if (engine->config.hold_enabled) {
+      if (engine->phys_count == 0u) {
+        engine->latched_active = (engine->latched_count > 0u);
+      }
+    } else {
+      // --- ARP FIX: Hold off → on suit uniquement les notes physiques restantes ---
+      _activate_from_phys(engine);
+      if (engine->phys_count == 0u) {
+        engine->pattern_count = 0u;
+        engine->running = false;
+        engine->next_event = now;
       }
     }
-    if (engine->config.trigger_mode != ARP_TRIGGER_FREERUN) {
-      if (engine->held_count > 0u || !engine->config.hold_enabled) {
-        engine->pattern_count = engine->held_count;
-        for (uint8_t i = 0u; i < engine->pattern_count; ++i) {
-          engine->pattern_notes[i] = engine->held_notes[i];
-          engine->pattern_velocities[i] = engine->held_velocities[i];
-        }
-        engine->arp_notes_latched = (engine->pattern_count > 0u);
-      }
-    }
-    _update_running_from_release(engine, now);
   }
+  _try_start(engine, now);
 }
 
 void arp_tick(arp_engine_t *engine, systime_t now) {
@@ -597,12 +647,21 @@ void arp_set_hold(arp_engine_t *engine, bool enabled) {
   const bool previous = engine->config.hold_enabled;
   engine->config.hold_enabled = enabled ? true : false;
   if (!engine->config.hold_enabled) {
-    if (engine->held_count == 0u) {
+    engine->latched_count = 0u;
+    engine->latched_active = false;
+    if (engine->phys_count == 0u) {
       arp_stop_all(engine); // --- ARP FIX: Hold Off → arrêt immédiat ---
       engine->pattern_count = 0u;
-      engine->arp_notes_latched = false;
+    } else {
+      _activate_from_phys(engine);
     }
-  } else if (!previous && engine->pattern_count > 0u) {
-    engine->arp_notes_latched = true;
+  } else if (!previous) {
+    _copy_notes(engine->latched_notes, engine->latched_velocities, &engine->latched_count,
+                engine->phys_notes, engine->phys_velocities, engine->phys_count);
+    if (engine->latched_count == 0u && engine->pattern_count > 0u) {
+      _copy_notes(engine->latched_notes, engine->latched_velocities, &engine->latched_count,
+                  engine->pattern_notes, engine->pattern_velocities, engine->pattern_count);
+    }
+    engine->latched_active = (engine->latched_count > 0u);
   }
 }

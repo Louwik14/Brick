@@ -174,20 +174,14 @@ static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI 
   cfg.gate_percent = _shadow_arp_u8(KBD_ARP_LOCAL_GATE);
   cfg.swing_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SWING);
   cfg.accent = (arp_accent_t)(_shadow_arp_u8(KBD_ARP_LOCAL_ACCENT) % ARP_ACCENT_COUNT);
-  cfg.velocity_random = _shadow_arp_u8(KBD_ARP_LOCAL_VEL_RAND);
+  cfg.vel_accent = _shadow_arp_u8(KBD_ARP_LOCAL_VEL_ACC);
   cfg.strum_mode = (arp_strum_t)(_shadow_arp_u8(KBD_ARP_LOCAL_STRUM_MODE) % ARP_STRUM_COUNT);
   cfg.strum_offset_ms = _shadow_arp_u8(KBD_ARP_LOCAL_STRUM_OFFSET);
   cfg.repeat_count = _shadow_arp_u8(KBD_ARP_LOCAL_REPEAT);
-  cfg.trigger_mode = (arp_trigger_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_TRIGGER) % ARP_TRIGGER_COUNT);
   cfg.transpose = _shadow_arp_i8(KBD_ARP_LOCAL_TRANSPOSE);
   cfg.spread_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SPREAD);
   cfg.octave_shift = _shadow_arp_i8(KBD_ARP_LOCAL_OCT_SHIFT);
   cfg.direction_behavior = _shadow_arp_u8(KBD_ARP_LOCAL_DIRECTION_BEHAV);
-  cfg.pattern_select = _shadow_arp_u8(KBD_ARP_LOCAL_PATTERN_SELECT);
-  cfg.pattern_morph = _shadow_arp_u8(KBD_ARP_LOCAL_PATTERN_MORPH);
-  cfg.lfo_target = (arp_lfo_target_t)(_shadow_arp_u8(KBD_ARP_LOCAL_LFO_TARGET) % ARP_LFO_TARGET_COUNT);
-  cfg.lfo_depth = _shadow_arp_u8(KBD_ARP_LOCAL_LFO_DEPTH);
-  cfg.lfo_rate = _shadow_arp_u8(KBD_ARP_LOCAL_LFO_RATE);
   cfg.sync_mode = (arp_sync_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_SYNC_MODE) % ARP_SYNC_COUNT);
 
   const bool was_enabled = s_arp_config.enabled;
