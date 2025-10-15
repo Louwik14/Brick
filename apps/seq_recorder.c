@@ -95,10 +95,6 @@ void seq_recorder_handle_note_on_at(uint8_t note, uint8_t velocity, systime_t ti
         return;
     }
 
-    if (plan.velocity == 0U) {
-        return;
-    }
-
     if (seq_live_capture_commit_plan(&s_capture, &plan)) {
         const uint8_t slot = input.voice_index % SEQ_MODEL_VOICES_PER_STEP;
         s_active_voices[slot].active = true;

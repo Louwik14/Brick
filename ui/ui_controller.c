@@ -380,7 +380,29 @@ static void _rehydrate_ui_shadow(ui_state_t *state) {
                     continue;
                 }
 
-                const uint8_t raw = ui_backend_shadow_get(ps->dest_id);
+                uint8_t raw = 0u;
+                const bool has_shadow = ui_backend_shadow_try_get(ps->dest_id, &raw);
+                if (!has_shadow) {
+                    uint8_t encoded = (uint8_t)ps->default_value;
+                    switch (ps->kind) {
+                        case UI_PARAM_BOOL:
+                            if (ps->is_bitwise && ps->bit_mask != 0u) {
+                                encoded = ps->default_value ? ps->bit_mask : 0u;
+                            }
+                            break;
+                        case UI_PARAM_ENUM:
+                            encoded = (uint8_t)ps->default_value;
+                            break;
+                        case UI_PARAM_CONT:
+                            encoded = ui_encode_cont_wire(ps, ps->default_value);
+                            break;
+                        default:
+                            encoded = (uint8_t)ps->default_value;
+                            break;
+                    }
+                    ui_backend_shadow_set(ps->dest_id, encoded); // --- FIX: précharger les valeurs par défaut visibles ---
+                    raw = encoded;
+                }
                 ui_param_state_t *pv = &state->vals.menus[m].pages[p].params[i];
 
                 switch (ps->kind) {

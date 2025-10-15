@@ -49,8 +49,8 @@ static const ui_page_spec_t s_page_strum = {
       .default_value=0, .meta.en={ .labels=s_strum_labels, .count=5 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Offset", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_STRUM_OFFSET),
       .default_value=0, .meta.range={ .min=0, .max=60, .step=1 }, .is_bitwise=false, .bit_mask=0 },
-    { .label="Repeat", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_REPEAT),
-      .default_value=1, .meta.range={ .min=1, .max=4, .step=1 }, .is_bitwise=false, .bit_mask=0 },
+    { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0,
+      .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 }, // --- ARP FIX: slot libere apres retrait Repeat
     { .label="Trans", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_TRANSPOSE),
       .default_value=0, .meta.range={ .min=-12, .max=12, .step=1 }, .is_bitwise=false, .bit_mask=0 } // --- ARP FIX: transpose par demi-ton ---
   },

@@ -73,7 +73,7 @@ static const ui_page_spec_t seq_page_voix1 = {
         { .label="Note", .kind=UI_PARAM_ENUM, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_NOTE),
           .default_value=60, .meta.en={midi_note_labels,128}, .is_bitwise=false },
         { .label="Vel",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_VEL),
-          .default_value=100, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false },
+          .default_value=0, .meta.range={.min=0,.max=127,.step=1}, .is_bitwise=false }, // --- FIX: valeur neutre par défaut ---
         { .label="Len",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_LEN),
           .default_value=1, .meta.range={.min=1,.max=64,.step=1}, .is_bitwise=false },
         { .label="Mic",  .kind=UI_PARAM_CONT, .dest_id=SEQ_UI(SEQ_UI_LOCAL_V1_MIC),

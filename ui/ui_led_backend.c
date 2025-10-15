@@ -143,8 +143,12 @@ static inline void _render_mute_mode(void) {
         }
         const bool muted   = s_track_muted[t];
         const bool preview = s_track_pmutes[t];
+        bool future_muted  = muted;
+        if (preview) {
+            future_muted = !future_muted; // --- FIX: refléter l'état cible PMUTE immédiatement ---
+        }
 
-        if (muted || preview) {
+        if (future_muted) {
             _set_led(led_idx, UI_LED_COL_MUTE_RED, LED_MODE_ON);
             continue;
         }

@@ -703,6 +703,29 @@ uint8_t ui_backend_shadow_get(uint16_t id) {
     return cart_link_shadow_get(cid, id);
 }
 
+bool ui_backend_shadow_try_get(uint16_t id, uint8_t *out_val) {
+    const uint16_t dest = (id & UI_DEST_MASK);
+    if (dest == UI_DEST_UI) {
+        int idx = _ui_shadow_find(id);
+        if (idx < 0) {
+            if (out_val) {
+                *out_val = 0u;
+            }
+            return false; // --- FIX: shadow jamais initialisé pour ce paramètre UI ---
+        }
+        if (out_val) {
+            *out_val = s_ui_shadow[(uint8_t)idx].val;
+        }
+        return true;
+    }
+    cart_id_t cid = cart_registry_get_active_id();
+    uint8_t val = cart_link_shadow_get(cid, id);
+    if (out_val) {
+        *out_val = val;
+    }
+    return true;
+}
+
 void ui_backend_shadow_set(uint16_t id, uint8_t val) {
     const uint16_t dest = (id & UI_DEST_MASK);
     if (dest == UI_DEST_UI) {

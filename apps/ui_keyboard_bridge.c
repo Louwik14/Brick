@@ -160,8 +160,28 @@ static inline uint8_t _shadow_arp_u8(uint16_t local_id) {
   return ui_backend_shadow_get(KBD_ARP_UI_ID(local_id));
 }
 
-static inline int8_t _shadow_arp_i8(uint16_t local_id) {
-  return (int8_t)ui_backend_shadow_get(KBD_ARP_UI_ID(local_id));
+static int8_t _shadow_arp_decode_range(uint16_t local_id, int min, int max) {
+  const uint8_t raw = ui_backend_shadow_get(KBD_ARP_UI_ID(local_id));
+  const int span = max - min;
+  if (span <= 0) {
+    return (int8_t)min;
+  }
+  int value = (int)raw;
+  if (min >= 0 && max <= 255) {
+    if (value < min) value = min;
+    if (value > max) value = max;
+    return (int8_t)value;
+  }
+  if (span == 255) {
+    value = min + value;
+    if (value < min) value = min;
+    if (value > max) value = max;
+    return (int8_t)value;
+  }
+  value = min + ((value * span + 127) / 255);
+  if (value < min) value = min;
+  if (value > max) value = max;
+  return (int8_t)value; // --- ARP FIX: décodage continu depuis le shadow ---
 }
 
 static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI ---
@@ -177,8 +197,7 @@ static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI 
   cfg.vel_accent = _shadow_arp_u8(KBD_ARP_LOCAL_VEL_ACC);
   cfg.strum_mode = (arp_strum_t)(_shadow_arp_u8(KBD_ARP_LOCAL_STRUM_MODE) % ARP_STRUM_COUNT);
   cfg.strum_offset_ms = _shadow_arp_u8(KBD_ARP_LOCAL_STRUM_OFFSET);
-  cfg.repeat_count = _shadow_arp_u8(KBD_ARP_LOCAL_REPEAT);
-  cfg.transpose = _shadow_arp_i8(KBD_ARP_LOCAL_TRANSPOSE);
+  cfg.transpose = _shadow_arp_decode_range(KBD_ARP_LOCAL_TRANSPOSE, -12, 12);
   cfg.spread_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SPREAD);
   cfg.direction_behavior = _shadow_arp_u8(KBD_ARP_LOCAL_DIRECTION_BEHAV);
   cfg.sync_mode = (arp_sync_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_SYNC_MODE) % ARP_SYNC_COUNT);

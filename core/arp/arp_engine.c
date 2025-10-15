@@ -34,8 +34,6 @@ static inline void _sanitise_config(arp_config_t *cfg) {
   if (cfg->gate_percent < 10u) cfg->gate_percent = 10u;
   if (cfg->gate_percent > 100u) cfg->gate_percent = 100u;
   if (cfg->swing_percent > 75u) cfg->swing_percent = 75u;
-  if (cfg->repeat_count == 0u) cfg->repeat_count = 1u;
-  if (cfg->repeat_count > 4u) cfg->repeat_count = 4u;
   if (cfg->strum_offset_ms > 60u) cfg->strum_offset_ms = 60u;
   if (cfg->vel_accent > 127u) cfg->vel_accent = 127u;
   if (cfg->transpose < -12) cfg->transpose = -12;
@@ -166,7 +164,16 @@ static void _recompute_periods(arp_engine_t *engine) {
     engine->base_period = TIME_MS2I(1);
   }
   engine->swing_period = (engine->base_period * engine->config.swing_percent) / 100u;
-  engine->strum_offset = TIME_MS2I(engine->config.strum_offset_ms);
+  systime_t base_offset = TIME_MS2I(engine->config.strum_offset_ms);
+  if (base_offset > 0u) {
+    systime_t boosted = base_offset * 2u; // --- ARP FIX: impact strum plus prononcé ---
+    if (boosted < base_offset) {
+      boosted = base_offset;
+    }
+    engine->strum_offset = boosted;
+  } else {
+    engine->strum_offset = 0u;
+  }
 }
 
 static void _clear_active_notes(arp_engine_t *engine) {
@@ -181,7 +188,6 @@ static void _clear_active_notes(arp_engine_t *engine) {
 
 static void _reset_runtime(arp_engine_t *engine, systime_t now) {
   engine->step_index = 0u;
-  engine->repeat_index = 0u;
   engine->direction = 0u;
   engine->next_event = now;
   engine->strum_phase = 0u;
@@ -357,17 +363,13 @@ static uint8_t _resolve_direction_index(arp_engine_t *engine, uint8_t count) {
 }
 
 static void _advance_step(arp_engine_t *engine, uint8_t sequence_len) {
-  engine->repeat_index++;
-  if (engine->repeat_index >= engine->config.repeat_count) {
-    engine->repeat_index = 0u;
-    engine->step_index++;
-    if (engine->config.direction_behavior == 1u && sequence_len > 1u) {
-      if (engine->step_index % (sequence_len * 2u) == 0u) {
-        engine->direction ^= 1u;
-      }
-    } else if (engine->config.direction_behavior == 2u && sequence_len > 0u) {
-      engine->direction = (uint8_t)(_lcg_next(engine) & 0x1u);
+  engine->step_index++;
+  if (engine->config.direction_behavior == 1u && sequence_len > 1u) {
+    if ((engine->step_index % (sequence_len * 2u)) == 0u) {
+      engine->direction ^= 1u; // --- ARP FIX: ping-pong sans répétitions fantômes ---
     }
+  } else if (engine->config.direction_behavior == 2u && sequence_len > 0u) {
+    engine->direction = (uint8_t)(_lcg_next(engine) & 0x1u);
   }
 }
 
@@ -505,7 +507,6 @@ void arp_init(arp_engine_t *engine, const arp_config_t *cfg) {
       .vel_accent = 64u,
       .strum_mode = ARP_STRUM_OFF,
       .strum_offset_ms = 0u,
-      .repeat_count = 1u,
       .transpose = 0,
       .spread_percent = 0u,
       .direction_behavior = 0u,

@@ -74,7 +74,6 @@ typedef struct {
   uint8_t             vel_accent;        // --- ARP FIX: intensité accent 0..127 ---
   arp_strum_t         strum_mode;
   uint8_t             strum_offset_ms;   // --- ARP FIX: 0..60 ms ---
-  uint8_t             repeat_count;      // 1..4
   int8_t              transpose;         // ±12
   uint8_t             spread_percent;    // 0..100
   uint8_t             direction_behavior;// 0..2 (Normal/PingPong/RandomWalk)
@@ -111,7 +110,6 @@ typedef struct {
   systime_t      strum_offset;
 
   uint32_t       step_index;
-  uint8_t        repeat_index;
   uint8_t        direction;        // 0 up,1 down
   bool           running;
   uint8_t        strum_phase;      // --- ARP FIX: alt/rnd strum mémoire ---

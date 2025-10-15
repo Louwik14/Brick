@@ -24,12 +24,12 @@ enum {
   KBD_ARP_LOCAL_VEL_ACC,
   KBD_ARP_LOCAL_STRUM_MODE,
   KBD_ARP_LOCAL_STRUM_OFFSET,
-  KBD_ARP_LOCAL_REPEAT,
-  KBD_ARP_LOCAL_TRANSPOSE,
-  KBD_ARP_LOCAL_SPREAD,
+  KBD_ARP_LOCAL_REPEAT_UNUSED = 0x020A, // --- ARP FIX: ID réservé pour l'ancien paramètre Repeat ---
+  KBD_ARP_LOCAL_TRANSPOSE = 0x020B,
+  KBD_ARP_LOCAL_SPREAD = 0x020C,
   /* 0x20D laissé libre pour l'ancien OctSh afin de préserver les états shadow. */
   KBD_ARP_LOCAL_DIRECTION_BEHAV = 0x020E,
-  KBD_ARP_LOCAL_SYNC_MODE
+  KBD_ARP_LOCAL_SYNC_MODE = 0x020F
 };
 
 #define KBD_ARP_UI_ID(local) (uint16_t)(UI_DEST_UI | ((uint16_t)(local) & 0x1FFFu))

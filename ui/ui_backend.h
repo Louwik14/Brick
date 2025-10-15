@@ -179,6 +179,7 @@ void ui_backend_param_changed(uint16_t id, uint8_t val, bool bitwise, uint8_t ma
  * synchronisé avec la dernière valeur envoyée.
  */
 uint8_t ui_backend_shadow_get(uint16_t id);
+bool ui_backend_shadow_try_get(uint16_t id, uint8_t *out_val); // --- FIX: détecter shadow non initialisé ---
 
 /**
  * @brief Écriture dans le **shadow register** local (sans envoi immédiat).
