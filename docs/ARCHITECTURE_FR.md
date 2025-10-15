@@ -68,6 +68,7 @@ Principes structurants :
 * `ui_backend.c` s'appuie sur `ui_model.h` (shadow UI), `ui_led_backend.h` (changement de mode), `seq_led_bridge.h` (hold) et `cart_link.h`.
 * `seq_recorder.c` et `ui_keyboard_bridge.c` partagent `seq_live_capture.h` et les APIs directes de `ui_backend` (`ui_backend_note_on/off`).
 * `clock_manager.c` invoque `midi_clock.h` et `midi.h`; le callback step est enregistré par `ui_task.c`.
+* Les identifiants `UI_DEST_UI` sont désormais **namespacés par mode** (`Keyboard`≈0x8100, `KBD Arp`≈0x8200, `ARP overlay`≈0x8300) afin d'éviter que deux vitrines distinctes ne partagent involontairement le même shadow. // --- FIX: isolation shadow UI ---
 
 ## 4. Flux runtime principal
 

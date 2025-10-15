@@ -24,13 +24,13 @@
  *  Identifiants locaux (dans l’espace UI_DEST_UI)
  * ==========================================================================*/
 enum {
-    KBD_SCALE = 0x0000,   /**< ENUM : Major, Minor, Pent, Dorian, Mixolydian. */
+    KBD_SCALE = 0x0100,   /**< ENUM : Major, Minor, Pent, Dorian, Mixolydian. */ // --- FIX: espace ID dédié Keyboard ---
     KBD_ROOT,             /**< ENUM : C..B. */
     KBD_ARP,              /**< ENUM : Off/On. */
     KBD_OMNICHORD,        /**< ENUM : Off/On (pilote le backend LED Keyboard). */
 
     /* Page 2 */
-    KBD_NOTE_ORDER = 0x0010,     /**< ENUM : Natural / Circle of Fifths. */
+    KBD_NOTE_ORDER = 0x0110,     /**< ENUM : Natural / Circle of Fifths. */ // --- FIX: éviter le recouvrement inter-modes ---
     KBD_CHORD_OVERRIDE           /**< ENUM : Off/On (bypass quantization pour accords Omnichord). */
 };
 

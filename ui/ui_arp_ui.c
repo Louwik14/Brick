@@ -20,12 +20,12 @@
 
 enum {
     /* --- ARP mode --- */
-    ARP_ENABLE = 0x0000,
+    ARP_ENABLE = 0x0300, // --- FIX: espace ID dédié overlay ARP ---
     ARP_RATE,
     ARP_OCTAVE,
 
     /* --- Setup --- */
-    ARP_SETUP_SYNC,
+    ARP_SETUP_SYNC = 0x0310,
     ARP_SETUP_CHANNEL
 };
 

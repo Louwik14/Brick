@@ -128,9 +128,9 @@ static ui_keyboard_note_sink_t g_sink = {
 
 /* IDs locaux tels qu’exposés par la vitrine Keyboard (voir ui_keyboard_ui.c) */
 enum {
-  KBD_UI_LOCAL_SCALE = 0x0000u,
-  KBD_UI_LOCAL_ROOT  = 0x0001u,
-  KBD_UI_LOCAL_ARP   = 0x0002u
+  KBD_UI_LOCAL_SCALE = 0x0100u, // --- FIX: aligner sur l’espace Keyboard isolé ---
+  KBD_UI_LOCAL_ROOT  = 0x0101u,
+  KBD_UI_LOCAL_ARP   = 0x0102u
 };
 /* Omnichord / Note Order / Chord Override sont exposés par ui_keyboard_ui.h :
    - KBD_OMNICHORD_ID
