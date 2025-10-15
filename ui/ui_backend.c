@@ -202,28 +202,6 @@ static bool _resolve_seq_param(uint16_t local_id,
 static void _handle_shortcut_action(const ui_shortcut_action_t *act);
 static void _route_default_event(const ui_input_event_t *evt, bool consumed);
 
-void ui_backend_init_runtime(void) {
-    ui_shortcut_map_init(&s_mode_ctx);
-    s_mode_ctx.custom_mode     = ui_overlay_get_custom_mode();
-    s_mode_ctx.overlay_id      = UI_OVERLAY_NONE;
-    s_mode_ctx.overlay_active  = false;
-    s_mode_ctx.overlay_submode = 0u;
-    s_mode_ctx.keyboard.octave = ui_keyboard_app_get_octave_shift();
-    s_mode_ctx.keyboard.arp_submenu_active = false; // --- ARP: état initial ---
-    s_mode_ctx.transport.playing   = false;
-    s_mode_ctx.transport.recording = false;
-
-    memset(s_ui_shadow, 0, sizeof(s_ui_shadow));           // --- FIX: purge du cache étendu par mode ---
-    s_ui_shadow_count      = 0;                            // --- FIX: reset compteur shadow isolé ---
-    s_ui_shadow_next_evict = 0;                            // --- FIX: reset pointeur round-robin ---
-
-    _set_mode_label("SEQ");
-    _reset_overlay_banner_tags();
-    _update_seq_runtime_from_bridge();
-
-    ui_led_backend_set_mode(UI_LED_MODE_SEQ);
-}
-
 const ui_mode_context_t *ui_backend_get_mode_context(void) {
     return &s_mode_ctx;
 }
@@ -634,6 +612,28 @@ static void _ui_shadow_set(uint16_t id_full, uint8_t v) {
 static uint8_t _ui_shadow_get(uint16_t id_full) {
     int idx = _ui_shadow_find(id_full);
     return (idx >= 0) ? s_ui_shadow[(uint16_t)idx].val : 0u; // --- FIX: accès sécurisé au cache étendu ---
+}
+
+void ui_backend_init_runtime(void) {
+    ui_shortcut_map_init(&s_mode_ctx);
+    s_mode_ctx.custom_mode     = ui_overlay_get_custom_mode();
+    s_mode_ctx.overlay_id      = UI_OVERLAY_NONE;
+    s_mode_ctx.overlay_active  = false;
+    s_mode_ctx.overlay_submode = 0u;
+    s_mode_ctx.keyboard.octave = ui_keyboard_app_get_octave_shift();
+    s_mode_ctx.keyboard.arp_submenu_active = false; // --- ARP: état initial ---
+    s_mode_ctx.transport.playing   = false;
+    s_mode_ctx.transport.recording = false;
+
+    memset(s_ui_shadow, 0, sizeof(s_ui_shadow));           // --- FIX: purge du cache étendu par mode ---
+    s_ui_shadow_count      = 0;                            // --- FIX: reset compteur shadow isolé ---
+    s_ui_shadow_next_evict = 0;                            // --- FIX: reset pointeur round-robin ---
+
+    _set_mode_label("SEQ");
+    _reset_overlay_banner_tags();
+    _update_seq_runtime_from_bridge();
+
+    ui_led_backend_set_mode(UI_LED_MODE_SEQ);
 }
 
 /* -------------------------------------------------------------------------- */

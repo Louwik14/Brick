@@ -147,16 +147,6 @@ static const ui_param_spec_t seq_setup_page_general_params[4] = {
       .meta.en = { .labels = (const char*[]){"Off", "1/8", "1/16", "1/32"}, .count = 4 } }
 };
 
-static const ui_page_spec_t seq_setup_page_general = {
-    .params = {
-        seq_setup_page_general_params[0],
-        seq_setup_page_general_params[1],
-        seq_setup_page_general_params[2],
-        seq_setup_page_general_params[3]
-    },
-    .header_label = "General"
-};
-
 /* Page 2 : MIDI */
 static const ui_param_spec_t seq_setup_page_midi_params[4] = {
     { .label = "Ch1", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CH1),
@@ -169,22 +159,31 @@ static const ui_param_spec_t seq_setup_page_midi_params[4] = {
       .meta.range = { .min = 1, .max = 16, .step = 1 } }
 };
 
-static const ui_page_spec_t seq_setup_page_midi = {
-    .params = {
-        seq_setup_page_midi_params[0],
-        seq_setup_page_midi_params[1],
-        seq_setup_page_midi_params[2],
-        seq_setup_page_midi_params[3]
-    },
-    .header_label = "MIDI"
-};
-
 /* Menu[1] : SETUP */
 static const ui_menu_spec_t seq_setup_menu = {
     .name = "Setup",
     .page_titles = { "General", "MIDI", "-", "-", "-" },
-    .pages = { seq_setup_page_general, seq_setup_page_midi,
-               (ui_page_spec_t){0}, (ui_page_spec_t){0}, (ui_page_spec_t){0} }
+    .pages = {
+        // --- FIX: inlined page specs to satisfy nested brace initialization ---
+        [0] = {
+            .params = {
+                seq_setup_page_general_params[0],
+                seq_setup_page_general_params[1],
+                seq_setup_page_general_params[2],
+                seq_setup_page_general_params[3],
+            },
+            .header_label = "General",
+        },
+        [1] = {
+            .params = {
+                seq_setup_page_midi_params[0],
+                seq_setup_page_midi_params[1],
+                seq_setup_page_midi_params[2],
+                seq_setup_page_midi_params[3],
+            },
+            .header_label = "MIDI",
+        },
+    }
 };
 
 /* ===========================================================================

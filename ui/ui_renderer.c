@@ -250,6 +250,8 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
     /* 2c) La fenêtre de centrage part de la fin du bloc le plus large (cart vs tag) */
     /* --- x_left_end supprimé : la largeur utile est directement calculée si besoin --- */
+    (void)tw_cart; // --- FIX: éviter warning unused quand aucun centrage dynamique n'est appliqué ---
+    (void)tw_tag;  // --- FIX: idem pour le tag overlay ---
 
     /* === Titre du menu : centré entre fin (cart+tag) et zone note (~100 px) === */
     snprintf(buf, sizeof(buf), "%s", menu->name ? menu->name : "");
