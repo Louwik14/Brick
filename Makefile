@@ -147,6 +147,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard apps/*.c) \
        $(wildcard cart/*.c) \
        $(wildcard core/*.c) \
+       $(wildcard core/arp/*.c) \
        $(wildcard core/seq/*.c) \
        
        
@@ -192,7 +193,7 @@ UDEFS =
 UADEFS =
 
 # List all user directories here
-UINCDIR = usb midi drivers ui apps cart cfg core core/spec core/seq
+UINCDIR = usb midi drivers ui apps cart cfg core core/spec core/seq core/arp
 
 # List the user directory to look for the libraries here
 ULIBDIR =
