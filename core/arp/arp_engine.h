@@ -17,7 +17,10 @@ typedef enum {
   ARP_RATE_EIGHTH,
   ARP_RATE_SIXTEENTH,
   ARP_RATE_THIRTY_SECOND,
+  ARP_RATE_QUARTER_TRIPLET,
   ARP_RATE_EIGHTH_TRIPLET,
+  ARP_RATE_SIXTEENTH_TRIPLET,
+  ARP_RATE_THIRTY_SECOND_TRIPLET,
   ARP_RATE_COUNT
 } arp_rate_t;
 
@@ -77,6 +80,7 @@ typedef enum {
 // --- ARP: Configuration complète ---
 typedef struct {
   bool                enabled;
+  bool                hold_enabled;       // --- ARP FIX: Hold (On/Off) ---
   arp_rate_t          rate;
   uint8_t             octave_range;      // 1..4
   arp_pattern_t       pattern;
@@ -102,7 +106,7 @@ typedef struct {
 
 // --- ARP: Callbacks NoteOn/NoteOff ---
 typedef struct {
-  void (*note_on)(uint8_t note, uint8_t velocity);
+  void (*note_on)(uint8_t note, uint8_t velocity, systime_t when); // --- ARP FIX: timestamp pour note on ---
   void (*note_off)(uint8_t note);
 } arp_callbacks_t;
 
@@ -150,6 +154,7 @@ void arp_set_config(arp_engine_t *engine, const arp_config_t *cfg);
 void arp_note_input(arp_engine_t *engine, uint8_t note, uint8_t velocity, bool pressed);
 void arp_tick(arp_engine_t *engine, systime_t now);
 void arp_stop_all(arp_engine_t *engine);
+void arp_set_hold(arp_engine_t *engine, bool enabled); // --- ARP FIX: API dédiée Hold ---
 
 #ifdef __cplusplus
 }

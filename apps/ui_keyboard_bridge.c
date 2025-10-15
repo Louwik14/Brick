@@ -50,24 +50,43 @@ extern void ui_backend_all_notes_off(void);
 
 static arp_engine_t s_arp_engine;                 // --- ARP: instance moteur ---
 static arp_config_t s_arp_config;                 // --- ARP: configuration courante ---
+static systime_t    s_last_group_stamp;           // --- ARP FIX: timestamp commun accords ---
+static systime_t    s_last_group_seen;            // --- ARP FIX: détection burst ---
 
 static inline uint8_t _resolve_velocity(uint8_t vel) {
   return (vel != 0u) ? vel : DEFAULT_VELOCITY;
 }
 
-static void _direct_note_on(uint8_t note, uint8_t vel) {
+static void _direct_note_on_at(uint8_t note, uint8_t vel, systime_t when) { // --- ARP FIX: timestamp groupé ---
   const uint8_t resolved = _resolve_velocity(vel);
-  seq_recorder_handle_note_on(note, resolved);
+  seq_recorder_handle_note_on_at(note, resolved, when);
   ui_backend_note_on(note, resolved);
 }
 
+static systime_t _capture_group_timestamp(void) {
+  const systime_t now = chVTGetSystemTimeX();
+  if (chTimeDiffX(s_last_group_seen, now) <= TIME_MS2I(1)) {
+    s_last_group_seen = now;
+    return s_last_group_stamp;
+  }
+  s_last_group_stamp = now;
+  s_last_group_seen = now;
+  return s_last_group_stamp;
+}
+
+static void _direct_note_on(uint8_t note, uint8_t vel) {
+  const systime_t stamp = _capture_group_timestamp();
+  _direct_note_on_at(note, vel, stamp);
+}
+
 static void _direct_note_off(uint8_t note) {
-  seq_recorder_handle_note_off(note);
+  const systime_t now = chVTGetSystemTimeX();
+  seq_recorder_handle_note_off_at(note, now); // --- ARP FIX: wrapper timestamp ---
   ui_backend_note_off(note);
 }
 
-static void _arp_callback_note_on(uint8_t note, uint8_t vel) { // --- ARP: callback MIDI ---
-  _direct_note_on(note, vel);
+static void _arp_callback_note_on(uint8_t note, uint8_t vel, systime_t when) { // --- ARP: callback MIDI ---
+  _direct_note_on_at(note, vel, when);
 }
 
 static void _arp_callback_note_off(uint8_t note) { // --- ARP: callback OFF ---
@@ -147,7 +166,8 @@ static inline int8_t _shadow_arp_i8(uint16_t local_id) {
 
 static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI ---
   arp_config_t cfg = s_arp_config;
-  cfg.enabled = (_shadow_arp_u8(KBD_ARP_LOCAL_ONOFF) != 0u);
+  cfg.enabled = (_shadow_ui_local(KBD_UI_LOCAL_ARP) != 0u); // --- ARP FIX: toggle global repris de la vitrine Keyboard ---
+  cfg.hold_enabled = (_shadow_arp_u8(KBD_ARP_LOCAL_HOLD) != 0u);
   cfg.rate = (arp_rate_t)(_shadow_arp_u8(KBD_ARP_LOCAL_RATE) % ARP_RATE_COUNT);
   cfg.octave_range = _shadow_arp_u8(KBD_ARP_LOCAL_OCT_RANGE);
   cfg.pattern = (arp_pattern_t)(_shadow_arp_u8(KBD_ARP_LOCAL_PATTERN) % ARP_PATTERN_COUNT);
@@ -171,11 +191,15 @@ static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI 
   cfg.sync_mode = (arp_sync_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_SYNC_MODE) % ARP_SYNC_COUNT);
 
   const bool was_enabled = s_arp_config.enabled;
+  const bool was_hold = s_arp_config.hold_enabled;
   if (memcmp(&cfg, &s_arp_config, sizeof(cfg)) != 0) {
     s_arp_config = cfg;
     arp_set_config(&s_arp_engine, &s_arp_config);
     if (!cfg.enabled && was_enabled) {
       arp_stop_all(&s_arp_engine);
+    }
+    if (cfg.hold_enabled != was_hold) {
+      arp_set_hold(&s_arp_engine, cfg.hold_enabled);
     }
   }
 }
@@ -184,6 +208,8 @@ static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI 
 
 void ui_keyboard_bridge_init(void) {
   /* Init app avec sink direct (chemin court vers midi.c) */
+  s_last_group_stamp = 0; // --- ARP FIX: reset burst timestamp ---
+  s_last_group_seen = 0;
   ui_keyboard_app_init(&g_sink);
 
   memset(&s_arp_config, 0, sizeof(s_arp_config));

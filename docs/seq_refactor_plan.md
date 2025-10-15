@@ -20,7 +20,7 @@ clock_manager → ui_task::_on_clock_step → {seq_led_bridge_tick, seq_recorder
                              ui_led_seq_update_from_app (couleurs vert/bleu)
 ```
 - `ui_backend_param_changed` → détecte hold → `seq_led_bridge_apply_plock_param` / `seq_led_bridge_apply_cart_param`.
-- `ui_keyboard_bridge` → clavier physique → `seq_recorder_handle_note_on/off` + `ui_backend_note_on/off`.
+- `ui_keyboard_bridge` → clavier physique → `seq_recorder_handle_note_on_at/off_at` + `ui_backend_note_on/off`. // --- ARP FIX: timestamps synchronisés ---
 - `seq_live_capture` → convertit timestamps clavier en p-locks SEQ (note, vélocité, longueur, micro).
 
 ## 3. Dette identifiée en avril 2025

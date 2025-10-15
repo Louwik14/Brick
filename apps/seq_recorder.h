@@ -10,6 +10,7 @@
 #include <stdbool.h>
 
 #include "clock_manager.h"
+#include "ch.h" // --- ARP FIX: timestamp explicite ---
 #include "core/seq/seq_model.h"
 
 #ifdef __cplusplus
@@ -21,7 +22,9 @@ void seq_recorder_attach_pattern(seq_model_pattern_t *pattern);
 void seq_recorder_on_clock_step(const clock_step_info_t *info);
 void seq_recorder_set_recording(bool enabled);
 void seq_recorder_handle_note_on(uint8_t note, uint8_t velocity);
+void seq_recorder_handle_note_on_at(uint8_t note, uint8_t velocity, systime_t timestamp); // --- ARP FIX: batch timestamp ---
 void seq_recorder_handle_note_off(uint8_t note);
+void seq_recorder_handle_note_off_at(uint8_t note, systime_t timestamp); // --- ARP FIX: batch timestamp ---
 
 #ifdef __cplusplus
 }

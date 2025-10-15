@@ -11,7 +11,7 @@ Ce mémo compare le flux exercé par `make check-host` et celui exécuté sur la
 - **Host** : les stubs de `tests/seq_hold_runtime_tests.c` capturent les appels à `ui_led_seq_update_from_app()` et vérifient les flags `active` / `automation`. Les mêmes fonctions de `seq_model` sont utilisées, sans garde conditionnelle.
 
 ## 3. Pont clavier et NOTE OFF ciblé
-- **Cible** : `ui_keyboard_bridge.c` enregistre un sink dont `sink_note_off()` appelle `seq_recorder_handle_note_off()` puis `ui_backend_note_off()`. `sink_all_notes_off()` est volontairement vide (pas de MIDI All Notes Off hors STOP).
+- **Cible** : `ui_keyboard_bridge.c` enregistre un sink dont `sink_note_off()` appelle `seq_recorder_handle_note_off_at()` puis `ui_backend_note_off()`. `sink_all_notes_off()` est volontairement vide (pas de MIDI All Notes Off hors STOP). // --- ARP FIX: timestamp chords ---
 - **Host** : `make check-host` compile désormais `apps/seq_recorder.c` et `apps/seq_led_bridge.c`. Les tests traversent `ui_keyboard_app.c` avec un `ui_keyboard_note_sink_t` factice, comptent les `note_off` et confirment que `all_notes_off` reste à zéro. Même implémentation que sur cible.
 
 ## 4. Horloge / capture live

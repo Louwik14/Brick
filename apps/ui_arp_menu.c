@@ -4,8 +4,8 @@
 
 #include <string.h>
 
-static const char* const s_onoff_labels[]       = { "Off", "On" };
-static const char* const s_rate_labels[]        = { "1/4", "1/8", "1/16", "1/32", "Tri" };
+static const char* const s_hold_labels[]        = { "Off", "On" }; // --- ARP FIX: Hold param labels ---
+static const char* const s_rate_labels[]        = { "1/4", "1/8", "1/16", "1/32", "1/4t", "1/8t", "1/16t", "1/32t" }; // --- ARP FIX: valeurs rate complètes ---
 static const char* const s_pattern_labels[]     = { "Up", "Down", "UpDn", "Rnd", "Chord" };
 static const char* const s_accent_labels[]      = { "Off", "1st", "Alt", "Rnd" };
 static const char* const s_strum_labels[]       = { "Off", "Up", "Down", "Alt", "Rnd" };
@@ -17,10 +17,10 @@ static const char* const s_sync_mode_labels[]   = { "Int", "Clock", "Free" };
 // --- ARP: Page 1 Core ---
 static const ui_page_spec_t s_page_core = {
   .params = {
-    { .label="On",    .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_ONOFF),
-      .default_value=0, .meta.en={ .labels=s_onoff_labels, .count=2 }, .is_bitwise=false, .bit_mask=0 },
+    { .label="Hold",  .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_HOLD),
+      .default_value=0, .meta.en={ .labels=s_hold_labels, .count=2 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Rate",  .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_RATE),
-      .default_value=2, .meta.en={ .labels=s_rate_labels, .count=5 }, .is_bitwise=false, .bit_mask=0 },
+      .default_value=2, .meta.en={ .labels=s_rate_labels, .count=8 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Oct",   .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_OCT_RANGE),
       .default_value=1, .meta.range={ .min=1, .max=4, .step=1 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Pattern", .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_PATTERN),

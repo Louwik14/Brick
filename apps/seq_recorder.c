@@ -77,11 +77,16 @@ void seq_recorder_set_recording(bool enabled) {
 }
 
 void seq_recorder_handle_note_on(uint8_t note, uint8_t velocity) {
+    const systime_t now = chVTGetSystemTimeX();
+    seq_recorder_handle_note_on_at(note, velocity, now); // --- ARP FIX: wrapper timestamp ---
+}
+
+void seq_recorder_handle_note_on_at(uint8_t note, uint8_t velocity, systime_t timestamp) {
     seq_live_capture_input_t input;
     seq_live_capture_plan_t plan;
 
     input.type = SEQ_LIVE_CAPTURE_EVENT_NOTE_ON;
-    input.timestamp = chVTGetSystemTimeX();
+    input.timestamp = timestamp;
     input.note = note;
     input.velocity = velocity;
     input.voice_index = _seq_recorder_reserve_slot(note);
@@ -109,11 +114,16 @@ void seq_recorder_handle_note_on(uint8_t note, uint8_t velocity) {
 }
 
 void seq_recorder_handle_note_off(uint8_t note) {
+    const systime_t now = chVTGetSystemTimeX();
+    seq_recorder_handle_note_off_at(note, now); // --- ARP FIX: wrapper timestamp ---
+}
+
+void seq_recorder_handle_note_off_at(uint8_t note, systime_t timestamp) {
     seq_live_capture_input_t input;
     seq_live_capture_plan_t plan;
 
     input.type = SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF;
-    input.timestamp = chVTGetSystemTimeX();
+    input.timestamp = timestamp;
     input.note = note;
     input.velocity = 0U;
 

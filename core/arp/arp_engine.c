@@ -28,6 +28,7 @@ static inline uint8_t _clamp_note(int32_t value) {
 
 static inline void _sanitise_config(arp_config_t *cfg) {
   if (!cfg) return;
+  cfg->hold_enabled = cfg->hold_enabled ? true : false; // --- ARP FIX: normaliser Hold ---
   if (cfg->octave_range == 0u) cfg->octave_range = 1u;
   if (cfg->octave_range > 4u) cfg->octave_range = 4u;
   if (cfg->gate_percent < 10u) cfg->gate_percent = 10u;
@@ -73,7 +74,10 @@ static systime_t _compute_period(const arp_config_t *cfg, float bpm) {
     case ARP_RATE_EIGHTH: duration = quarter * 0.5f; break;
     case ARP_RATE_SIXTEENTH: duration = quarter * 0.25f; break;
     case ARP_RATE_THIRTY_SECOND: duration = quarter * 0.125f; break;
+    case ARP_RATE_QUARTER_TRIPLET: duration = quarter * (2.0f / 3.0f); break; // --- ARP FIX: triplet rates ---
     case ARP_RATE_EIGHTH_TRIPLET: duration = quarter / 3.0f; break;
+    case ARP_RATE_SIXTEENTH_TRIPLET: duration = quarter / 6.0f; break;
+    case ARP_RATE_THIRTY_SECOND_TRIPLET: duration = quarter / 12.0f; break;
     default: duration = quarter * 0.25f; break;
   }
   return _seconds_to_ticks(duration);
@@ -130,9 +134,13 @@ static void _try_start(arp_engine_t *engine, systime_t now) {
     }
     should_run = (engine->pattern_count > 0u);
   } else {
-    should_run = (engine->held_count > 0u);
-    if (should_run) {
+    if (engine->held_count > 0u) {
       _latch_notes_from_held(engine);
+      should_run = true;
+    } else if (engine->config.hold_enabled && engine->arp_notes_latched && engine->pattern_count > 0u) {
+      should_run = true; // --- ARP FIX: Hold garde l’arp actif après release ---
+    } else {
+      should_run = false;
     }
   }
 
@@ -157,6 +165,10 @@ static void _update_running_from_release(arp_engine_t *engine, systime_t now) {
   }
 
   if (engine->held_count == 0u) {
+    if (engine->config.hold_enabled && engine->pattern_count > 0u) {
+      engine->arp_notes_latched = true; // --- ARP FIX: Hold maintient le dernier pattern ---
+      return;
+    }
     engine->running = false;
     engine->arp_notes_latched = false;
     engine->pattern_count = 0u;
@@ -187,13 +199,14 @@ static void _dispatch_pending_note_ons(arp_engine_t *engine, systime_t now) {
   uint8_t w = 0u;
   for (uint8_t i = 0u; i < engine->pending_on_count; ++i) {
     if (engine->pending_on_time[i] <= now) {
+      const systime_t event_time = engine->pending_on_time[i];
       if (engine->callbacks.note_on) {
-        engine->callbacks.note_on(engine->pending_on_notes[i], engine->pending_on_vel[i]);
+        engine->callbacks.note_on(engine->pending_on_notes[i], engine->pending_on_vel[i], event_time);
       }
       const systime_t gate_len = (engine->base_period * engine->config.gate_percent) / 100u;
-      systime_t off_time = now + gate_len;
-      if (off_time <= now) {
-        off_time = now + 1;
+      systime_t off_time = event_time + gate_len;
+      if (off_time <= event_time) {
+        off_time = event_time + 1;
       }
       _schedule_note_off(engine, engine->pending_on_notes[i], off_time);
     } else {
@@ -370,7 +383,7 @@ static void _emit_single_note(arp_engine_t *engine, uint8_t note, uint8_t veloci
     off_time = now + 1;
   }
   if (engine->callbacks.note_on) {
-    engine->callbacks.note_on(note, velocity);
+    engine->callbacks.note_on(note, velocity, now);
   }
   _schedule_note_off(engine, note, off_time);
 }
@@ -417,6 +430,7 @@ void arp_init(arp_engine_t *engine, const arp_config_t *cfg) {
   } else {
     arp_config_t def = {
       .enabled = false,
+      .hold_enabled = false, // --- ARP FIX: Hold par défaut ---
       .rate = ARP_RATE_SIXTEENTH,
       .octave_range = 1u,
       .pattern = ARP_PATTERN_UP,
@@ -505,10 +519,13 @@ void arp_note_input(arp_engine_t *engine, uint8_t note, uint8_t velocity, bool p
       }
     }
     if (engine->config.trigger_mode != ARP_TRIGGER_FREERUN) {
-      engine->pattern_count = engine->held_count;
-      for (uint8_t i = 0u; i < engine->pattern_count; ++i) {
-        engine->pattern_notes[i] = engine->held_notes[i];
-        engine->pattern_velocities[i] = engine->held_velocities[i];
+      if (engine->held_count > 0u || !engine->config.hold_enabled) {
+        engine->pattern_count = engine->held_count;
+        for (uint8_t i = 0u; i < engine->pattern_count; ++i) {
+          engine->pattern_notes[i] = engine->held_notes[i];
+          engine->pattern_velocities[i] = engine->held_velocities[i];
+        }
+        engine->arp_notes_latched = (engine->pattern_count > 0u);
       }
     }
     _update_running_from_release(engine, now);
@@ -573,4 +590,19 @@ void arp_stop_all(arp_engine_t *engine) {
   _clear_active_notes(engine);
   engine->running = false;
   engine->next_event = chVTGetSystemTimeX();
+}
+
+void arp_set_hold(arp_engine_t *engine, bool enabled) {
+  if (!engine) return;
+  const bool previous = engine->config.hold_enabled;
+  engine->config.hold_enabled = enabled ? true : false;
+  if (!engine->config.hold_enabled) {
+    if (engine->held_count == 0u) {
+      arp_stop_all(engine); // --- ARP FIX: Hold Off → arrêt immédiat ---
+      engine->pattern_count = 0u;
+      engine->arp_notes_latched = false;
+    }
+  } else if (!previous && engine->pattern_count > 0u) {
+    engine->arp_notes_latched = true;
+  }
 }

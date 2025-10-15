@@ -14,7 +14,7 @@ extern "C" {
 
 // --- ARP: IDs locaux (espace UI_DEST_UI) ---
 enum {
-  KBD_ARP_LOCAL_ONOFF = 0x0200,
+  KBD_ARP_LOCAL_HOLD = 0x0200, // --- ARP FIX: renommage On/Off → Hold ---
   KBD_ARP_LOCAL_RATE,
   KBD_ARP_LOCAL_OCT_RANGE,
   KBD_ARP_LOCAL_PATTERN,
