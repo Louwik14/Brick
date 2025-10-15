@@ -213,6 +213,10 @@ void ui_backend_init_runtime(void) {
     s_mode_ctx.transport.playing   = false;
     s_mode_ctx.transport.recording = false;
 
+    memset(s_ui_shadow, 0, sizeof(s_ui_shadow));           // --- FIX: purge du cache étendu par mode ---
+    s_ui_shadow_count      = 0;                            // --- FIX: reset compteur shadow isolé ---
+    s_ui_shadow_next_evict = 0;                            // --- FIX: reset pointeur round-robin ---
+
     _set_mode_label("SEQ");
     _reset_overlay_banner_tags();
     _update_seq_runtime_from_bridge();
@@ -594,15 +598,16 @@ static void _route_default_event(const ui_input_event_t *evt, bool consumed) {
 typedef struct { uint16_t id; uint8_t val; } ui_local_kv_t;
 
 #ifndef UI_BACKEND_UI_SHADOW_MAX
-#define UI_BACKEND_UI_SHADOW_MAX  32u
+#define UI_BACKEND_UI_SHADOW_MAX  512u // --- FIX: étendre le cache UI pour isoler les modes custom ---
 #endif
 
 static ui_local_kv_t s_ui_shadow[UI_BACKEND_UI_SHADOW_MAX];
-static uint8_t       s_ui_shadow_count = 0;
+static uint16_t      s_ui_shadow_count = 0;      // --- FIX: suivre la nouvelle capacité étendue ---
+static uint16_t      s_ui_shadow_next_evict = 0; // --- FIX: pointeur de remplacement circulaire ---
 
 /* Cherche l’index d’un id (UI_DEST_UI | local) dans la table ; -1 si absent. */
 static int _ui_shadow_find(uint16_t id_full) {
-    for (uint8_t i = 0; i < s_ui_shadow_count; ++i) {
+    for (uint16_t i = 0; i < s_ui_shadow_count; ++i) {
         if (s_ui_shadow[i].id == id_full) return (int)i;
     }
     return -1;
@@ -611,7 +616,7 @@ static int _ui_shadow_find(uint16_t id_full) {
 static void _ui_shadow_set(uint16_t id_full, uint8_t v) {
     int idx = _ui_shadow_find(id_full);
     if (idx >= 0) {
-        s_ui_shadow[(uint8_t)idx].val = v;
+        s_ui_shadow[(uint16_t)idx].val = v; // --- FIX: gérer >255 entrées sans tronquer l'index ---
         return;
     }
     if (s_ui_shadow_count < UI_BACKEND_UI_SHADOW_MAX) {
@@ -620,14 +625,15 @@ static void _ui_shadow_set(uint16_t id_full, uint8_t v) {
         s_ui_shadow_count++;
         return;
     }
-    /* Table pleine : remplace LRU naïf (slot 0) pour rester O(1) */
-    s_ui_shadow[0].id  = id_full;
-    s_ui_shadow[0].val = v;
+    /* --- FIX: table saturée → rotation pour éviter d'écraser un autre mode --- */
+    s_ui_shadow[s_ui_shadow_next_evict].id  = id_full;
+    s_ui_shadow[s_ui_shadow_next_evict].val = v;
+    s_ui_shadow_next_evict = (uint16_t)((s_ui_shadow_next_evict + 1u) % UI_BACKEND_UI_SHADOW_MAX);
 }
 
 static uint8_t _ui_shadow_get(uint16_t id_full) {
     int idx = _ui_shadow_find(id_full);
-    return (idx >= 0) ? s_ui_shadow[(uint8_t)idx].val : 0u;
+    return (idx >= 0) ? s_ui_shadow[(uint16_t)idx].val : 0u; // --- FIX: accès sécurisé au cache étendu ---
 }
 
 /* -------------------------------------------------------------------------- */
@@ -714,7 +720,7 @@ bool ui_backend_shadow_try_get(uint16_t id, uint8_t *out_val) {
             return false; // --- FIX: shadow jamais initialisé pour ce paramètre UI ---
         }
         if (out_val) {
-            *out_val = s_ui_shadow[(uint8_t)idx].val;
+            *out_val = s_ui_shadow[(uint16_t)idx].val; // --- FIX: lecture safe du cache étendu ---
         }
         return true;
     }
