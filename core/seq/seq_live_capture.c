@@ -256,7 +256,7 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
     seq_model_step_t *step = &capture->pattern->steps[plan->step_index];
 
     if (!seq_model_step_has_playable_voice(step) && !seq_model_step_has_any_plock(step)) {
-        seq_model_step_make_neutral(step);
+        seq_model_step_make_automation_only(step); // --- FIX: éviter le C3 fantôme en gardant les voix désactivées ---
     }
 
     uint8_t slot = _seq_live_capture_pick_voice_slot(step, plan->voice_index, plan->note);

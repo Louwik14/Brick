@@ -77,7 +77,6 @@ typedef struct {
   uint8_t             repeat_count;      // 1..4
   int8_t              transpose;         // ±12
   uint8_t             spread_percent;    // 0..100
-  int8_t              octave_shift;      // ±1
   uint8_t             direction_behavior;// 0..2 (Normal/PingPong/RandomWalk)
   arp_sync_mode_t     sync_mode;
 } arp_config_t;

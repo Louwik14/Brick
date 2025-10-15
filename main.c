@@ -122,12 +122,7 @@ int main(void) {
   ui_task_start();
 
   while (true) {
-    /* Mise à jour du modèle LED logique */
-    ui_led_backend_refresh();
-
-    /* Rendu physique (envoi vers driver WS2812/SK6812) */
-    drv_leds_addr_render();
-
-    chThdSleepMilliseconds(20);  /* cadence ~50 Hz */
+    // --- FIX: le thread UI gère désormais le rafraîchissement LED pour éviter les doubles rendus ---
+    chThdSleepMilliseconds(20);
   }
 }

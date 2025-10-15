@@ -27,8 +27,8 @@ enum {
   KBD_ARP_LOCAL_REPEAT,
   KBD_ARP_LOCAL_TRANSPOSE,
   KBD_ARP_LOCAL_SPREAD,
-  KBD_ARP_LOCAL_OCT_SHIFT,
-  KBD_ARP_LOCAL_DIRECTION_BEHAV,
+  /* 0x20D laissé libre pour l'ancien OctSh afin de préserver les états shadow. */
+  KBD_ARP_LOCAL_DIRECTION_BEHAV = 0x020E,
   KBD_ARP_LOCAL_SYNC_MODE
 };
 

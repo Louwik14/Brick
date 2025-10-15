@@ -180,7 +180,6 @@ static void _sync_arp_config_from_ui(void) { // --- ARP: lecture paramètres UI 
   cfg.repeat_count = _shadow_arp_u8(KBD_ARP_LOCAL_REPEAT);
   cfg.transpose = _shadow_arp_i8(KBD_ARP_LOCAL_TRANSPOSE);
   cfg.spread_percent = _shadow_arp_u8(KBD_ARP_LOCAL_SPREAD);
-  cfg.octave_shift = _shadow_arp_i8(KBD_ARP_LOCAL_OCT_SHIFT);
   cfg.direction_behavior = _shadow_arp_u8(KBD_ARP_LOCAL_DIRECTION_BEHAV);
   cfg.sync_mode = (arp_sync_mode_t)(_shadow_arp_u8(KBD_ARP_LOCAL_SYNC_MODE) % ARP_SYNC_COUNT);
 

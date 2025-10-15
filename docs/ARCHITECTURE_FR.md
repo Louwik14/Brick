@@ -14,7 +14,7 @@ Principes structurants :
 ## 2. Arborescence commentée
 
 ### Racine
-* `main.c` : point d'entrée. Initialise HAL/RTOS, les piles USB/MIDI/clock, les drivers, les cartouches, l'UI, puis boucle en rafraîchissant `ui_led_backend_refresh()`.
+* `main.c` : point d'entrée. Initialise HAL/RTOS, les piles USB/MIDI/clock, les drivers, les cartouches, l'UI, puis boucle en veille pendant que le thread UI rafraîchit les LEDs. // --- FIX: rafraîchissement LEDs centralisé dans le thread UI ---
 * `Makefile` : inclut les règles ChibiOS, définit les cibles embarquées, le lint (`lint-cppcheck`) et les tests host (`check-host`).
 * `README.md`, `SEQ_BEHAVIOR.md` : documentation fonctionnelle historique.
 * `Brick4_labelstab_uistab_phase4.zip`, `drivers/drivers.zip`, `log.txt`, `tableaudebord.txt` : artefacts non utilisés par le build (candidats au nettoyage).
@@ -40,7 +40,7 @@ Principes structurants :
 * `ui_task.c` : thread principal. Initialise `clock_manager`, enregistre `_on_clock_step`, démarre backend/clavier/runner, boucle sur `ui_backend_process_input()` puis `ui_led_backend_refresh()` et `ui_render()`.
 * `ui_backend.c` : coeur de traitement des entrées. Route les encoders/boutons vers cart (`cart_link_param_changed`), UI, ou MIDI. Pendant un hold (`s_mode_ctx.seq.held_mask`), appelle `seq_led_bridge_apply_plock_param` ou `seq_led_bridge_apply_cart_param` pour stocker des p-locks sur les steps maintenus.
 * `ui_controller.c` : état UI (menus/pages), initialisation des cycles BM, activation du mode LED SEQ et appel à `seq_led_bridge_init()`.
-* `ui_led_backend.c` : file d'événements LED (mute, clock, mode). Diffuse sur `drv_leds_addr_render()`.
+* `ui_led_backend.c` : file d'événements LED (mute, clock, mode). Diffuse sur `drv_leds_addr_render()` depuis le thread UI unique. // --- FIX: rendu atomique sans double appel ---
 * `ui_led_seq.c` : renderer SEQ; applique le playhead absolu, distingue active/automation/muted.
 * `ui_renderer.c`, `ui_model.c`, `ui_input.c`, `ui_widgets.c`, `ui_overlay.c`, etc. : pipeline OLED et modèle UI.
 

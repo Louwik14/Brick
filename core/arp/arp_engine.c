@@ -40,8 +40,6 @@ static inline void _sanitise_config(arp_config_t *cfg) {
   if (cfg->vel_accent > 127u) cfg->vel_accent = 127u;
   if (cfg->transpose < -12) cfg->transpose = -12;
   if (cfg->transpose > 12) cfg->transpose = 12;
-  if (cfg->octave_shift < -1) cfg->octave_shift = -1;
-  if (cfg->octave_shift > 1) cfg->octave_shift = 1;
   if (cfg->spread_percent > 100u) cfg->spread_percent = 100u;
   if (cfg->direction_behavior > 2u) cfg->direction_behavior = (cfg->direction_behavior % 3u);
   if (cfg->rate >= ARP_RATE_COUNT) cfg->rate = ARP_RATE_SIXTEENTH;
@@ -379,7 +377,7 @@ static uint8_t _build_sequence(const arp_engine_t *engine, uint8_t *notes_out, u
     return 0u;
   }
   uint8_t count = 0u;
-  const int32_t transpose = (int32_t)engine->config.transpose + (int32_t)(engine->config.octave_shift * 12);
+  const int32_t transpose = (int32_t)engine->config.transpose; // --- ARP FIX: octave shift retiré, transpose en demi-tons ---
   for (uint8_t oct = 0u; oct < engine->config.octave_range; ++oct) {
     for (uint8_t i = 0u; i < base_count; ++i) {
       if (count >= 48u) break;
@@ -510,7 +508,6 @@ void arp_init(arp_engine_t *engine, const arp_config_t *cfg) {
       .repeat_count = 1u,
       .transpose = 0,
       .spread_percent = 0u,
-      .octave_shift = 0,
       .direction_behavior = 0u,
       .sync_mode = ARP_SYNC_INTERNAL
     };

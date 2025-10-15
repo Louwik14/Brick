@@ -205,6 +205,7 @@ void ui_init(const ui_cart_spec_t *spec) {
     }
 
     ui_state_init(&g_ui, spec);
+    _rehydrate_ui_shadow(&g_ui); // --- FIX: restaurer la vitrine custom à la réouverture ---
 
     if (spec != s_last_spec) {
         ui_cycles_load_from_spec(spec);
@@ -231,6 +232,7 @@ void ui_switch_cart(const ui_cart_spec_t *spec) {
     }
 
     ui_state_init(&g_ui, spec);
+    _rehydrate_ui_shadow(&g_ui); // --- FIX: persistance des menus UI_DEST_UI lors des switchs ---
 
     if (spec != s_last_spec) {
         ui_cycles_load_from_spec(spec);
@@ -326,6 +328,83 @@ static inline uint8_t ui_encode_cont_wire(const ui_param_spec_t* ps, int v) {
     int w = (num + span/2) / span;
     if (w < 0) w = 0; else if (w > 255) w = 255;
     return (uint8_t)w;
+}
+
+static inline int _ui_decode_cont_wire(const ui_param_spec_t *ps, uint8_t raw) {
+    const int mn = ps->meta.range.min;
+    const int mx = ps->meta.range.max;
+    const int span = mx - mn;
+    if (span <= 0) {
+        return mn;
+    }
+
+    int value = (int)raw;
+    if (mn >= 0 && mx <= 255) {
+        if (value < mn) value = mn;
+        if (value > mx) value = mx;
+        return value;
+    }
+
+    if (span == 255) {
+        value = mn + value;
+        if (value < mn) value = mn;
+        if (value > mx) value = mx;
+        return value;
+    }
+
+    value = mn + ((value * span + 127) / 255);
+    if (value < mn) value = mn;
+    if (value > mx) value = mx;
+    return value;
+}
+
+static void _rehydrate_ui_shadow(ui_state_t *state) {
+    // --- FIX: restituer les valeurs persistant dans le shadow UI_DEST_UI ---
+    if (!state || !state->spec) {
+        return;
+    }
+
+    for (uint8_t m = 0u; m < UI_MENUS_PER_CART; ++m) {
+        const ui_menu_spec_t *menu = &state->spec->menus[m];
+        for (uint8_t p = 0u; p < UI_PAGES_PER_MENU; ++p) {
+            const ui_page_spec_t *page = &menu->pages[p];
+            for (uint8_t i = 0u; i < UI_PARAMS_PER_PAGE; ++i) {
+                const ui_param_spec_t *ps = &page->params[i];
+                if (!ps->label) {
+                    continue;
+                }
+                if ((ps->dest_id & UI_DEST_MASK) != UI_DEST_UI) {
+                    continue;
+                }
+
+                const uint8_t raw = ui_backend_shadow_get(ps->dest_id);
+                ui_param_state_t *pv = &state->vals.menus[m].pages[p].params[i];
+
+                switch (ps->kind) {
+                    case UI_PARAM_BOOL:
+                        if (ps->is_bitwise) {
+                            pv->value = (int16_t)((raw & ps->bit_mask) ? 1 : 0);
+                        } else {
+                            pv->value = (int16_t)((raw != 0u) ? 1 : 0);
+                        }
+                        break;
+                    case UI_PARAM_ENUM:
+                        if (ps->meta.en.count > 0) {
+                            pv->value = (int16_t)((uint8_t)(raw % ps->meta.en.count));
+                        } else {
+                            pv->value = (int16_t)raw;
+                        }
+                        break;
+                    case UI_PARAM_CONT:
+                        pv->value = (int16_t)_ui_decode_cont_wire(ps, raw);
+                        break;
+                    default:
+                        pv->value = (int16_t)raw;
+                        break;
+                }
+            }
+        }
+    }
 }
 
 /* ============================================================================

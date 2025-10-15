@@ -51,7 +51,8 @@ static const ui_page_spec_t s_page_strum = {
       .default_value=0, .meta.range={ .min=0, .max=60, .step=1 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Repeat", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_REPEAT),
       .default_value=1, .meta.range={ .min=1, .max=4, .step=1 }, .is_bitwise=false, .bit_mask=0 },
-    { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0, .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 }
+    { .label="Trans", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_TRANSPOSE),
+      .default_value=0, .meta.range={ .min=-12, .max=12, .step=1 }, .is_bitwise=false, .bit_mask=0 } // --- ARP FIX: transpose par demi-ton ---
   },
   .header_label = "Strum"
 };
@@ -61,12 +62,11 @@ static const ui_page_spec_t s_page_pitch = {
   .params = {
     { .label="Spread", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_SPREAD),
       .default_value=0, .meta.range={ .min=0, .max=100, .step=5 }, .is_bitwise=false, .bit_mask=0 },
-    { .label="OctSh", .kind=UI_PARAM_CONT, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_OCT_SHIFT),
-      .default_value=0, .meta.range={ .min=-1, .max=1, .step=1 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Dir", .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_DIRECTION_BEHAV),
       .default_value=0, .meta.en={ .labels=s_direction_labels, .count=3 }, .is_bitwise=false, .bit_mask=0 },
     { .label="Sync", .kind=UI_PARAM_ENUM, .dest_id=KBD_ARP_UI_ID(KBD_ARP_LOCAL_SYNC_MODE),
-      .default_value=0, .meta.en={ .labels=s_sync_mode_labels, .count=3 }, .is_bitwise=false, .bit_mask=0 }
+      .default_value=0, .meta.en={ .labels=s_sync_mode_labels, .count=3 }, .is_bitwise=false, .bit_mask=0 },
+    { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0, .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 } // --- ARP FIX: slot libre après retrait OctSh ---
   },
   .header_label = "Pitch"
 };
