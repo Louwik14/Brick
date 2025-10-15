@@ -43,6 +43,9 @@ static const ui_cart_spec_t* s_last_spec = NULL;
 /** Dernier bouton-menu utilisé (pour reprise éventuelle). */
 static int s_current_bm = -1;
 
+// --- FIX: prototype pour restauration des états custom ---
+static void _rehydrate_ui_shadow(ui_state_t *state);
+
 void ui_mark_dirty(void)   { g_ui_dirty = true;  }
 bool ui_is_dirty(void)     { return g_ui_dirty;  }
 void ui_clear_dirty(void)  { g_ui_dirty = false; }

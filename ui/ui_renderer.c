@@ -227,7 +227,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
     /* 2) Bloc gauche : CartName (ligne haute) + Mode custom (ligne basse) en 4x6 non inversé */
     const int x0_left = tw_id + 5;  /* petit espace après le numéro inversé */
-    int x_left_end    = x0_left;    /* fin horizontale du bloc (max des 2 lignes) */
+    // --- FIX: suppression de x_left_end (non utilisé) pour éviter les warnings ---
 
     /* 2a) Nom de cartouche : police 4x6, non inversé, ligne du haut (baseline = 8) */
     int tw_cart = 0;
@@ -249,7 +249,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     }
 
     /* 2c) La fenêtre de centrage part de la fin du bloc le plus large (cart vs tag) */
-    x_left_end = x0_left + (tw_cart > tw_tag ? tw_cart : tw_tag);
+    /* --- x_left_end supprimé : la largeur utile est directement calculée si besoin --- */
 
     /* === Titre du menu : centré entre fin (cart+tag) et zone note (~100 px) === */
     snprintf(buf, sizeof(buf), "%s", menu->name ? menu->name : "");
