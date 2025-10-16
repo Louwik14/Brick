@@ -1,116 +1,49 @@
 # ===========================================================================
-# agent.txt — Codex Context Definition (Safe Version for Brick Sequencer)
+# agent.txt — Contexte neutre pour Brick (priorité aux prompts)
 # ===========================================================================
 
-## 🎯 Objectif
-Ce fichier décrit uniquement les principes généraux du projet “Brick”.
-Il **ne doit pas** primer sur les instructions données dans les prompts.
-Codex doit se conformer à la logique décrite dans les prompts récents,
-et ne pas réimposer de comportements par défaut contraires à ces instructions.
+## 🔑 Priorité & portée
+- **Les prompts récents sont la source de vérité absolue.** Ce fichier ne fait que
+  donner un contexte minimal et **ne doit jamais contredire** une instruction du prompt.
+- **Respecter strictement la portée demandée par le prompt.** S’il demande “Étape X”,
+  **n’implémente que l’Étape X** (pas d’étapes suivantes, pas d’initiatives hors périmètre).
 
----
+## 🧭 Cible matérielle (détection)
+- La cible MCU (STM32F429, STM32F767, etc.) **doit être déduite du dépôt**:
+  - scripts/Makefile, linker, headers `STM32F4xx`/`STM32F7xx`,
+  - répertoire `board/` du projet.
+- **Ne fige pas** la cible dans ce fichier. Si le repo indique F7, on traite F7; sinon F4.
+- Le board utilisé est **celui du projet** (ex. `./board/board.mk`), pas un board générique
+  de ChibiOS, sauf instruction contraire.
 
-## ⚙️ 1. Architecture générale
+## ⚙️ Architecture fonctionnelle (rappel non prescriptif)
+- Organisation: Model / Engine / UI / Cart / MIDI, ChibiOS 21.11.x.
+- Sequencer event-driven (tick tempo → engine + LED bridge).
+- **Aucune opération lourde en ISR**; moteurs coopératifs (UI/transport/recorder).
 
-- Système embarqué STM32F429 sous ChibiOS 21.11.x.
-- Organisation stricte Model / Engine / Runner / UI / Cart / MIDI.
-- Le séquenceur est event-driven : chaque tick clock appelle le moteur via SEQ_ENGINE_EVENT_CLOCK_STEP.
-- L’UI et le LED bridge sont synchronisés via les callbacks du runner.
+## 🎼 Règles musicales invariables
+- **Ne jamais envoyer “All Notes Off”** hors cas explicitement demandés (ex. STOP/panic).
+- Les p-locks **SEQ** (note/vel/len/microtiming) sont “musicaux” et ne transforment pas
+  un step en automation; les p-locks **CART** définissent l’automation.
+- L’UI reflète le modèle (classification & couleurs), ne force pas d’état.
 
----
+## 💾 Mémoire (guides, sans imposer d’actions)
+- Respecter les instructions du prompt pour la RAM (ex. Étape 2 “CCM/const/DMA”).
+- **DMA vs RAM** :
+  - F4: **CCMRAM** (64 KB) non DMA; SRAM principale DMA-safe.
+  - F7: **DTCM** non DMA; **AXI SRAM** DMA-safe; SRAM1/2 DMA-safe.
+- Si le prompt demande migration mémoire: **ne déplacer en CCM/DTCM que ce qui n’est pas
+  lu/écrit par DMA/USB**; garder les buffers DMA en SRAM DMA-safe.
+- En cas de doute, **ne pas migrer** et documenter (le prompt prime).
 
-## ⏱️ 2. Transport et Clock
+## 🧪 Discipline d’exécution
+- Si le prompt demande des **patchs concrets**: produire des diffs/patchs, pas du conseil.
+- Si le prompt exige un **rapport ou mesures**: compiler et inclure `size`, extraits `.map`,
+  AVANT/APRÈS, uniquement dans le cadre de l’étape demandée.
+- **Ne change pas d’API publique** sauf instruction explicite.
 
-- Le transport génère des ticks à fréquence fixe (clock tempo).
-- Chaque tick déclenche :
-  - un `SEQ_ENGINE_EVENT_CLOCK_STEP` vers le moteur,
-  - un `seq_led_bridge_tick()` vers l’UI,
-  - et un message MIDI clock (F8).
-- Les fonctions d’arrêt (`STOP`, `panic`) peuvent envoyer un *All Notes Off* global,
-  **mais uniquement dans ces cas explicites.**
-- En conditions normales : **aucun All Notes Off automatique** ne doit être émis.
-- Le moteur doit continuer à émettre clock + playback tant que le transport est actif.
-
----
-
-## 🎹 3. Enregistrement live
-
-- Le live recorder capture les événements note-on/note-off clavier.
-- À chaque paire press/release, il enregistre :
-  - note,
-  - vélocité,
-  - longueur (durée),
-  - micro-timing (offset).
-- Ces quatre valeurs deviennent des **p-locks SEQ** du step correspondant.
-- Aucune modification d’état global (vel globale, note par défaut) ne doit être appliquée.
-- Le recorder ne doit jamais bloquer la clock ni suspendre le scheduler.
-
----
-
-## 🔄 4. Gestion des p-locks
-
-- Deux familles :
-  - **SEQ** : note, vélocité, longueur, micro-timing.
-  - **CART** : paramètres d’effet, modulation, etc.
-- Les p-locks SEQ sont considérés “musical” ; ils **ne convertissent jamais** le step en automation.
-- Les p-locks CART seuls définissent une automation.
-- Les p-locks SEQ et CART peuvent coexister sur le même step.
-
----
-
-## 💡 5. Classification de steps et LEDs
-
-| Type de step | Couleur | Détails |
-|---------------|----------|---------|
-| Quick Step (tap court, pas de p-lock) | 🟩 Vert | Note simple, vel normale |
-| SEQ-lock Step (≥1 p-lock SEQ) | 🟩 Vert | Musical, aucune réinitialisation par défaut |
-| Automate Step (p-locks CART uniquement) | 🟦 Bleu | Automation pure, vel 1 = 0 |
-
-- La couleur se décide **à la release** selon le contenu réel du step.
-- Aucun “état par défaut” ne doit être réappliqué pour les steps verts.
-- Une vélocité 0 ne change pas la classification (reste vert si SEQ).
-
----
-
-## 🎛️ 6. LED Bridge et UI
-
-- Le LED bridge lit la classification du modèle via `step_info` ou équivalent.
-- L’UI affiche :
-  - titre inversé pour indiquer un hold actif,
-  - LEDs vertes ou bleues selon le type de step.
-- L’UI ne doit pas forcer de couleur ou d’état : elle reflète uniquement le modèle.
-
----
-
-## 🧠 7. Comportement global
-
-- Le moteur doit rester **non-bloquant** : aucune opération lourde en ISR.
-- Les ticks clock, LED updates et p-locks apply/restore se déclenchent à fréquence régulière.
-- Les routines de recorder, runner et transport sont **coopératives**, jamais concurrentes.
-
----
-
-## 🚫 8. Règles à ne pas imposer à Codex
-
-- Ne jamais forcer de :
-  - “All Notes Off” global hors STOP,
-  - “états par défaut” sur steps verts,
-  - re-classifications automatiques ignorantes des p-locks,
-  - suppression du clock scheduler,
-  - override de prompt.
-- Les comportements détaillés dans les prompts **priment** sur cette description.
-
----
-
-## ✅ 9. Résumé d’intention
-
-Codex doit :
-- respecter les prompts récents comme source prioritaire de vérité,  
-- garantir que le transport, la clock et les ticks fonctionnent toujours,  
-- maintenir la cohérence visuelle (LED/UI) avec le modèle,  
-- ne jamais interrompre la musique sans commande explicite.
-
----
-
-# Fin du fichier agent.txt (version neutre)
-# ===========================================================================
+## ✅ Résumé d’intention
+- Suivre **strictement** le dernier prompt (étape, fichiers, limites).
+- Utiliser **le board du projet** et la cible MCU déduite du repo.
+- Appliquer les **caveats DMA** lors des migrations mémoire.
+- Conserver la **stabilité musicale** (pas d’arrêt ni reset implicite).
