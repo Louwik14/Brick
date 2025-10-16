@@ -115,8 +115,12 @@ include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.m
 # HAL-OSAL files (optional).
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
-# 🔥 Ici on utilise ta board custom
-include $(CHIBIOS)/os/hal/boards/Brick/board.mk
+
+# --- Board: utiliser le dossier local du projet ---
+PROJECT_DIR := .
+BOARD_PATH  := $(PROJECT_DIR)/board
+include $(BOARD_PATH)/board.mk
+
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 # RTOS files (optional).
 include $(CHIBIOS)/os/rt/rt.mk
