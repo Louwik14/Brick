@@ -1,7 +1,3 @@
-# ===========================================================================
-# agent.txt — Contexte neutre pour Brick (priorité aux prompts)
-# ===========================================================================
-
 ## 🔑 Priorité & portée
 - **Les prompts récents sont la source de vérité absolue.** Ce fichier ne fait que
   donner un contexte minimal et **ne doit jamais contredire** une instruction du prompt.
