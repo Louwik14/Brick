@@ -14,6 +14,10 @@
 #ifndef BRICK_CONFIG_H
 #define BRICK_CONFIG_H
 
+#ifndef CCM_DATA
+#define CCM_DATA __attribute__((section(".ccmram")))
+#endif
+
 /* =======================================================================
  *  Informations générales
  * ======================================================================= */

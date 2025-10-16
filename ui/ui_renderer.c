@@ -30,6 +30,7 @@
 #include "ui_widgets.h"   /* widgets modulaires (switch, icônes via label, knob) */
 #include "ui_types.h"     /* ui_param_kind_t, ui_widget_type_t */
 #include "ui_backend.h"   /* ui_backend_get_mode_label() */
+#include "ui_overlay.h"
 #include "seq_led_bridge.h"
 
 #include <stdio.h>
@@ -231,15 +232,25 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
     /* 2a) Nom de cartouche : police 4x6, non inversé, ligne du haut (baseline = 8) */
     int tw_cart = 0;
-    if (cart->cart_name && cart->cart_name[0]) {
-        drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)x0_left, 0, cart->cart_name);
-        tw_cart = text_width_px(&FONT_4X6, cart->cart_name);
+    const char *cart_name = cart->cart_name;
+    const char *override_name = ui_overlay_get_banner_cart_override();
+    if (override_name && override_name[0]) {
+        cart_name = override_name;
+    }
+    if (cart_name && cart_name[0]) {
+        drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)x0_left, 0, cart_name);
+        tw_cart = text_width_px(&FONT_4X6, cart_name);
     }
 
     /* 2b) Mode custom actif persistant : police 4x6, non inversé, ligne du bas (baseline = 15) */
     const char *tag = ui_backend_get_mode_label();
-    if ((!tag || tag[0] == '\0') && cart->overlay_tag && cart->overlay_tag[0]) {
-        tag = cart->overlay_tag;
+    if (!tag || tag[0] == '\0') {
+        const char *override_tag = ui_overlay_get_banner_tag_override();
+        if (override_tag && override_tag[0]) {
+            tag = override_tag;
+        } else if (cart->overlay_tag && cart->overlay_tag[0]) {
+            tag = cart->overlay_tag;
+        }
     }
 
     int tw_tag = 0;

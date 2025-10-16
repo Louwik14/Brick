@@ -1,8 +1,8 @@
 # List of all the board related files.
-BOARDSRC = $(CHIBIOS)/os/hal/boards/Brick/board.c
+BOARDSRC = $(BOARD_PATH)/board.c
 
 # Required include directories
-BOARDINC = $(CHIBIOS)/os/hal/boards/Brick
+BOARDINC = $(BOARD_PATH)
 
 # Shared variables
 ALLCSRC += $(BOARDSRC)

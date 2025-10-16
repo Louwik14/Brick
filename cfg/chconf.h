@@ -29,7 +29,15 @@
 #define CHCONF_H
 
 #define _CHIBIOS_RT_CONF_
-#define _CHIBIOS_RT_CONF_VER_7_0_
+#define _CHIBIOS_RT_CONF_VER_8_0_
+
+#if !defined(CH_CFG_HARDENING_LEVEL)
+#define CH_CFG_HARDENING_LEVEL               0
+#endif
+
+#if !defined(CH_CFG_USE_MEMCHECKS)
+#define CH_CFG_USE_MEMCHECKS                 FALSE
+#endif
 
 /*===========================================================================*/
 /**

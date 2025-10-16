@@ -28,6 +28,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "brick_config.h"
 #include "cart_bus.h"
 #include "cart_proto.h"
 #if CH_CFG_USE_REGISTRY
@@ -37,7 +38,7 @@
  * ⚙️ Configuration
  * =========================================================== */
 #ifndef CART_QUEUE_LEN
-#define CART_QUEUE_LEN 64
+#define CART_QUEUE_LEN 32
 #endif
 #ifndef CART_MB_DROP_OLDEST
 #define CART_MB_DROP_OLDEST 1
@@ -69,8 +70,36 @@ typedef struct {
 /* ===========================================================
  * Variables globales
  * =========================================================== */
-static cart_port_t s_port[CART_COUNT];
+static CCM_DATA cart_port_t s_port[CART_COUNT];
+static uint16_t s_cart_mb_fill[CART_COUNT];
+static uint16_t s_cart_mb_high_water[CART_COUNT];
 cart_tx_stats_t    cart_stats[CART_COUNT];
+
+static inline void cart_mb_increment(cart_id_t id) {
+    if (id >= CART_COUNT) {
+        return;
+    }
+    osalSysLock();
+    if (s_cart_mb_fill[id] < CART_QUEUE_LEN) {
+        s_cart_mb_fill[id]++;
+        if (s_cart_mb_fill[id] > s_cart_mb_high_water[id]) {
+            s_cart_mb_high_water[id] = s_cart_mb_fill[id];
+            cart_stats[id].mb_high_water = s_cart_mb_high_water[id];
+        }
+    }
+    osalSysUnlock();
+}
+
+static inline void cart_mb_decrement(cart_id_t id) {
+    if (id >= CART_COUNT) {
+        return;
+    }
+    osalSysLock();
+    if (s_cart_mb_fill[id] > 0U) {
+        s_cart_mb_fill[id]--;
+    }
+    osalSysUnlock();
+}
 
 /* ===========================================================
  * 🧭 Mapping logique → UART physique
@@ -88,7 +117,7 @@ static SerialDriver* map_uart(cart_id_t id) {
 /* ===========================================================
  * Thread d’émission
  * =========================================================== */
-static THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
+static CCM_DATA THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
 
 static THD_FUNCTION(cart_tx_thread, arg) {
     const cart_id_t id = (cart_id_t)(uintptr_t)arg;
@@ -104,6 +133,7 @@ static THD_FUNCTION(cart_tx_thread, arg) {
     while (true) {
         cart_cmd_t *cmd;
         chMBFetchTimeout(&p->mb, (msg_t*)&cmd, TIME_INFINITE);
+        cart_mb_decrement(id);
 
         const size_t len = cmd->is_get
             ? cart_proto_build_get(cmd->param, frame)
@@ -135,6 +165,9 @@ void cart_bus_init(void) {
         cart_stats[i].tx_sent = 0;
         cart_stats[i].tx_dropped = 0;
         cart_stats[i].mb_full = 0;
+        cart_stats[i].mb_high_water = 0;
+        s_cart_mb_fill[i] = 0;
+        s_cart_mb_high_water[i] = 0;
 
 
          p->tx = chThdCreateStatic(waCartTx[i], sizeof(waCartTx[i]),
@@ -162,8 +195,12 @@ static bool post_cmd(cart_id_t id, bool is_get, uint16_t param, uint8_t value) {
 #if CART_MB_DROP_OLDEST
         msg_t old;
         if (chMBFetchTimeout(&p->mb, &old, TIME_IMMEDIATE) == MSG_OK) {
+            cart_mb_decrement(id);
             chPoolFree(&p->pool, (void*)old);
-            (void)chMBPostTimeout(&p->mb, (msg_t)cmd, TIME_IMMEDIATE);
+            if (chMBPostTimeout(&p->mb, (msg_t)cmd, TIME_IMMEDIATE) == MSG_OK) {
+                cart_mb_increment(id);
+                return true;
+            }
         } else {
             chPoolFree(&p->pool, cmd);
             return false;
@@ -172,8 +209,19 @@ static bool post_cmd(cart_id_t id, bool is_get, uint16_t param, uint8_t value) {
         chPoolFree(&p->pool, cmd);
         return false;
 #endif
+    } else {
+        cart_mb_increment(id);
+        return true;
     }
-    return true;
+    chPoolFree(&p->pool, cmd);
+    return false;
+}
+
+uint16_t cart_bus_get_mailbox_high_water(cart_id_t id) {
+    if (id >= CART_COUNT) {
+        return 0;
+    }
+    return s_cart_mb_high_water[id];
 }
 
 /* ===========================================================

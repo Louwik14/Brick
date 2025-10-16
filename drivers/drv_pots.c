@@ -14,6 +14,7 @@
  */
 
 #include "drv_pots.h"
+#include "brick_config.h"
 
 /* =======================================================================
  *                              CONSTANTES
@@ -65,7 +66,7 @@ static const ADCConversionGroup adcgrpcfg = {
  * - Calcule la moyenne glissante sur 8 échantillons
  * - Met à jour `pot_values[]` toutes les 20 ms (~50 Hz)
  */
-static THD_WORKING_AREA(waPotReader, 256);
+static CCM_DATA THD_WORKING_AREA(waPotReader, 256);
 static THD_FUNCTION(potReaderThread, arg) {
     (void)arg;
     chRegSetThreadName("PotReader");

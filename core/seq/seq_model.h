@@ -32,77 +32,83 @@ typedef struct {
 } seq_model_gen_t;
 
 /** Voice enablement state. */
-typedef enum {
-    SEQ_MODEL_VOICE_DISABLED = 0, /**< Voice is muted/off. */
-    SEQ_MODEL_VOICE_ENABLED       /**< Voice produces note data. */
-} seq_model_voice_state_t;
+typedef uint8_t seq_model_voice_state_t;
+enum {
+    SEQ_MODEL_VOICE_DISABLED = 0U, /**< Voice is muted/off. */
+    SEQ_MODEL_VOICE_ENABLED = 1U   /**< Voice produces note data. */
+};
 
 /** Types of parameter locks the model can store. */
-typedef enum {
-    SEQ_MODEL_PLOCK_INTERNAL = 0, /**< Internal engine parameters. */
-    SEQ_MODEL_PLOCK_CART          /**< External cartridge parameter. */
-} seq_model_plock_domain_t;
+typedef uint8_t seq_model_plock_domain_t;
+enum {
+    SEQ_MODEL_PLOCK_INTERNAL = 0U, /**< Internal engine parameters. */
+    SEQ_MODEL_PLOCK_CART = 1U      /**< External cartridge parameter. */
+};
 
 /** Enumerates internal sequencer parameters that support parameter locks. */
-typedef enum {
-    SEQ_MODEL_PLOCK_PARAM_NOTE = 0,  /**< Note value override. */
-    SEQ_MODEL_PLOCK_PARAM_VELOCITY,  /**< Velocity override. */
-    SEQ_MODEL_PLOCK_PARAM_LENGTH,    /**< Step length override. */
-    SEQ_MODEL_PLOCK_PARAM_MICRO,     /**< Micro-timing offset override. */
-    SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, /**< Per-step transpose offset. */
-    SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, /**< Per-step velocity offset. */
-    SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, /**< Per-step length offset. */
-    SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI  /**< Per-step micro offset. */
-} seq_model_plock_internal_param_t;
+typedef uint8_t seq_model_plock_internal_param_t;
+enum {
+    SEQ_MODEL_PLOCK_PARAM_NOTE = 0U,  /**< Note value override. */
+    SEQ_MODEL_PLOCK_PARAM_VELOCITY,   /**< Velocity override. */
+    SEQ_MODEL_PLOCK_PARAM_LENGTH,     /**< Step length override. */
+    SEQ_MODEL_PLOCK_PARAM_MICRO,      /**< Micro-timing offset override. */
+    SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR,  /**< Per-step transpose offset. */
+    SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE,  /**< Per-step velocity offset. */
+    SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE,  /**< Per-step length offset. */
+    SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI   /**< Per-step micro offset. */
+};
 
 /** Quantize grid resolution. */
-typedef enum {
-    SEQ_MODEL_QUANTIZE_1_4 = 0,
+typedef uint8_t seq_model_quantize_grid_t;
+enum {
+    SEQ_MODEL_QUANTIZE_1_4 = 0U,
     SEQ_MODEL_QUANTIZE_1_8,
     SEQ_MODEL_QUANTIZE_1_16,
     SEQ_MODEL_QUANTIZE_1_32,
     SEQ_MODEL_QUANTIZE_1_64
-} seq_model_quantize_grid_t;
+};
 
 /** Available musical scales. */
-typedef enum {
-    SEQ_MODEL_SCALE_CHROMATIC = 0,
+typedef uint8_t seq_model_scale_mode_t;
+enum {
+    SEQ_MODEL_SCALE_CHROMATIC = 0U,
     SEQ_MODEL_SCALE_MAJOR,
     SEQ_MODEL_SCALE_MINOR,
     SEQ_MODEL_SCALE_DORIAN,
     SEQ_MODEL_SCALE_MIXOLYDIAN
-} seq_model_scale_mode_t;
+};
 
 /** Describes a single parameter lock. */
 typedef struct {
+    int16_t value;                   /**< Value payload (signed for offsets). */
+    uint16_t parameter_id;           /**< Parameter identifier (cart domain). */
     seq_model_plock_domain_t domain; /**< Target domain. */
     uint8_t voice_index;             /**< Voice affected (0-3). */
-    uint16_t parameter_id;           /**< Parameter identifier (cart domain). */
-    int16_t value;                   /**< Value payload (signed for offsets). */
     seq_model_plock_internal_param_t internal_param; /**< Internal parameter id. */
 } seq_model_plock_t;
 
 /** Per-voice information stored for each step. */
 typedef struct {
-    seq_model_voice_state_t state; /**< Active flag. */
     uint8_t note;                  /**< MIDI note number (0-127). */
     uint8_t velocity;              /**< MIDI velocity (0-127). */
     uint8_t length;                /**< Step length in sequencer ticks (1-64). */
     int8_t micro_offset;           /**< Micro-timing offset (-12..+12). */
+    seq_model_voice_state_t state; /**< Active flag. */
 } seq_model_voice_t;
 
 /** Aggregate offsets applied to all voices on a step. */
 typedef struct {
-    int8_t transpose;  /**< Semitone transpose (-12..+12). */
     int16_t velocity;  /**< Velocity offset (-127..+127). */
+    int8_t transpose;  /**< Semitone transpose (-12..+12). */
     int8_t length;     /**< Length offset (-32..+32). */
     int8_t micro;      /**< Micro-timing offset (-12..+12). */
 } seq_model_step_offsets_t;
 
 /** Full step description including voices and parameter locks. */
 typedef struct {
-    bool active;     /**< True when at least one voice has velocity > 0. */
-    bool automation; /**< True when the step is automation-only (no playable voices, has p-locks). */
+    uint8_t active : 1;     /**< True when at least one voice has velocity > 0. */
+    uint8_t automation : 1; /**< True when the step is automation-only (no playable voices, has p-locks). */
+    uint8_t reserved : 6;   /**< Reserved for future use. */
 } seq_model_step_flags_t;
 
 typedef struct {

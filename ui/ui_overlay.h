@@ -53,13 +53,25 @@ const ui_cart_spec_t* ui_overlay_get_spec(void);
 void ui_overlay_set_custom_mode(ui_custom_mode_t mode);
 ui_custom_mode_t ui_overlay_get_custom_mode(void);
 
-/** Prépare deux bannières (MODE/SETUP) avec cart_name + overlay_tag. */
+/** Prépare les références de bannière (MODE/SETUP) et configure les overrides visuels. */
 void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode,
                                const ui_cart_spec_t* src_setup,
-                               ui_cart_spec_t* dst_mode,
-                               ui_cart_spec_t* dst_setup,
+                               const ui_cart_spec_t** dst_mode,
+                               const ui_cart_spec_t** dst_setup,
                                const ui_cart_spec_t* prev_cart,
                                const char* mode_tag);
+
+/** Définit l’override de bannière (nom cartouche + tag) pour l’overlay actif. */
+void ui_overlay_set_banner_override(const char* cart_name, const char* tag);
+
+/** Met à jour uniquement le tag override de la bannière active. */
+void ui_overlay_update_banner_tag(const char* tag);
+
+/** Retourne l’override courant du nom de cartouche pour l’overlay actif (ou NULL). */
+const char* ui_overlay_get_banner_cart_override(void);
+
+/** Retourne l’override courant du tag overlay pour l’overlay actif (ou NULL). */
+const char* ui_overlay_get_banner_tag_override(void);
 
 #ifdef __cplusplus
 }
