@@ -210,7 +210,10 @@ void ui_backend_process_input(const ui_input_event_t *evt) {
 }
 
 static void _apply_seq_overlay_cycle(void) {
-    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    const ui_cart_spec_t *cart_spec = ui_overlay_get_host_cart();
+    if (!cart_spec) {
+        cart_spec = ui_get_cart();
+    }
     _set_mode_label("SEQ");
     ui_overlay_prepare_banner(&seq_ui_spec, &seq_setup_ui_spec,
                               &s_seq_mode_spec_banner, &s_seq_setup_spec_banner,
@@ -243,7 +246,10 @@ static void _apply_seq_overlay_cycle(void) {
 }
 
 static void _apply_arp_overlay_cycle(void) {
-    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    const ui_cart_spec_t *cart_spec = ui_overlay_get_host_cart();
+    if (!cart_spec) {
+        cart_spec = ui_get_cart();
+    }
     _set_mode_label("ARP");
     ui_overlay_prepare_banner(&arp_ui_spec, &arp_setup_ui_spec,
                               &s_arp_mode_spec_banner, &s_arp_setup_spec_banner,
@@ -276,7 +282,10 @@ static void _apply_arp_overlay_cycle(void) {
 }
 
 static void _prepare_keyboard_specs(void) {
-    const ui_cart_spec_t *cart_spec = ui_get_cart();
+    const ui_cart_spec_t *cart_spec = ui_overlay_get_host_cart();
+    if (!cart_spec) {
+        cart_spec = ui_get_cart();
+    }
     const char *banner = (cart_spec && cart_spec->cart_name) ? cart_spec->cart_name : "";
     s_kbd_keyboard_spec_banner   = &ui_keyboard_spec;
     s_kbd_arp_config_spec_banner = &ui_keyboard_arp_menu_spec;

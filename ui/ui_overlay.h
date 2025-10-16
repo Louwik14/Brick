@@ -53,7 +53,9 @@ const ui_cart_spec_t* ui_overlay_get_spec(void);
 void ui_overlay_set_custom_mode(ui_custom_mode_t mode);
 ui_custom_mode_t ui_overlay_get_custom_mode(void);
 
-/** Prépare les références de bannière (MODE/SETUP) et configure les overrides visuels. */
+/** Prépare les références de bannière (MODE/SETUP) et configure les overrides visuels.
+ *  `prev_cart` doit pointer vers la cartouche "hôte" de l'overlay. Si NULL, le module
+ *  tentera de réutiliser la dernière cartouche hôte connue (utile lors des cycles). */
 void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode,
                                const ui_cart_spec_t* src_setup,
                                const ui_cart_spec_t** dst_mode,
@@ -72,6 +74,9 @@ const char* ui_overlay_get_banner_cart_override(void);
 
 /** Retourne l’override courant du tag overlay pour l’overlay actif (ou NULL). */
 const char* ui_overlay_get_banner_tag_override(void);
+
+/** Cartouche hôte (celle restaurée lors de la sortie) si un overlay est actif, sinon NULL. */
+const ui_cart_spec_t* ui_overlay_get_host_cart(void);
 
 #ifdef __cplusplus
 }
