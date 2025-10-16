@@ -7,17 +7,19 @@
 
 #include "ch.h"
 
+#include "brick_config.h"
+
 #include "core/seq/seq_live_capture.h"
 #include "seq_led_bridge.h"
 #include "core/seq/seq_model.h"
 
-static seq_live_capture_t s_capture;
+static CCM_DATA seq_live_capture_t s_capture;
 typedef struct {
     bool    active;
     uint8_t note;
 } seq_recorder_active_voice_t;
 
-static seq_recorder_active_voice_t s_active_voices[SEQ_MODEL_VOICES_PER_STEP];
+static CCM_DATA seq_recorder_active_voice_t s_active_voices[SEQ_MODEL_VOICES_PER_STEP];
 
 static void _seq_recorder_reset_active_voices(void) {
     for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {

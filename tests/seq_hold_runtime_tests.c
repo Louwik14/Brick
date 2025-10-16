@@ -349,7 +349,7 @@ static void test_keyboard_note_off_does_not_emit_all_notes_off(void) {
     };
 
     ui_keyboard_app_init(&sink);
-    assert(g_keyboard_led_mode == UI_LED_MODE_KEYBOARD);
+    assert(g_keyboard_led_mode == UI_LED_MODE_NONE);
     assert(!g_keyboard_led_omni);
 
     ui_keyboard_app_note_button(0U, true);

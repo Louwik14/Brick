@@ -11,7 +11,10 @@
 #include "brick_config.h"
 
 #include "core/seq/seq_model.h"
+#include "core/seq/seq_project.h"
 #include "seq_led_bridge.h"
+#include "seq_engine_runner.h"
+#include "seq_recorder.h"
 #include "ui_mute_backend.h"
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -47,6 +50,7 @@
 #endif
 
 typedef struct {
+    seq_project_t       *project;       /**< Multi-track project handle. */
     seq_model_pattern_t *pattern;       /**< Backing sequencer pattern reference. */
     uint16_t             page_hold_mask[SEQ_MAX_PAGES]; /**< Held-step mask per page (UI only). */
     uint16_t             preview_mask;  /**< Cached mask for the visible page. */
@@ -56,11 +60,22 @@ typedef struct {
     uint16_t             total_span;    /**< Pattern span exposed to LEDs (pages × 16). */
     uint8_t              last_note;     /**< Last armed note used for quick steps. */
     uint8_t              track_index;   /**< Currently bound track (for future multi-track). */
+    uint8_t              track_count;   /**< Active track count (project view). */
     seq_led_bridge_hold_view_t hold;    /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
-static CCM_DATA seq_model_pattern_t g_pattern;
+static CCM_DATA seq_project_t g_project;
+
+#ifndef SEQ_LED_BRIDGE_TRACK_CAPACITY
+#define SEQ_LED_BRIDGE_TRACK_CAPACITY 2U
+#endif
+
+static CCM_DATA seq_model_pattern_t g_project_patterns[SEQ_LED_BRIDGE_TRACK_CAPACITY];
 static CCM_DATA seq_led_bridge_state_t g;
+
+static inline seq_project_t *_seq_led_bridge_project(void) {
+    return g.project;
+}
 
 static inline seq_model_pattern_t *_seq_led_bridge_pattern(void) {
     return g.pattern;
@@ -738,6 +753,19 @@ static void _rebuild_runtime_from_pattern(void) {
 }
 
 static void _publish_runtime(void) {
+    seq_project_t *project = _seq_led_bridge_project();
+    if (project != NULL) {
+        g.track_index = seq_project_get_active_track(project);
+        g.track_count = seq_project_get_track_count(project);
+        g.pattern = seq_project_get_active_pattern(project);
+    } else {
+        g.track_index = 0U;
+        g.track_count = 0U;
+        g.pattern = NULL;
+    }
+
+    g.visible_page = _clamp_page(g.visible_page);
+
     _update_preview_mask();
     _rebuild_runtime_from_pattern();
     _hold_refresh_if_active();
@@ -746,9 +774,18 @@ static void _publish_runtime(void) {
 /* ===== API =============================================================== */
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
-    g.pattern = &g_pattern;
-    g.track_index = 0U;
-    seq_model_pattern_init(g.pattern);
+    g.project = &g_project;
+    seq_project_init(g.project);
+
+    for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_TRACK_CAPACITY; ++i) {
+        seq_model_pattern_init(&g_project_patterns[i]);
+        seq_project_assign_track(g.project, i, &g_project_patterns[i]);
+    }
+
+    (void)seq_project_set_active_track(g.project, 0U);
+    g.track_index = seq_project_get_active_track(g.project);
+    g.track_count = seq_project_get_track_count(g.project);
+    g.pattern = seq_project_get_active_pattern(g.project);
     _hold_slots_clear();
     _hold_cart_reset();
     g.last_note = 60U;
@@ -1241,4 +1278,48 @@ const seq_model_pattern_t *seq_led_bridge_get_pattern(void) {
 const seq_model_gen_t *seq_led_bridge_get_generation(void) {
     const seq_model_pattern_t *pattern = _seq_led_bridge_pattern_const();
     return (pattern != NULL) ? &pattern->generation : NULL;
+}
+
+seq_project_t *seq_led_bridge_get_project(void) {
+    return &g_project;
+}
+
+const seq_project_t *seq_led_bridge_get_project_const(void) {
+    return &g_project;
+}
+
+uint8_t seq_led_bridge_get_track_index(void) {
+    return g.track_index;
+}
+
+uint8_t seq_led_bridge_get_track_count(void) {
+    return g.track_count;
+}
+
+bool seq_led_bridge_select_track(uint8_t track) {
+    seq_project_t *project = _seq_led_bridge_project();
+    if ((project == NULL) || !seq_project_set_active_track(project, track)) {
+        return false;
+    }
+
+    g.track_index = seq_project_get_active_track(project);
+    g.track_count = seq_project_get_track_count(project);
+    g.pattern = seq_project_get_active_pattern(project);
+
+    _hold_slots_clear();
+    _hold_cart_reset();
+    g.hold.active = false;
+    g.hold.mask = 0U;
+    memset(g.hold.params, 0, sizeof(g.hold.params));
+    memset(g.page_hold_mask, 0, sizeof(g.page_hold_mask));
+    g.preview_mask = 0U;
+
+    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
+    if (pattern != NULL) {
+        seq_engine_runner_attach_pattern(pattern);
+        seq_recorder_attach_pattern(pattern);
+    }
+
+    _publish_runtime();
+    return true;
 }

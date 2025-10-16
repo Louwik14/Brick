@@ -56,7 +56,7 @@
 /* Runtime UI mode context + helpers                                          */
 /* -------------------------------------------------------------------------- */
 
-static ui_mode_context_t s_mode_ctx;
+static CCM_DATA ui_mode_context_t s_mode_ctx;
 static char s_mode_label[8] = "SEQ";
 
 static const ui_cart_spec_t *s_seq_mode_spec_banner   = &seq_ui_spec;
@@ -138,8 +138,17 @@ static void _restore_overlay_visuals_after_mute(void) {
 }
 
 static void _update_seq_runtime_from_bridge(void) {
+    const uint8_t previous_track = s_mode_ctx.seq.track_index;
+
     s_mode_ctx.seq.page_count = seq_led_bridge_get_max_pages();
     s_mode_ctx.seq.page_index = seq_led_bridge_get_visible_page();
+    s_mode_ctx.seq.track_index = seq_led_bridge_get_track_index();
+    s_mode_ctx.seq.track_count = seq_led_bridge_get_track_count();
+
+    if (s_mode_ctx.seq.track_index != previous_track) {
+        s_mode_ctx.seq.held_mask = 0U;
+        memset(s_mode_ctx.seq.held_flags, 0, sizeof(s_mode_ctx.seq.held_flags));
+    }
 }
 
 static bool _resolve_seq_param(uint16_t local_id,
@@ -338,6 +347,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         _neutralize_overlay_for_mute();
         ui_led_backend_set_mode(UI_LED_MODE_MUTE);
         _set_mode_label("MUTE");
+        ui_mute_backend_publish_state();
         ui_mark_dirty();
         break;
 

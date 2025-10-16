@@ -82,6 +82,8 @@ typedef struct {
     uint16_t held_mask;                      /**< Steps maintenus (bits). */
     bool     held_flags[16];                 /**< Drapeaux runtime pour chaque step. */
     systime_t hold_start[16];                /**< Timestamp d'appui (pour long-press). */
+    uint8_t  track_index;                    /**< Piste active dans le projet multi-track. */
+    uint8_t  track_count;                    /**< Nombre de pistes disponibles. */
 } ui_seq_runtime_t;
 
 /**

@@ -160,8 +160,30 @@ bool seq_engine_scheduler_push(seq_engine_scheduler_t *scheduler, const seq_engi
         return false;
     }
 
-    size_t insert_index = (scheduler->head + scheduler->count) % SEQ_ENGINE_SCHEDULER_CAPACITY;
-    scheduler->buffer[insert_index] = *event;
+    size_t insert_offset = scheduler->count;
+    for (size_t i = 0U; i < scheduler->count; ++i) {
+        size_t idx = (scheduler->head + i) % SEQ_ENGINE_SCHEDULER_CAPACITY;
+        if (scheduler->buffer[idx].scheduled_time > event->scheduled_time) {
+            insert_offset = i;
+            break;
+        }
+    }
+
+    const size_t insert_index = (scheduler->head + insert_offset) % SEQ_ENGINE_SCHEDULER_CAPACITY;
+    size_t tail_index = (scheduler->head + scheduler->count) % SEQ_ENGINE_SCHEDULER_CAPACITY;
+
+    if (insert_offset == scheduler->count) {
+        scheduler->buffer[tail_index] = *event;
+    } else {
+        size_t cur = tail_index;
+        while (cur != insert_index) {
+            size_t prev = (cur == 0U) ? (SEQ_ENGINE_SCHEDULER_CAPACITY - 1U) : (cur - 1U);
+            scheduler->buffer[cur] = scheduler->buffer[prev];
+            cur = prev;
+        }
+        scheduler->buffer[insert_index] = *event;
+    }
+
     scheduler->count++;
     return true;
 }

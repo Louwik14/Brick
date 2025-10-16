@@ -13,6 +13,7 @@
 #include <stdint.h>
 
 #include "core/seq/seq_model.h"
+#include "core/seq/seq_project.h"
 #include "ui_led_seq.h"
 #include "ui_seq_ids.h"
 
@@ -83,6 +84,12 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on);
 seq_model_pattern_t *seq_led_bridge_access_pattern(void);
 const seq_model_pattern_t *seq_led_bridge_get_pattern(void);
 const seq_model_gen_t *seq_led_bridge_get_generation(void);
+
+seq_project_t *seq_led_bridge_get_project(void);
+const seq_project_t *seq_led_bridge_get_project_const(void);
+uint8_t seq_led_bridge_get_track_index(void);
+uint8_t seq_led_bridge_get_track_count(void);
+bool seq_led_bridge_select_track(uint8_t track);
 
 #ifdef __cplusplus
 }

@@ -14,6 +14,7 @@
 
 #include <string.h>
 #include "ch.h"
+#include "brick_config.h"
 #include "ui_led_backend.h"
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
@@ -24,9 +25,9 @@
 #endif
 
 /* ===== ÉTAT ===== */
-static bool     s_track_muted[NUM_STEPS];
-static bool     s_track_pmutes[NUM_STEPS];
-static uint8_t  s_cart_tracks[4] = {4,4,4,4};
+static CCM_DATA bool     s_track_muted[NUM_STEPS];
+static CCM_DATA bool     s_track_pmutes[NUM_STEPS];
+static CCM_DATA uint8_t  s_cart_tracks[4] = {4,4,4,4};
 static bool     s_rec_active = false;
 static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
 
@@ -43,7 +44,7 @@ typedef struct {
 #define UI_LED_BACKEND_QUEUE_CAPACITY 32U
 #endif
 
-static ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
+static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;
 

@@ -14,6 +14,7 @@
 #include "ui_keyboard_app.h"
 
 #include <string.h>
+#include "brick_config.h"
 #include "ui_led_backend.h"
 #include "kbd_chords_dict.h"
 
@@ -43,7 +44,7 @@ typedef struct {
   ui_keyboard_chord_cb_t    observer;
 } kbd_state_t;
 
-static kbd_state_t g;
+static CCM_DATA kbd_state_t g;
 
 /* ============================== Note sink ================================ */
 
@@ -228,7 +229,6 @@ void ui_keyboard_app_init(const ui_keyboard_note_sink_t *sink){
     g.sink.note_on = NULL; g.sink.note_off = NULL; g.sink.all_notes_off = NULL;
     g.sink.midi_channel = 0; g.sink.velocity = 100;
   }
-  ui_led_backend_set_mode(UI_LED_MODE_KEYBOARD);
   ui_led_backend_set_keyboard_omnichord(g.omnichord);
 }
 
