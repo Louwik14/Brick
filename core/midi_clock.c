@@ -14,6 +14,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "brick_config.h"
 #include "midi_clock.h"
 #include "midi.h"   /* pour midi_clock(MIDI_DEST_BOTH) */
 
@@ -31,7 +32,7 @@
 static midi_tick_cb_t s_tick_cb = NULL;
 
 /* === Variables internes === */
-static THD_WORKING_AREA(waMidiClk, 256);
+static CCM_DATA THD_WORKING_AREA(waMidiClk, 256);
 static THD_FUNCTION(thMidiClk, arg);
 static void gpt3_cb(GPTDriver *gptp);
 

@@ -102,7 +102,7 @@ PROJECT = ch
 MCU  = cortex-m4
 
 # Imported source files and paths.
-CHIBIOS  := ../../chibios2111
+CHIBIOS  := ./chibios2111
 CONFDIR  := ./cfg
 BUILDDIR := ./build
 DEPDIR   := ./.dep
@@ -134,7 +134,7 @@ include $(CHIBIOS)/test/oslib/oslib_test.mk
 endif
 
 # Define linker script file here
-LDSCRIPT= $(STARTUPLD)/STM32F429xI.ld
+LDSCRIPT= board/STM32F429xI.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -213,7 +213,7 @@ ULIBS = -lm
 # Common rules
 #
 
-RULESPATH = $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk
+RULESPATH = board
 
 ifeq ($(filter lint-cppcheck check-host,$(MAKECMDGOALS)),)
 include $(RULESPATH)/arm-none-eabi.mk

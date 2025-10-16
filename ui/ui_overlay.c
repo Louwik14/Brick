@@ -22,11 +22,17 @@ static const ui_cart_spec_t* s_overlay_spec   = NULL;
 static const ui_cart_spec_t* s_prev_cart      = NULL;
 static ui_state_t            s_prev_state;
 static ui_custom_mode_t      s_custom_mode_active = UI_CUSTOM_NONE;
+static const char           *s_overlay_cart_override = NULL;
+static const char           *s_overlay_tag_override  = NULL;
 
 /* --------- Helpers locaux --------- */
 static inline void _publish_tag_if_any(const ui_cart_spec_t* spec) {
-    if (spec && spec->overlay_tag && spec->overlay_tag[0]) {
-        ui_model_set_active_overlay_tag(spec->overlay_tag);
+    const char *tag = s_overlay_tag_override;
+    if ((!tag || !tag[0]) && spec && spec->overlay_tag && spec->overlay_tag[0]) {
+        tag = spec->overlay_tag;
+    }
+    if (tag && tag[0]) {
+        ui_model_set_active_overlay_tag(tag);
     }
 }
 
@@ -79,9 +85,11 @@ void ui_overlay_exit(void)
         memcpy(st_mut, &s_prev_state, sizeof(ui_state_t));
     }
 
-    s_overlay_active = UI_OVERLAY_NONE;
-    s_overlay_spec   = NULL;
-    s_prev_cart      = NULL;
+    s_overlay_active        = UI_OVERLAY_NONE;
+    s_overlay_spec          = NULL;
+    s_prev_cart             = NULL;
+    s_overlay_cart_override = NULL;
+    s_overlay_tag_override  = NULL;
 
     ui_mark_dirty();
 }
@@ -127,18 +135,46 @@ ui_custom_mode_t ui_overlay_get_custom_mode(void)
 
 void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode,
                                const ui_cart_spec_t* src_setup,
-                               ui_cart_spec_t* dst_mode,
-                               ui_cart_spec_t* dst_setup,
+                               const ui_cart_spec_t** dst_mode,
+                               const ui_cart_spec_t** dst_setup,
                                const ui_cart_spec_t* prev_cart,
                                const char* mode_tag)
 {
-    const char* banner = (prev_cart && prev_cart->cart_name) ? prev_cart->cart_name : "UI";
+    const char* banner = (prev_cart && prev_cart->cart_name && prev_cart->cart_name[0])
+                             ? prev_cart->cart_name
+                             : "UI";
 
-    *dst_mode  = *src_mode;   /* copie superficielle */
-    *dst_setup = *src_setup;  /* copie superficielle */
+    if (dst_mode) {
+        *dst_mode = src_mode;
+    }
+    if (dst_setup) {
+        *dst_setup = src_setup;
+    }
 
-    dst_mode->cart_name    = banner;
-    dst_setup->cart_name   = banner;
-    dst_mode->overlay_tag  = mode_tag;
-    dst_setup->overlay_tag = mode_tag;
+    ui_overlay_set_banner_override(banner, mode_tag);
+}
+
+void ui_overlay_set_banner_override(const char* cart_name, const char* tag)
+{
+    if (cart_name && cart_name[0]) {
+        s_overlay_cart_override = cart_name;
+    } else {
+        s_overlay_cart_override = "UI";
+    }
+    s_overlay_tag_override = tag;
+}
+
+void ui_overlay_update_banner_tag(const char* tag)
+{
+    s_overlay_tag_override = tag;
+}
+
+const char* ui_overlay_get_banner_cart_override(void)
+{
+    return (s_overlay_active != UI_OVERLAY_NONE) ? s_overlay_cart_override : NULL;
+}
+
+const char* ui_overlay_get_banner_tag_override(void)
+{
+    return (s_overlay_active != UI_OVERLAY_NONE) ? s_overlay_tag_override : NULL;
 }

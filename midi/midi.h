@@ -181,4 +181,7 @@ void midi_poly_mode_on(midi_dest_t dest, uint8_t ch);
  */
 void midi_stats_reset(void);
 
+/** @brief Retourne le plus haut niveau de remplissage observé sur la mailbox USB. */
+uint16_t midi_usb_queue_high_watermark(void);
+
 #endif /* MIDI_H */

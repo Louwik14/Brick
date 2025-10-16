@@ -45,6 +45,7 @@ typedef struct {
     volatile uint32_t tx_sent;     /**< Nombre total de trames envoyées */
     volatile uint32_t tx_dropped;  /**< Trames perdues faute de pool mémoire */
     volatile uint32_t mb_full;     /**< Nombre de saturations de mailbox */
+    volatile uint16_t mb_high_water; /**< Occupation max observée de la mailbox */
 } cart_tx_stats_t;
 
 /**
@@ -79,4 +80,7 @@ bool cart_set_param(cart_id_t id, uint16_t param, uint8_t value);
  * @return `true` si la commande a été postée avec succès, sinon `false`.
  */
 bool cart_get_param(cart_id_t id, uint16_t param);
+
+/** @brief Retourne le high-water mark de la mailbox pour un port donné. */
+uint16_t cart_bus_get_mailbox_high_water(cart_id_t id);
 #endif /* BRICK_CART_CART_BUS_H */

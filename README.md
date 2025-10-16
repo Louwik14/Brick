@@ -552,7 +552,7 @@ Cette phase introduit un **nouveau module** UI ainsi que des règles de navigati
 - `bool ui_overlay_is_active(void);` — `const ui_cart_spec_t* ui_overlay_get_spec(void);`
 - `void ui_overlay_set_custom_mode(ui_custom_mode_t mode);` — `ui_custom_mode_t ui_overlay_get_custom_mode(void);`  
   **Flag persistant** indiquant le **dernier mode custom actif** (utilisable par les règles de pas et le rendu).
-- `void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode, const ui_cart_spec_t* src_setup, ui_cart_spec_t* dst_mode, ui_cart_spec_t* dst_setup, const ui_cart_spec_t* prev_cart, const char* mode_tag);`  
+- `void ui_overlay_prepare_banner(const ui_cart_spec_t* src_mode, const ui_cart_spec_t* src_setup, const ui_cart_spec_t** dst_mode, const ui_cart_spec_t** dst_setup, const ui_cart_spec_t* prev_cart, const char* mode_tag);`
   Utilitaire : prépare deux **bannières** d’overlay (MODE/SETUP) en injectant le **nom de la cartouche réelle** et un **tag** (`overlay_tag`, p.ex. `"SEQ"`, `"ARP"`).
 
 **Remarques d’implémentation :**
@@ -595,7 +595,7 @@ La structure `ui_cart_spec_t` inclut désormais un champ optionnel :
 const char* overlay_tag; /* Tag visuel du mode custom actif, ex: "SEQ" */
 ```
 - Valeur `NULL` par défaut — les specs existantes restent **compatibles**.
-- Lors de l’utilisation d’un overlay, `ui_overlay_prepare_banner` **renseigne** ce champ pour que le renderer puisse afficher un **label** (ex. “SEQ”) **à droite du nom de cartouche**.
+- Lors de l’utilisation d’un overlay, `ui_overlay_prepare_banner` configure désormais les **overrides visuels** (nom/cart tag) pour que le renderer affiche le label (ex. “SEQ”) accolé au nom de cartouche sans dupliquer les specs.
 
 ### 5. Rendu (`ui_renderer`) — **implémenté**
 

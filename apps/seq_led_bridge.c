@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "ch.h"
+#include "brick_config.h"
 
 #include "core/seq/seq_model.h"
 #include "seq_led_bridge.h"
@@ -57,7 +58,7 @@ typedef struct {
     seq_led_bridge_hold_view_t hold;   /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
-static seq_led_bridge_state_t g;
+static CCM_DATA seq_led_bridge_state_t g;
 
 typedef struct {
     bool active;
@@ -66,7 +67,7 @@ typedef struct {
     bool mutated;
 } seq_led_bridge_hold_slot_t;
 
-static seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+static CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
 
 #ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
 #define SEQ_LED_BRIDGE_MAX_CART_PARAMS 32U
@@ -79,7 +80,7 @@ typedef struct {
     uint8_t match_count;
 } seq_led_bridge_hold_cart_entry_t;
 
-static seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
+static CCM_DATA seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
 static uint8_t g_hold_cart_param_count;
 
 /* ===== Helpers ============================================================ */

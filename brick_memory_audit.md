@@ -89,3 +89,43 @@ Le firmware consomme actuellement une part critique de la SRAM à cause des dupl
 - **Étape 5 :** optimiser les threads, caches UI et drivers.
 - **Étape 6 :** exécuter la batterie de tests et benchmarks mémoire/CPU.
 
+
+## Étape 2 — Résultats
+
+### Tailles `arm-none-eabi-size`
+
+```
+Avant  : text=159300  data=1824   bss=194784  dec=355908  build/ch.elf
+Après  : text=159764  data=32776  bss=163832  dec=356372  build/ch.elf
+```
+
+> *Mesures réalisées avec la toolchain GCC 13.2.1 (`arm-none-eabi-size`). L'« Avant » correspond à l’état précédent la migration CCM/const, mais avec la même toolchain et scripts de lien locaux.*
+
+### Buffers migrés ou constifiés
+
+| Symbole / zone | Avant | Après | Commentaire |
+| --- | --- | --- | --- |
+| `seq_led_bridge_state_t g` | `.bss` ≈27 KB | Section `.ccmram` | Pattern + runtime LED déplacés hors SRAM DMA pour libérer la mémoire principale. |
+| `g_hold_slots[]`, `g_hold_cart_params[]` | `.bss` ≈7 KB | `.ccmram` | Snapshots hold SEQ déplacés avec l’état bridge. |
+| Bannières UI `s_*_spec_banner` | 6 copies mutables (`.bss` ≈50 KB) | Références `const` partagées | Les overlays pointent vers les specs uniques (`ui_overlay_prepare_banner()`). |
+| `s_ui_shadow[512]` | `.bss` 2 KB | `.ccmram` | Cache UI interne déplacé (usage purement CPU). |
+| `midi_usb_queue[256]` + mailbox | `.bss` 2 KB | `.ccmram` | File USB uniquement CPU, instrumentation high-water intégrée. |
+| `cart_port_t s_port[]` + `waCartTx[]` | `.bss` ≈4 KB | `.ccmram` | Mailboxes/pools/cart TX threads déportés hors SRAM DMA. |
+| Threads UI / affichage / boutons / pots / MIDI clock / player SEQ | `.bss` ~3 KB cumulés | `.ccmram` | Toutes les piles hors périphériques DMA sont maintenant en CCM. |
+
+### Files & piles recalibrées
+
+- `MIDI_USB_QUEUE_LEN` réduit de 512 → 256 entrées avec mesure de remplissage (`midi_usb_queue_high_watermark`).
+- Mailbox cartouche (`CART_QUEUE_LEN`) réduite de 64 → 32 avec suivi `cart_bus_get_mailbox_high_water()`.
+- Les piles threads restent identiques en taille mais sont sorties de la SRAM principale pour libérer l’espace `.bss`.
+
+### Ce qui reste en SRAM (DMA/IO)
+
+- Framebuffer OLED (`drivers/drv_display.c`) et buffers LED adressables (`drivers/drv_leds_addr.c`) conservent la SRAM principale pour rester compatibles SPI/DMA.
+- Buffers ADC (`drivers/drv_pots.c`) et USB (HAL) restent en SRAM DMA-safe.
+
+### Instrumentation
+
+- Ajout de compteurs de remplissage pour `midi_usb_queue` (USB) et `cart_bus` afin de valider les nouvelles profondeurs.
+- `ui_overlay` expose désormais des overrides immuables (nom/tag) sans dupliquer les specs.
+

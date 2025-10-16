@@ -24,6 +24,7 @@
 
 #include "ch.h"
 #include "hal.h"
+#include "brick_config.h"
 #include "midi.h"
 #include "usbcfg.h"
 #include <stdbool.h>
@@ -66,12 +67,33 @@ extern volatile bool usb_midi_tx_ready;
  * @brief Taille de la file (mailbox) de messages USB-MIDI (en éléments de 32 bits).
  * @details Chaque élément correspond à un paquet USB-MIDI de 4 octets packé dans un `msg_t`.
  */
-#define MIDI_USB_QUEUE_LEN   512
+#define MIDI_USB_QUEUE_LEN   256
 
 /** @brief Mailbox de transmission USB-MIDI (producteur/consommateur). */
-static mailbox_t midi_usb_mb;
+static CCM_DATA mailbox_t midi_usb_mb;
 /** @brief Buffer circulaire pour la mailbox USB-MIDI. */
-static msg_t     midi_usb_queue[MIDI_USB_QUEUE_LEN];
+static CCM_DATA msg_t     midi_usb_queue[MIDI_USB_QUEUE_LEN];
+static uint16_t  midi_usb_queue_fill = 0;
+static uint16_t  midi_usb_queue_high_water = 0;
+
+static inline void midi_usb_queue_increment(void) {
+  osalSysLock();
+  if (midi_usb_queue_fill < MIDI_USB_QUEUE_LEN) {
+    midi_usb_queue_fill++;
+    if (midi_usb_queue_fill > midi_usb_queue_high_water) {
+      midi_usb_queue_high_water = midi_usb_queue_fill;
+    }
+  }
+  osalSysUnlock();
+}
+
+static inline void midi_usb_queue_decrement(void) {
+  osalSysLock();
+  if (midi_usb_queue_fill > 0U) {
+    midi_usb_queue_fill--;
+  }
+  osalSysUnlock();
+}
 
 /**
  * @brief Sémaphore “endpoint libre”.
@@ -103,7 +125,7 @@ midi_tx_stats_t midi_tx_stats = {0};
 /**
  * @brief Zone de travail du thread de transmission USB-MIDI.
  */
-static THD_WORKING_AREA(waMidiUsbTx, 512);
+static CCM_DATA THD_WORKING_AREA(waMidiUsbTx, 512);
 
 /**
  * @brief Thread d’agrégation et d’envoi USB-MIDI.
@@ -133,6 +155,7 @@ static THD_FUNCTION(thdMidiUsbTx, arg) {
     msg_t res = chMBFetchTimeout(&midi_usb_mb, &msg, TIME_MS2I(1));
 
     if (res == MSG_OK) {
+      midi_usb_queue_decrement();
       buf[n++] = (uint8_t)((msg >> 24) & 0xFF);
       buf[n++] = (uint8_t)((msg >> 16) & 0xFF);
       buf[n++] = (uint8_t)((msg >> 8)  & 0xFF);
@@ -190,6 +213,8 @@ static THD_FUNCTION(thdMidiUsbTx, arg) {
 void midi_init(void) {
   static const SerialConfig uart_cfg = { 31250, 0, 0, 0 };
   sdStart(MIDI_UART, &uart_cfg);
+  midi_usb_queue_fill = 0;
+  midi_usb_queue_high_water = 0;
   chMBObjectInit(&midi_usb_mb, midi_usb_queue, MIDI_USB_QUEUE_LEN);
   chBSemObjectInit(&tx_sem, true);
   chThdCreateStatic(waMidiUsbTx, sizeof(waMidiUsbTx),
@@ -218,12 +243,19 @@ static void send_uart(const uint8_t *msg, size_t len) { sdWrite(MIDI_UART, msg, 
 static void post_mb_or_drop(msg_t m, bool force_drop_oldest) {
   if (chMBPostTimeout(&midi_usb_mb, m, TIME_IMMEDIATE) != MSG_OK) {
     if (force_drop_oldest || MIDI_MB_DROP_OLDEST) {
-      msg_t throwaway; (void)chMBFetchTimeout(&midi_usb_mb, &throwaway, TIME_IMMEDIATE);
+      msg_t throwaway;
+      if (chMBFetchTimeout(&midi_usb_mb, &throwaway, TIME_IMMEDIATE) == MSG_OK) {
+        midi_usb_queue_decrement();
+      }
       if (chMBPostTimeout(&midi_usb_mb, m, TIME_IMMEDIATE) != MSG_OK)
         midi_tx_stats.tx_mb_drops++;
+      else
+        midi_usb_queue_increment();
     } else {
       midi_tx_stats.tx_mb_drops++;
     }
+  } else {
+    midi_usb_queue_increment();
   }
 }
 
@@ -485,6 +517,10 @@ void midi_mono_mode_on(midi_dest_t dest, uint8_t ch, uint8_t num_channels) {
 
 void midi_poly_mode_on(midi_dest_t dest, uint8_t ch) {
   midi_channel_mode_cc(dest, ch, 127U, 0U);
+}
+
+uint16_t midi_usb_queue_high_watermark(void) {
+  return midi_usb_queue_high_water;
 }
 
 /**
