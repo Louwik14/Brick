@@ -97,6 +97,10 @@ cart_id_t cart_registry_get_active_id(void);
  */
 bool cart_registry_is_present(cart_id_t id);
 
+void cart_registry_set_uid(cart_id_t id, uint32_t uid);
+uint32_t cart_registry_get_uid(cart_id_t id);
+bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out_id);
+
 #ifdef __cplusplus
 }
 #endif

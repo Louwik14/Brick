@@ -26,6 +26,7 @@ Principes structurants :
 * `usb_device.c` : démarrage USB Device / MIDI.
 * `seq/seq_model.c` : modèle du pattern + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).
 * `seq/seq_engine.c` : moteur Reader/Scheduler/Player, callbacks `note_on`, `note_off`, `plock`.
+* `seq/seq_project.c` : conteneur multi-pistes `seq_project_t`, métadonnées banque/pattern, sérialisation vers la flash externe (16 Mo) et remapping automatique des cartouches via `cart_registry`.
 * `seq/seq_live_capture.c` : planifie les événements live (note on/off) en utilisant la clock et enregistre note, vélocité, longueur et micro sous forme de p-locks internes.
 * `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
@@ -45,7 +46,7 @@ Principes structurants :
 * `ui_renderer.c`, `ui_model.c`, `ui_input.c`, `ui_widgets.c`, `ui_overlay.c`, etc. : pipeline OLED et modèle UI.
 
 ### `cart/`
-* `cart_registry.c` : enregistre les specs de cartouche (XVA1). Fournit `cart_registry_get_ui_spec()`.
+* `cart_registry.c` : enregistre les specs de cartouche (XVA1), expose l’ID actif, stocke les identifiants uniques (`cart_registry_set_uid`) utilisés pour remapper les patterns sauvegardés.
 * `cart_xva1_spec.c` : description complète de la cartouche (menus, cycles BM, ID de paramètres).
 * `cart_bus.c`, `cart_proto.c` : couche UART et protocole.
 
@@ -125,6 +126,7 @@ Principes structurants :
 ## 7. Points d'extension identifiés
 
 * **Patterns multiples / banques** : `seq_led_bridge.c` expose `seq_led_bridge_access_pattern()` pour partager le pattern avec d'autres modules ; l'initialisation se fait dans `ui_task.c`.
+* **Système de projets** : `seq_project_save()/load()` et `seq_pattern_save()/load()` permettent de sérialiser les 16 banques × 16 patterns dans la flash externe (1 Mo par projet) en conservant les cartouches (`cart_id`) et en remappant automatiquement les slots disponibles.
 * **Nouveaux modes UI** : `ui_backend.c` gère les overlays via `ui_overlay.h` et `ui_shortcuts`. Ajouter un mode implique de fournir un `ui_cart_spec_t` et de mettre à jour les cycles BM dans `ui_controller.c`.
 * **Cartouches supplémentaires** : enregistrer une nouvelle spec via `cart_registry_register()` et fournir les mappings `ui_spec`/`cart_link`.
 * **Tests runtime** : `tests/seq_hold_runtime_tests.c` montre comment instrumenter `seq_led_bridge_apply_plock_param()` et `seq_live_capture_commit_plan()` sans RTOS.
