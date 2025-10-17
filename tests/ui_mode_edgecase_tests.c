@@ -90,6 +90,49 @@ static void test_track_flag_reset_on_mode_change(void)
     assert(g_stub_mute_clear_called == true);
 }
 
+static void test_quick_to_pmute_sequence(void)
+{
+    ui_context_t ctx;
+    ui_shortcut_map_init(&ctx);
+
+    ui_input_event_t evt;
+    memset(&evt, 0, sizeof(evt));
+
+    /* SHIFT held while pressing PLUS enters QUICK mute. */
+    g_test_shift_state = true;
+    evt.has_button = true;
+    evt.btn_id = UI_BTN_PLUS;
+    evt.btn_pressed = true;
+    ui_shortcut_map_result_t res = ui_shortcut_map_process(&evt, &ctx);
+    assert(res.action_count == 1U);
+    assert(res.actions[0].type == UI_SHORTCUT_ACTION_ENTER_MUTE_QUICK);
+    assert(ctx.mute_plus_down == true);
+
+    /* Backend switches context to PMUTE (QUICK state latched). */
+    ctx.mute_state = UI_MUTE_STATE_QUICK;
+    ui_mode_reset_context(&ctx, SEQ_MODE_PMUTE);
+    assert(ctx.mute_plus_down == true);
+
+    /* SHIFT release updates the latched state while PLUS stays held. */
+    g_test_shift_state = false;
+    memset(&evt, 0, sizeof(evt));
+    evt.has_button = true;
+    evt.btn_id = UI_BTN_UNKNOWN;
+    evt.btn_pressed = false;
+    res = ui_shortcut_map_process(&evt, &ctx);
+    assert(res.action_count == 0U);
+
+    /* SHIFT pressed again while PLUS held should enter PMUTE. */
+    g_test_shift_state = true;
+    memset(&evt, 0, sizeof(evt));
+    evt.has_button = true;
+    evt.btn_id = UI_BTN_UNKNOWN;
+    evt.btn_pressed = true;
+    res = ui_shortcut_map_process(&evt, &ctx);
+    assert(res.action_count == 1U);
+    assert(res.actions[0].type == UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE);
+}
+
 static void test_transition_snapshot(void)
 {
     ui_mode_transition_t tr;
@@ -112,6 +155,7 @@ int main(void)
     test_pmute_transition_clears_preview();
     test_track_entry_from_keyboard();
     test_track_flag_reset_on_mode_change();
+    test_quick_to_pmute_sequence();
     test_transition_snapshot();
 
     printf("ui_mode_edgecase_tests: OK\n");

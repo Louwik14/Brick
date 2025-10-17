@@ -48,3 +48,11 @@ SEQ (default)
 * `make check-host` exécute désormais quatre binaire host (`seq_model`, `seq_hold_runtime`, `ui_mode_transition`, `ui_mode_edgecase`).
 
 Ces changements stabilisent la chaîne `ui_state → ui_mode_transition → ui_led_backend → seq_engine` et offrent une instrumentation fiable pour les diagnostics futurs.
+
+## 6. Phase 9 : Stabilisation P-Mute / Track / LEDs
+
+* `ui_mode_reset_context()` préserve l’état du bouton `PLUS` lors des transitions vers PMute afin de laisser la bascule QUICK→PMUTE détecter le relâché/reprise de SHIFT. La trace `UI_MODE_TRACE()` expose désormais le mode cible, les drapeaux PMute/Track et le tag overlay courant pour faciliter le debug croisé. 【F:ui/ui_mode_transition.c†L46-L93】
+* `ui_led_refresh_state_on_mode_change()` journalise le mode LED retenu et l’étiquette visible, garantissant la cohérence UI ↔ LEDs ↔ séquenceur. 【F:ui/ui_backend.c†L168-L208】
+* `ui_track_mode_enter()` et `ui_track_mode_exit()` rafraîchissent explicitement les tags (`_reset_overlay_banner_tags()`) et ne court-circuitent plus la restauration overlay/keyboard lorsque `track.active` est déjà tombé, ce qui supprime la bannière vide et assure la sortie complète du mode. 【F:ui/ui_backend.c†L210-L244】
+* Les raccourcis QUICK/PMUTE/EXIT/COMMIT tracent leur contexte (`SHIFT`, `PLUS`, label actif) pour comprendre les séquences d’entrée/sortie et synchronisent l’étiquette après commit/cancel. 【F:ui/ui_backend.c†L467-L514】
+* Le test host `test_quick_to_pmute_sequence()` reproduit la combinaison `SHIFT + +` (maintien de `PLUS`, relâche/represse de SHIFT) et garantit la remise à zéro du flag dans `ui_mode_reset_context()` ; le binaire edge-case embarque désormais le stub `ui_model_*`. 【F:tests/ui_mode_edgecase_tests.c†L1-L105】【F:tests/stubs/ui_model_stub.c†L1-L9】【F:Makefile†L294-L299】
