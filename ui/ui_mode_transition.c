@@ -4,6 +4,7 @@
 #include "ui/ui_mute_backend.h"
 #include "ui/ui_overlay.h"
 #include "ui/ui_input.h"
+#include "ui/ui_model.h"
 
 static ui_mode_transition_t s_last_transition = {
     .previous_mode = SEQ_MODE_DEFAULT,
@@ -77,7 +78,13 @@ void ui_mode_reset_context(ui_context_t *ctx, seq_mode_t next_mode)
     }
 
     const bool shift_pressed = ui_input_shift_is_pressed();
-    ctx->mute_plus_down       = false;
+    const bool plus_was_down  = ctx->mute_plus_down;
+
+    if (next_mode == SEQ_MODE_PMUTE) {
+        ctx->mute_plus_down = plus_was_down;
+    } else {
+        ctx->mute_plus_down = false;
+    }
     ctx->mute_shift_latched   = shift_pressed;
     ctx->track.shift_latched  = shift_pressed;
 
@@ -104,6 +111,15 @@ void ui_mode_reset_context(ui_context_t *ctx, seq_mode_t next_mode)
             ctx->overlay_submode = 0u;
         }
     }
+
+    UI_MODE_TRACE("reset_context next=%d shift=%d plus=%d mute_state=%d track=%d overlay=%d tag=%s",
+                  (int)next_mode,
+                  shift_pressed ? 1 : 0,
+                  ctx->mute_plus_down ? 1 : 0,
+                  (int)ctx->mute_state,
+                  ctx->track.active ? 1 : 0,
+                  ctx->overlay_active ? 1 : 0,
+                  ui_model_get_active_overlay_tag());
 }
 
 void ui_mode_transition_commit(const ui_mode_transition_t *transition)

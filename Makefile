@@ -291,7 +291,9 @@ $(HOST_UI_MODE_TEST): tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/se
 		tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c \
 		apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
 
-$(HOST_UI_EDGE_TEST): tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c tests/stubs/ui_mute_backend_stub.c
+$(HOST_UI_EDGE_TEST): tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c \
+        tests/stubs/ui_mute_backend_stub.c tests/stubs/ui_model_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-		tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c tests/stubs/ui_mute_backend_stub.c -o $@
+	        tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c \
+	        tests/stubs/ui_mute_backend_stub.c tests/stubs/ui_model_stub.c -o $@
