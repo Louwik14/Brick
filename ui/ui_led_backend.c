@@ -27,7 +27,9 @@
 /* ===== ÉTAT ===== */
 static CCM_DATA bool     s_track_muted[NUM_STEPS];
 static CCM_DATA bool     s_track_pmutes[NUM_STEPS];
+static CCM_DATA bool     s_track_present[NUM_STEPS];
 static CCM_DATA uint8_t  s_cart_tracks[4] = {4,4,4,4};
+static uint8_t           s_track_focus = 0U;
 static bool     s_rec_active = false;
 static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
 
@@ -132,13 +134,22 @@ static inline void _set_led(int idx, led_color_t col, led_mode_t mode) {
 }
 
 /* ===== Rendu : MUTE (sans chenillard) ===== */
+static inline led_color_t _cart_color(uint8_t cart_idx) {
+    switch (cart_idx) {
+    case 0:  return UI_LED_COL_CART1_ACTIVE;
+    case 1:  return UI_LED_COL_CART2_ACTIVE;
+    case 2:  return UI_LED_COL_CART3_ACTIVE;
+    default: return UI_LED_COL_CART4_ACTIVE;
+    }
+}
+
 static inline void _render_mute_mode(void) {
     for (uint8_t t = 0; t < NUM_STEPS; ++t) {
         const uint8_t cart_idx    = t / 4;
         const uint8_t pos_in_cart = t % 4;
         const int     led_idx     = _led_index_for_step(t);
 
-        if (pos_in_cart >= s_cart_tracks[cart_idx]) {
+        if ((pos_in_cart >= s_cart_tracks[cart_idx]) || !s_track_present[t]) {
             _set_led(led_idx, UI_LED_COL_OFF, LED_MODE_OFF);
             continue;
         }
@@ -155,12 +166,32 @@ static inline void _render_mute_mode(void) {
         }
 
         /* Couleur cart active, SANS accent de tick */
-        led_color_t c =
-            (cart_idx == 0) ? UI_LED_COL_CART1_ACTIVE :
-            (cart_idx == 1) ? UI_LED_COL_CART2_ACTIVE :
-            (cart_idx == 2) ? UI_LED_COL_CART3_ACTIVE :
-                              UI_LED_COL_CART4_ACTIVE;
-        _set_led(led_idx, c, LED_MODE_ON);
+        _set_led(led_idx, _cart_color(cart_idx), LED_MODE_ON);
+    }
+}
+
+static inline void _render_track_mode(void) {
+    for (uint8_t t = 0; t < NUM_STEPS; ++t) {
+        const uint8_t cart_idx    = t / 4;
+        const uint8_t pos_in_cart = t % 4;
+        const int     led_idx     = _led_index_for_step(t);
+
+        if ((pos_in_cart >= s_cart_tracks[cart_idx]) || !s_track_present[t]) {
+            _set_led(led_idx, UI_LED_COL_OFF, LED_MODE_OFF);
+            continue;
+        }
+
+        if (t == (s_track_focus & 0x0FU)) {
+            _set_led(led_idx, UI_LED_COL_SEQ_ACTIVE, LED_MODE_ON);
+            continue;
+        }
+
+        if (s_track_muted[t]) {
+            _set_led(led_idx, UI_LED_COL_MUTE_RED, LED_MODE_ON);
+            continue;
+        }
+
+        _set_led(led_idx, _cart_color(cart_idx), LED_MODE_ON);
     }
 }
 
@@ -196,11 +227,13 @@ static inline void _render_keyboard_omnichord(void) {
 void ui_led_backend_init(void) {
     memset(s_track_muted, 0, sizeof(s_track_muted));
     memset(s_track_pmutes, 0, sizeof(s_track_pmutes));
+    memset(s_track_present, 0, sizeof(s_track_present));
     s_cart_tracks[0] = s_cart_tracks[1] = s_cart_tracks[2] = s_cart_tracks[3] = 4;
     s_rec_active = false;
     s_mode = UI_LED_MODE_NONE;
     s_kbd_omni = false;
     s_evt_head = s_evt_tail = 0U;
+    s_track_focus = 0U;
 
     drv_leds_addr_init();
     /* NE PAS toucher au buffer physique ici : render() s’en charge. */
@@ -233,6 +266,12 @@ void ui_led_backend_set_cart_track_count(uint8_t cart_idx, uint8_t tracks) {
     s_cart_tracks[cart_idx] = tracks;
 }
 void ui_led_backend_set_keyboard_omnichord(bool enabled) { s_kbd_omni = enabled; }
+void ui_led_backend_set_track_focus(uint8_t track_index) { s_track_focus = (track_index & 0x0FU); }
+void ui_led_backend_set_track_present(uint8_t track_index, bool present) {
+    if (track_index < NUM_STEPS) {
+        s_track_present[track_index] = present;
+    }
+}
 
 /* ===== Rendu ===== */
 void ui_led_backend_refresh(void) {
@@ -248,6 +287,9 @@ void ui_led_backend_refresh(void) {
         case UI_LED_MODE_KEYBOARD:
             s_kbd_omni ? _render_keyboard_omnichord()
                        : _render_keyboard_normal();
+            break;
+        case UI_LED_MODE_TRACK:
+            _render_track_mode();
             break;
         case UI_LED_MODE_SEQ:
             ui_led_seq_render();

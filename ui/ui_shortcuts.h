@@ -41,6 +41,9 @@ typedef enum {
     UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY,    /**< Active overlay ARP (MODE/SETUP). */
     UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY,    /**< Active overlay Keyboard. */
     UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU, /**< Cycle Keyboard ↔ Arpégiateur. */ // --- ARP: action dédiée ---
+    UI_SHORTCUT_ACTION_ENTER_TRACK_MODE,    /**< Active le mode Track Select. */
+    UI_SHORTCUT_ACTION_EXIT_TRACK_MODE,     /**< Quitte le mode Track Select. */
+    UI_SHORTCUT_ACTION_TRACK_SELECT,        /**< Sélectionne une piste depuis la grille. */
     UI_SHORTCUT_ACTION_TRANSPORT_PLAY,      /**< PLAY global. */
     UI_SHORTCUT_ACTION_TRANSPORT_STOP,      /**< STOP global. */
     UI_SHORTCUT_ACTION_TRANSPORT_REC_TOGGLE,/**< Toggle REC global. */
@@ -60,6 +63,7 @@ typedef struct {
     ui_shortcut_action_type_t type; /**< Type d'action. */
     union {
         struct { uint8_t track; } mute; /**< Index piste (mute). */
+        struct { uint8_t index; } track; /**< Index piste (track select). */
         struct {
             uint8_t index;             /**< Index step 0..15. */
             bool    long_press;        /**< Vrai si long-press détecté. */

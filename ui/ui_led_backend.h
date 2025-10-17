@@ -32,6 +32,7 @@ typedef enum {
   UI_LED_MODE_SEQ,
   UI_LED_MODE_ARP,
   UI_LED_MODE_KEYBOARD,
+  UI_LED_MODE_TRACK,
   UI_LED_MODE_RANDOM,
   UI_LED_MODE_CUSTOM
 } ui_led_mode_t;
@@ -67,6 +68,12 @@ void ui_led_backend_set_mode(ui_led_mode_t mode);
 
 /** @brief Pour MUTE : nombre de pistes par cart (0..4). */
 void ui_led_backend_set_cart_track_count(uint8_t cart_idx, uint8_t tracks);
+
+/** @brief Fixe la piste actuellement focalisée (Track Select). */
+void ui_led_backend_set_track_focus(uint8_t track_index);
+
+/** @brief Indique si une piste est disponible pour l’affichage Track Select. */
+void ui_led_backend_set_track_present(uint8_t track_index, bool present);
 
 /* ===== Spécifique Keyboard (inchangé) ===== */
 /** @brief Active/valide le layout Omnichord (Keyboard). */

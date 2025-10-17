@@ -87,6 +87,14 @@ typedef struct {
 } ui_seq_runtime_t;
 
 /**
+ * @brief État interne du sélecteur de piste.
+ */
+typedef struct {
+    bool active;            /**< Mode Track Select actif ? */
+    bool shift_latched;     /**< État précédent de SHIFT pour la détection de sortie. */
+} ui_track_state_t;
+
+/**
  * @brief État Keyboard (mode custom latched).
  */
 typedef struct {
@@ -118,7 +126,17 @@ typedef struct {
     ui_transport_state_t transport;       /**< Transport global. */
     ui_seq_runtime_t     seq;             /**< Runtime SEQ (page + holds). */
     ui_keyboard_state_t  keyboard;        /**< Runtime Keyboard. */
+    ui_track_state_t     track;           /**< État du mode Track Select. */
 } ui_mode_context_t;
+
+/**
+ * @brief Modes séquenceur utilisés pour la synchronisation LED.
+ */
+typedef enum {
+    SEQ_MODE_DEFAULT = 0,   /**< Mode séquenceur normal (SEQ / overlays). */
+    SEQ_MODE_PMUTE,         /**< Mode MUTE / PMUTE actif. */
+    SEQ_MODE_TRACK          /**< Mode Track Select actif. */
+} seq_mode_t;
 
 /* ============================================================
  * API publique
@@ -195,6 +213,32 @@ bool ui_backend_shadow_try_get(uint16_t id, uint8_t *out_val); // --- FIX: déte
  * L’envoi réel se fait via `ui_backend_param_changed()`.
  */
 void ui_backend_shadow_set(uint16_t id, uint8_t val);
+
+/* ========================================================================== */
+/* API Track Select / synchronisation LED                                     */
+/* ========================================================================== */
+
+/**
+ * @brief Active le mode Track Select (SHIFT + BS11).
+ */
+void ui_track_mode_enter(void);
+
+/**
+ * @brief Quitte le mode Track Select.
+ */
+void ui_track_mode_exit(void);
+
+/**
+ * @brief Traite la sélection d'une piste depuis un bouton Step/BS.
+ * @param bs_index Index BS 0..15 correspondant à la grille 4×4.
+ */
+void ui_track_select_from_bs(uint8_t bs_index);
+
+/**
+ * @brief Force la republication de l'état LED lors d'un changement de mode.
+ * @param new_mode Nouveau mode séquenceur.
+ */
+void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode);
 
 #ifdef __cplusplus
 }

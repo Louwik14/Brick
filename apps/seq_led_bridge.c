@@ -16,6 +16,7 @@
 #include "seq_engine_runner.h"
 #include "seq_recorder.h"
 #include "ui_mute_backend.h"
+#include "ui_led_backend.h"
 
 #ifdef BRICK_DEBUG_PLOCK
 #include "chprintf.h"
@@ -769,6 +770,30 @@ static void _publish_runtime(void) {
     _update_preview_mask();
     _rebuild_runtime_from_pattern();
     _hold_refresh_if_active();
+    {
+        uint8_t per_slot[4] = {0, 0, 0, 0};
+        for (uint8_t track = 0U; track < SEQ_PROJECT_MAX_TRACKS; ++track) {
+            bool present = false;
+            if (project != NULL) {
+                const seq_model_pattern_t *tp =
+                    seq_project_get_track_const(project, track);
+                present = (tp != NULL);
+            }
+            ui_led_backend_set_track_present(track, present);
+            const uint8_t slot = (uint8_t)(track / 4U);
+            const uint8_t pos  = (uint8_t)(track % 4U);
+            if (present && slot < 4U) {
+                uint8_t span = (uint8_t)(pos + 1U);
+                if (per_slot[slot] < span) {
+                    per_slot[slot] = span;
+                }
+            }
+        }
+        for (uint8_t slot = 0U; slot < 4U; ++slot) {
+            ui_led_backend_set_cart_track_count(slot, per_slot[slot]);
+        }
+        ui_led_backend_set_track_focus(g.track_index);
+    }
 }
 
 /* ===== API =============================================================== */

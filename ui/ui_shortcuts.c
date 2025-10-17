@@ -106,8 +106,62 @@ static bool _map_mute(const ui_input_event_t *evt,
         }
     }
 
+    ctx->track.shift_latched = shift_now;
     ctx->mute_shift_latched = shift_now;
     return consumed;
+}
+
+static bool _map_track_mode(const ui_input_event_t *evt,
+                            ui_mode_context_t *ctx,
+                            ui_shortcut_map_result_t *res,
+                            bool shift_now) {
+    if (ctx->mute_state != UI_MUTE_STATE_OFF) {
+        ctx->track.shift_latched = shift_now;
+        return false;
+    }
+    if (ctx->keyboard.active) {
+        ctx->track.shift_latched = shift_now;
+        return false;
+    }
+
+    if (ctx->track.active) {
+        if (evt->has_button && evt->btn_id == UI_BTN_SEQ11 &&
+            evt->btn_pressed && shift_now) {
+            ctx->track.active = false;
+            ctx->track.shift_latched = shift_now;
+            (void)_push_action(res, UI_SHORTCUT_ACTION_EXIT_TRACK_MODE);
+            res->consumed = true;
+            return true;
+        }
+
+        if (evt->has_button && _is_seq_pad(evt->btn_id)) {
+            if (evt->btn_pressed) {
+                ui_shortcut_action_t *act =
+                    _push_action(res, UI_SHORTCUT_ACTION_TRACK_SELECT);
+                if (act) {
+                    act->data.track.index = _seq_index(evt->btn_id);
+                }
+            }
+            ctx->track.shift_latched = shift_now;
+            res->consumed = true;
+            return true;
+        }
+
+        ctx->track.shift_latched = shift_now;
+        return ctx->track.active;
+    }
+
+    if (evt->has_button && evt->btn_pressed && shift_now &&
+        evt->btn_id == UI_BTN_SEQ11) {
+        ctx->track.active = true;
+        ctx->track.shift_latched = shift_now;
+        (void)_push_action(res, UI_SHORTCUT_ACTION_ENTER_TRACK_MODE);
+        res->consumed = true;
+        return true;
+    }
+
+    ctx->track.shift_latched = shift_now;
+    return false;
 }
 
 static bool _map_overlays(const ui_input_event_t *evt,
@@ -115,6 +169,9 @@ static bool _map_overlays(const ui_input_event_t *evt,
                           ui_shortcut_map_result_t *res,
                           bool shift_now) {
     if (ctx->mute_state != UI_MUTE_STATE_OFF) {
+        return false;
+    }
+    if (ctx->track.active) {
         return false;
     }
     if (!evt->has_button || !evt->btn_pressed || !shift_now) {
@@ -127,11 +184,11 @@ static bool _map_overlays(const ui_input_event_t *evt,
         res->consumed = true;
         return true;
     case UI_BTN_SEQ10:
-        (void)_push_action(res, UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU); // --- ARP: cycle clavier/arp ---
-        res->consumed = true;
-        return true;
-    case UI_BTN_SEQ11:
-        (void)_push_action(res, UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY);
+        if (ctx->keyboard.overlay_visible) {
+            (void)_push_action(res, UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU); // --- ARP: cycle clavier/arp ---
+        } else {
+            (void)_push_action(res, UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY);
+        }
         res->consumed = true;
         return true;
     default:
@@ -204,6 +261,9 @@ static bool _map_seq_pages(const ui_input_event_t *evt,
     if (ctx->keyboard.active) {
         return false;
     }
+    if (ctx->track.active) {
+        return false;
+    }
     if (!evt->has_button || !evt->btn_pressed || shift_now) {
         return false;
     }
@@ -228,6 +288,9 @@ static bool _map_seq_pads(const ui_input_event_t *evt,
         return false;
     }
     if (ctx->keyboard.active) {
+        return false;
+    }
+    if (ctx->track.active) {
         return false;
     }
     if (!evt->has_button || !_is_seq_pad(evt->btn_id)) {
@@ -302,6 +365,8 @@ void ui_shortcut_map_init(ui_mode_context_t *ctx) {
     ctx->keyboard.active         = false;
     ctx->keyboard.overlay_visible = false;
     ctx->keyboard.octave          = 0;
+    ctx->track.active             = false;
+    ctx->track.shift_latched      = ui_input_shift_is_pressed();
 }
 
 void ui_shortcut_map_reset(ui_mode_context_t *ctx) {
@@ -321,6 +386,11 @@ ui_shortcut_map_process(const ui_input_event_t *evt, ui_mode_context_t *ctx) {
     const bool shift_prev = ctx->mute_shift_latched;
 
     if (_map_mute(evt, ctx, &res, shift_now, shift_prev)) {
+        return res;
+    }
+
+    if (_map_track_mode(evt, ctx, &res, shift_now)) {
+        ctx->mute_shift_latched = shift_now;
         return res;
     }
 

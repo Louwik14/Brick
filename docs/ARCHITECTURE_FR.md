@@ -39,9 +39,9 @@ Principes structurants :
 
 ### `ui/`
 * `ui_task.c` : thread principal. Initialise `clock_manager`, enregistre `_on_clock_step`, démarre backend/clavier/runner, boucle sur `ui_backend_process_input()` puis `ui_led_backend_refresh()` et `ui_render()`.
-* `ui_backend.c` : coeur de traitement des entrées. Route les encoders/boutons vers cart (`cart_link_param_changed`), UI, ou MIDI. Pendant un hold (`s_mode_ctx.seq.held_mask`), appelle `seq_led_bridge_apply_plock_param` ou `seq_led_bridge_apply_cart_param` pour stocker des p-locks sur les steps maintenus.
+* `ui_backend.c` : coeur de traitement des entrées. Route les encoders/boutons vers cart (`cart_link_param_changed`), UI, ou MIDI. Pendant un hold (`s_mode_ctx.seq.held_mask`), appelle `seq_led_bridge_apply_plock_param` ou `seq_led_bridge_apply_cart_param` pour stocker des p-locks sur les steps maintenus. Depuis l'étape 7, il orchestre également `ui_track_mode_enter/exit()` et `ui_track_select_from_bs()` (SHIFT+BS11) et publie `ui_led_refresh_state_on_mode_change()` pour synchroniser les LEDs lors des transitions PMute/Track/SEQ.
 * `ui_controller.c` : état UI (menus/pages), initialisation des cycles BM, activation du mode LED SEQ et appel à `seq_led_bridge_init()`.
-* `ui_led_backend.c` : file d'événements LED (mute, clock, mode). Diffuse sur `drv_leds_addr_render()` depuis le thread UI unique. // --- FIX: rendu atomique sans double appel ---
+* `ui_led_backend.c` : file d'événements LED (mute, clock, mode). Diffuse sur `drv_leds_addr_render()` depuis le thread UI unique, et propose les setters `ui_led_backend_set_track_present/count/focus()` pour le rendu Track Select (grille 4×4 partagée avec P-Mute). // --- FIX: rendu atomique sans double appel ---
 * `ui_led_seq.c` : renderer SEQ; applique le playhead absolu, distingue active/automation/muted.
 * `ui_renderer.c`, `ui_model.c`, `ui_input.c`, `ui_widgets.c`, `ui_overlay.c`, etc. : pipeline OLED et modèle UI.
 
@@ -108,6 +108,16 @@ Principes structurants :
 1. Entrer en PMUTE (`UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE`) bascule le backend LED en mode MUTE, republie l'état courant via `ui_mute_backend_publish_state()` et garantit que les LED reflètent immédiatement les tracks préparées ou commitées.
 2. `ui_mute_backend_toggle_prepare()` émet `UI_LED_EVENT_PMUTE_STATE` pour chaque track préparée ; `ui_mute_backend_commit()` / `ui_mute_backend_cancel()` synchronisent respectivement l'état réel (`UI_LED_EVENT_MUTE_STATE`) ou nettoient l'aperçu.
 
+### 4.6 Track Select (SHIFT+BS11)
+1. `ui_shortcut_map_process()` détecte **SHIFT + BS11** → `UI_SHORTCUT_ACTION_ENTER_TRACK_MODE`; la structure `ui_track_state_t` passe `active=true` et le bandeau affiche `track`.
+2. Pendant que `ctx->track.active` est vrai, les autres raccourcis SEQ (pages, overlays, p-locks) sont bloqués ; seules les grilles BS1..BS16 produisent `UI_SHORTCUT_ACTION_TRACK_SELECT`.
+3. `ui_track_select_from_bs()` délègue à `seq_led_bridge_select_track()` qui :
+   - change la piste active dans `seq_project_t` ;
+   - réinitialise les caches hold/preview et attache la nouvelle piste au runner/recorder ;
+   - publie présence + focus via `ui_led_backend_set_track_present/focus()`.
+4. `ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK)` force `ui_led_backend` à rendre la grille 4×4 : piste active en vert, autres disponibles couleur cartouche, tracks absentes éteintes.
+5. SHIFT + BS11 à nouveau (ou relâcher SHIFT puis BS11) déclenche `UI_SHORTCUT_ACTION_EXIT_TRACK_MODE`, restaure le label précédent (`SEQ`, overlay ou keyboard) et réapplique `SEQ_MODE_DEFAULT` côté LEDs.
+
 ## 5. Politique MIDI et cartouches
 
 * `seq_engine_runner_on_transport_stop()` diffuse désormais un CC123 “All Notes Off” sur les 16 canaux avant de relayer les NOTE_OFF individuels via `_runner_note_off_cb()` et de restaurer les paramètres cart p-lockés ; hors STOP, aucune commande globale n'est émise.
@@ -120,12 +130,12 @@ Principes structurants :
 * `make -j8 all` : build complet embarqué via les règles ChibiOS.
 * `make clean` : nettoyage du répertoire `build/`.
 * `make lint-cppcheck` : exécute `cppcheck` sur `core/` et `ui/`.
-* `make check-host` : compile et lance `tests/seq_model_tests` puis `tests/seq_hold_runtime_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
+* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests` et `tests/ui_mode_transition_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
 * Les stubs `tests/stubs/ch.h` fournissent les symboles ChibiOS manquants pour les tests host.
 
 ## 7. Points d'extension identifiés
 
-* **Patterns multiples / banques** : `seq_led_bridge.c` expose `seq_led_bridge_access_pattern()` pour partager le pattern avec d'autres modules ; l'initialisation se fait dans `ui_task.c`.
+* **Patterns multiples / banques** : `seq_led_bridge.c` expose `seq_led_bridge_access_pattern()` pour partager le pattern avec d'autres modules ; l'initialisation se fait dans `ui_task.c`. Il publie aussi la disponibilité/focus piste (`ui_led_backend_set_track_present/focus`) pour Track Select.
 * **Système de projets** : `seq_project_save()/load()` et `seq_pattern_save()/load()` permettent de sérialiser les 16 banques × 16 patterns dans la flash externe (1 Mo par projet) en conservant les cartouches (`cart_id`) et en remappant automatiquement les slots disponibles.
 * **Nouveaux modes UI** : `ui_backend.c` gère les overlays via `ui_overlay.h` et `ui_shortcuts`. Ajouter un mode implique de fournir un `ui_cart_spec_t` et de mettre à jour les cycles BM dans `ui_controller.c`.
 * **Cartouches supplémentaires** : enregistrer une nouvelle spec via `cart_registry_register()` et fournir les mappings `ui_spec`/`cart_link`.

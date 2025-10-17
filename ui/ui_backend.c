@@ -151,6 +151,107 @@ static void _update_seq_runtime_from_bridge(void) {
     }
 }
 
+void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
+    ui_led_mode_t led_mode = UI_LED_MODE_SEQ;
+
+    switch (new_mode) {
+    case SEQ_MODE_PMUTE:
+        led_mode = UI_LED_MODE_MUTE;
+        break;
+    case SEQ_MODE_TRACK:
+        led_mode = UI_LED_MODE_TRACK;
+        break;
+    case SEQ_MODE_DEFAULT:
+    default:
+        if (s_mode_ctx.keyboard.active) {
+            led_mode = UI_LED_MODE_KEYBOARD;
+        } else if (s_mode_ctx.overlay_active) {
+            led_mode = (s_mode_ctx.overlay_id == UI_OVERLAY_ARP)
+                           ? UI_LED_MODE_ARP
+                           : UI_LED_MODE_SEQ;
+        } else {
+            led_mode = UI_LED_MODE_SEQ;
+        }
+        break;
+    }
+
+    ui_led_backend_set_mode(led_mode);
+    seq_led_bridge_publish();
+    ui_mute_backend_publish_state();
+    ui_led_backend_refresh();
+}
+
+void ui_track_mode_enter(void) {
+    if (s_mode_ctx.track.active) {
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
+        return;
+    }
+
+    s_mode_ctx.track.active = true;
+    s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
+
+    _set_mode_label("track");
+    ui_overlay_update_banner_tag("track");
+    ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
+    ui_mark_dirty();
+}
+
+void ui_track_mode_exit(void) {
+    if (!s_mode_ctx.track.active) {
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
+        return;
+    }
+
+    s_mode_ctx.track.active = false;
+    s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
+
+    if (s_mode_ctx.keyboard.active) {
+        _publish_keyboard_tag(s_mode_ctx.keyboard.octave);
+        ui_overlay_update_banner_tag(ui_backend_get_mode_label());
+    } else if (s_mode_ctx.overlay_active) {
+        _restore_overlay_visuals_after_mute();
+    } else {
+        _set_mode_label("SEQ");
+        _reset_overlay_banner_tags();
+    }
+
+    ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
+    ui_mark_dirty();
+}
+
+void ui_track_select_from_bs(uint8_t bs_index) {
+    if (bs_index >= 16U) {
+        return;
+    }
+
+    const uint8_t track_index = bs_index;
+    seq_project_t *project = seq_led_bridge_get_project();
+    if (project == NULL) {
+        return;
+    }
+
+    if (!seq_led_bridge_select_track(track_index)) {
+        return;
+    }
+
+    const seq_project_cart_ref_t *cart_ref =
+        seq_project_get_track_cart(project, track_index);
+    if (cart_ref != NULL && cart_ref->slot_id < CART_COUNT) {
+        cart_id_t slot = (cart_id_t)cart_ref->slot_id;
+        if (cart_registry_is_present(slot)) {
+            const ui_cart_spec_t *spec =
+                (const ui_cart_spec_t *)cart_registry_switch(slot);
+            if (spec != NULL) {
+                ui_switch_cart(spec);
+            }
+        }
+    }
+
+    _update_seq_runtime_from_bridge();
+    ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
+    ui_mark_dirty();
+}
+
 static bool _resolve_seq_param(uint16_t local_id,
                                seq_hold_param_id_t *out_param,
                                const ui_param_state_t **out_state) {
@@ -345,18 +446,16 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     case UI_SHORTCUT_ACTION_ENTER_MUTE_QUICK:
         s_mode_ctx.mute_state = UI_MUTE_STATE_QUICK;
         _neutralize_overlay_for_mute();
-        ui_led_backend_set_mode(UI_LED_MODE_MUTE);
         _set_mode_label("MUTE");
-        ui_mute_backend_publish_state();
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_PMUTE);
         ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE:
         s_mode_ctx.mute_state = UI_MUTE_STATE_PMUTE;
         _neutralize_overlay_for_mute();
-        ui_led_backend_set_mode(UI_LED_MODE_MUTE);
         _set_mode_label("PMUTE");
-        ui_mute_backend_publish_state(); // --- FIX: re-synchroniser les LEDs préparées à chaque entrée PMUTE ---
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_PMUTE); // --- FIX: re-synchroniser les LEDs préparées à chaque entrée PMUTE ---
         ui_mark_dirty();
         break;
 
@@ -367,6 +466,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         ui_mute_backend_cancel();
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;
 
@@ -383,6 +483,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state = UI_MUTE_STATE_OFF;
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;
 
@@ -396,6 +497,15 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
 
     case UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY:
         _apply_keyboard_overlay();
+        break;
+    case UI_SHORTCUT_ACTION_ENTER_TRACK_MODE:
+        ui_track_mode_enter();
+        break;
+    case UI_SHORTCUT_ACTION_EXIT_TRACK_MODE:
+        ui_track_mode_exit();
+        break;
+    case UI_SHORTCUT_ACTION_TRACK_SELECT:
+        ui_track_select_from_bs(act->data.track.index);
         break;
     case UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU:
         if (!ui_overlay_is_active() ||
@@ -430,17 +540,17 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
 
     case UI_SHORTCUT_ACTION_SEQ_PAGE_NEXT:
         seq_led_bridge_page_next();
-        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
         _set_mode_label("SEQ");
         _reset_overlay_banner_tags();
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;
 
     case UI_SHORTCUT_ACTION_SEQ_PAGE_PREV:
         seq_led_bridge_page_prev();
-        ui_led_backend_set_mode(UI_LED_MODE_SEQ);
         _set_mode_label("SEQ");
         _reset_overlay_banner_tags();
+        ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;
 
