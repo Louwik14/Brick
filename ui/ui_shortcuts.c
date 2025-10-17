@@ -119,10 +119,6 @@ static bool _map_track_mode(const ui_input_event_t *evt,
         ctx->track.shift_latched = shift_now;
         return false;
     }
-    if (ctx->keyboard.active) {
-        ctx->track.shift_latched = shift_now;
-        return false;
-    }
 
     if (ctx->track.active) {
         if (evt->has_button && evt->btn_id == UI_BTN_SEQ11 &&

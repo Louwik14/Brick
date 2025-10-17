@@ -76,6 +76,11 @@ void ui_mute_backend_cancel(void);
  */
 void ui_mute_backend_publish_state(void);
 
+/**
+ * @brief Purge toutes les préparations PMUTE sans toucher aux états MUTE réels.
+ */
+void ui_mute_backend_clear(void);
+
 /* (Optionnel) Getters pour debug ou UI future : */
 bool ui_mute_backend_is_muted(uint8_t track);
 bool ui_mute_backend_is_prepared(uint8_t track);
