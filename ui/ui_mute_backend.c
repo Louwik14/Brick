@@ -99,6 +99,15 @@ void ui_mute_backend_cancel(void) {
     }
 }
 
+void ui_mute_backend_clear(void) {
+    for (uint8_t i = 0; i < NUM_TRACKS; ++i) {
+        if (s_pmute_prepare[i]) {
+            s_pmute_prepare[i] = false;
+            ui_led_backend_post_event(UI_LED_EVENT_PMUTE_STATE, i, false);
+        }
+    }
+}
+
 /* ======================================================================
  * GETTERS (optionnels)
  * ====================================================================== */

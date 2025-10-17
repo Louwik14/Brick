@@ -47,10 +47,8 @@ void ui_led_backend_set_track_present(uint8_t track_index, bool present)
 }
 
 /* -------------------------------------------------------------------------- */
-/* Stubs for mute backend / timing                                            */
+/* Timing stubs                                                                */
 /* -------------------------------------------------------------------------- */
-
-void ui_mute_backend_publish_state(void) {}
 
 static systime_t g_fake_time;
 

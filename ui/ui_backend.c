@@ -44,6 +44,7 @@
 #include "ui_keyboard_app.h"
 #include "ui_controller.h"
 #include "kbd_input_mapper.h"
+#include "ui_mode_transition.h"
 
 #include "midi.h"                /* midi_note_on/off(), midi_cc() */
 
@@ -57,6 +58,7 @@
 /* -------------------------------------------------------------------------- */
 
 static CCM_DATA ui_mode_context_t s_mode_ctx;
+static seq_mode_t s_active_seq_mode = SEQ_MODE_DEFAULT;
 static char s_mode_label[8] = "SEQ";
 
 static const ui_cart_spec_t *s_seq_mode_spec_banner   = &seq_ui_spec;
@@ -152,6 +154,13 @@ static void _update_seq_runtime_from_bridge(void) {
 }
 
 void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
+    ui_mode_transition_t transition;
+    ui_mode_transition_begin(&transition, s_active_seq_mode, new_mode,
+                             "ui_led_refresh_state_on_mode_change");
+
+    ui_mode_reset_context(&s_mode_ctx, new_mode);
+    ui_mode_transition_mark_ui_synced(&transition);
+
     ui_led_mode_t led_mode = UI_LED_MODE_SEQ;
 
     switch (new_mode) {
@@ -176,9 +185,16 @@ void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
     }
 
     ui_led_backend_set_mode(led_mode);
+    ui_mode_transition_mark_led_synced(&transition);
+
     seq_led_bridge_publish();
+    ui_mode_transition_mark_seq_synced(&transition);
+
     ui_mute_backend_publish_state();
     ui_led_backend_refresh();
+
+    ui_mode_transition_commit(&transition);
+    s_active_seq_mode = new_mode;
 }
 
 void ui_track_mode_enter(void) {
@@ -189,9 +205,12 @@ void ui_track_mode_enter(void) {
 
     s_mode_ctx.track.active = true;
     s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
+    s_mode_ctx.overlay_active  = false;
+    s_mode_ctx.overlay_id      = UI_OVERLAY_NONE;
+    s_mode_ctx.overlay_submode = 0u;
 
-    _set_mode_label("track");
-    ui_overlay_update_banner_tag("track");
+    _set_mode_label("TRACK");
+    ui_overlay_update_banner_tag("TRACK");
     ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
     ui_mark_dirty();
 }
@@ -320,6 +339,8 @@ void ui_backend_process_input(const ui_input_event_t *evt) {
 }
 
 static void _apply_seq_overlay_cycle(void) {
+    ui_mode_reset_context(&s_mode_ctx, SEQ_MODE_DEFAULT);
+
     const ui_cart_spec_t *cart_spec = ui_overlay_get_host_cart();
     if (!cart_spec) {
         cart_spec = ui_get_cart();
@@ -356,6 +377,8 @@ static void _apply_seq_overlay_cycle(void) {
 }
 
 static void _apply_arp_overlay_cycle(void) {
+    ui_mode_reset_context(&s_mode_ctx, SEQ_MODE_DEFAULT);
+
     const ui_cart_spec_t *cart_spec = ui_overlay_get_host_cart();
     if (!cart_spec) {
         cart_spec = ui_get_cart();
@@ -403,6 +426,8 @@ static void _prepare_keyboard_specs(void) {
 }
 
 static void _apply_keyboard_overlay(void) {
+    ui_mode_reset_context(&s_mode_ctx, SEQ_MODE_DEFAULT);
+
     _prepare_keyboard_specs();
 
     const ui_cart_spec_t *current = ui_overlay_is_active() ? ui_overlay_get_spec() : NULL;
@@ -738,6 +763,14 @@ void ui_backend_init_runtime(void) {
     _update_seq_runtime_from_bridge();
 
     ui_led_backend_set_mode(UI_LED_MODE_SEQ);
+    s_active_seq_mode = SEQ_MODE_DEFAULT;
+
+    ui_mode_transition_t boot_transition;
+    ui_mode_transition_begin(&boot_transition, SEQ_MODE_DEFAULT, SEQ_MODE_DEFAULT, "boot");
+    ui_mode_transition_mark_ui_synced(&boot_transition);
+    ui_mode_transition_mark_led_synced(&boot_transition);
+    ui_mode_transition_mark_seq_synced(&boot_transition);
+    ui_mode_transition_commit(&boot_transition);
 }
 
 /* -------------------------------------------------------------------------- */

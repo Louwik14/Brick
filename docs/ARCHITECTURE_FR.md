@@ -45,6 +45,15 @@ Principes structurants :
 * `ui_led_seq.c` : renderer SEQ; applique le playhead absolu, distingue active/automation/muted.
 * `ui_renderer.c`, `ui_model.c`, `ui_input.c`, `ui_widgets.c`, `ui_overlay.c`, etc. : pipeline OLED et modèle UI.
 
+#### Hiérarchie des modes UI
+
+* **SEQ par défaut** : mode base, navigation pas/pages.
+* **Overlays SEQ / ARP** : affichage contextuel (MODE / SETUP) au-dessus du SEQ.
+* **Keyboard** : vitrine dédiée (octaves, sous-menu ARP) conservant l'état overlay.
+* **Track Select** : mode custom temporaire (SHIFT+BS11), priorité sur overlays/Keyboard.
+* **MUTE / PMUTE** : bascule d'écoute avec préparation et commit.
+* **Overlays additionnels** : s'insèrent sur la couche SEQ en respectant la réinitialisation centrale `ui_mode_reset_context()`.
+
 ### `cart/`
 * `cart_registry.c` : enregistre les specs de cartouche (XVA1), expose l’ID actif, stocke les identifiants uniques (`cart_registry_set_uid`) utilisés pour remapper les patterns sauvegardés.
 * `cart_xva1_spec.c` : description complète de la cartouche (menus, cycles BM, ID de paramètres).
@@ -109,14 +118,14 @@ Principes structurants :
 2. `ui_mute_backend_toggle_prepare()` émet `UI_LED_EVENT_PMUTE_STATE` pour chaque track préparée ; `ui_mute_backend_commit()` / `ui_mute_backend_cancel()` synchronisent respectivement l'état réel (`UI_LED_EVENT_MUTE_STATE`) ou nettoient l'aperçu.
 
 ### 4.6 Track Select (SHIFT+BS11)
-1. `ui_shortcut_map_process()` détecte **SHIFT + BS11** → `UI_SHORTCUT_ACTION_ENTER_TRACK_MODE`; la structure `ui_track_state_t` passe `active=true` et le bandeau affiche `track`.
+1. `ui_shortcut_map_process()` détecte **SHIFT + BS11** → `UI_SHORTCUT_ACTION_ENTER_TRACK_MODE`; la structure `ui_track_state_t` passe `active=true` et le bandeau affiche `TRACK` (réinitialisation centralisée via `ui_mode_reset_context()`).
 2. Pendant que `ctx->track.active` est vrai, les autres raccourcis SEQ (pages, overlays, p-locks) sont bloqués ; seules les grilles BS1..BS16 produisent `UI_SHORTCUT_ACTION_TRACK_SELECT`.
 3. `ui_track_select_from_bs()` délègue à `seq_led_bridge_select_track()` qui :
    - change la piste active dans `seq_project_t` ;
    - réinitialise les caches hold/preview et attache la nouvelle piste au runner/recorder ;
    - publie présence + focus via `ui_led_backend_set_track_present/focus()`.
-4. `ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK)` force `ui_led_backend` à rendre la grille 4×4 : piste active en vert, autres disponibles couleur cartouche, tracks absentes éteintes.
-5. SHIFT + BS11 à nouveau (ou relâcher SHIFT puis BS11) déclenche `UI_SHORTCUT_ACTION_EXIT_TRACK_MODE`, restaure le label précédent (`SEQ`, overlay ou keyboard) et réapplique `SEQ_MODE_DEFAULT` côté LEDs.
+4. `ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK)` force `ui_led_backend` à rendre la grille 4×4 : piste active en vert, autres disponibles couleur cartouche, tracks absentes éteintes. La transition passe par `ui_mode_transition_t`, garantissant la synchronisation UI → LEDs → moteur et la purge des aperçus PMUTE.
+5. SHIFT + BS11 à nouveau (ou tout changement d'overlay/custom) déclenche `UI_SHORTCUT_ACTION_EXIT_TRACK_MODE`, restaure le label précédent (`SEQ`, overlay ou keyboard) via `ui_mode_reset_context()` et réapplique `SEQ_MODE_DEFAULT` côté LEDs.
 
 ## 5. Politique MIDI et cartouches
 
@@ -130,7 +139,7 @@ Principes structurants :
 * `make -j8 all` : build complet embarqué via les règles ChibiOS.
 * `make clean` : nettoyage du répertoire `build/`.
 * `make lint-cppcheck` : exécute `cppcheck` sur `core/` et `ui/`.
-* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests` et `tests/ui_mode_transition_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
+* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests` et `tests/ui_mode_edgecase_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
 * Les stubs `tests/stubs/ch.h` fournissent les symboles ChibiOS manquants pour les tests host.
 
 ## 7. Points d'extension identifiés

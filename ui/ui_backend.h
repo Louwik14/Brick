@@ -129,6 +129,9 @@ typedef struct {
     ui_track_state_t     track;           /**< État du mode Track Select. */
 } ui_mode_context_t;
 
+/** Alias générique du contexte UI (utilisé par les helpers de transition). */
+typedef ui_mode_context_t ui_context_t;
+
 /**
  * @brief Modes séquenceur utilisés pour la synchronisation LED.
  */
@@ -161,6 +164,14 @@ const ui_mode_context_t* ui_backend_get_mode_context(void);
  *  - Toujours non NULL ; fallback "SEQ" si aucun mode n’est encore défini.
  */
 const char* ui_backend_get_mode_label(void);
+
+/**
+ * @brief Réinitialise les états runtime lors d'une transition de mode.
+ *
+ * @param ctx       Contexte UI à remettre à jour.
+ * @param next_mode Mode séquenceur demandé après la transition.
+ */
+void ui_mode_reset_context(ui_context_t *ctx, seq_mode_t next_mode);
 
 /**
  * @brief Traite un évènement d'entrée complet (bouton/encodeur).
