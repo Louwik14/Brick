@@ -57,6 +57,39 @@ static CCM_DATA THD_WORKING_AREA(waUI, UI_TASK_STACK);
 CCM_DATA volatile systime_t ui_task_last_tick = 0;
 static thread_t* s_ui_thread = NULL;
 
+#if DEBUG_ENABLE
+static CCM_DATA volatile uint32_t s_ui_loop_window_max_us = 0U;
+static CCM_DATA volatile uint32_t s_ui_loop_last_window_max_us = 0U;
+static CCM_DATA systime_t s_ui_loop_window_start = 0;
+
+static void _ui_task_update_loop_stats(systime_t start, systime_t end) {
+  const systime_t delta = end - start;
+  const uint32_t delta_us = (uint32_t)ST2US(delta);
+
+  if (delta_us > s_ui_loop_window_max_us) {
+    s_ui_loop_window_max_us = delta_us;
+  }
+
+  if (s_ui_loop_window_start == 0) {
+    s_ui_loop_window_start = start;
+  }
+
+  if ((end - s_ui_loop_window_start) >= TIME_S2I(10)) {
+    s_ui_loop_last_window_max_us = s_ui_loop_window_max_us;
+    s_ui_loop_window_max_us = 0U;
+    s_ui_loop_window_start = end;
+  }
+}
+
+uint32_t ui_task_debug_get_loop_current_max_us(void) {
+  return s_ui_loop_window_max_us;
+}
+
+uint32_t ui_task_debug_get_loop_last_max_us(void) {
+  return s_ui_loop_last_window_max_us;
+}
+#endif
+
 /* ============================================================================
  * Horloge → LEDs (callback)
  * ==========================================================================*/
@@ -112,7 +145,12 @@ static THD_FUNCTION(UIThread, arg) {
   ui_input_event_t evt;
 
   for (;;) {
+#if DEBUG_ENABLE
+    const systime_t loop_start = chVTGetSystemTimeX();
+    const systime_t now = loop_start;
+#else
     const systime_t now = chVTGetSystemTimeX();
+#endif
     ui_task_last_tick = now;
     const bool got = ui_input_poll(&evt, TIME_MS2I(UI_TASK_POLL_MS));
 
@@ -132,6 +170,10 @@ static THD_FUNCTION(UIThread, arg) {
       ui_clear_dirty();
     }
 
+#if DEBUG_ENABLE
+    const systime_t loop_end = chVTGetSystemTimeX();
+    _ui_task_update_loop_stats(loop_start, loop_end);
+#endif
     chThdSleepMilliseconds(1);
   }
 }

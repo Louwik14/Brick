@@ -655,6 +655,20 @@
 #define CH_DBG_THREADS_PROFILING            FALSE
 #endif
 
+#if DEBUG_ENABLE
+#undef CH_DBG_SYSTEM_STATE_CHECK
+#define CH_DBG_SYSTEM_STATE_CHECK           TRUE
+#undef CH_DBG_ENABLE_STACK_CHECK
+#define CH_DBG_ENABLE_STACK_CHECK           TRUE
+#undef CH_DBG_FILL_THREADS
+#define CH_DBG_FILL_THREADS                 TRUE
+#undef CH_DBG_TRACE_MASK
+#define CH_DBG_TRACE_MASK                   CH_DBG_TRACE_MASK_THREADS
+#ifndef CH_DBG_ENABLE_TRACE
+#define CH_DBG_ENABLE_TRACE                 TRUE
+#endif
+#endif /* DEBUG_ENABLE */
+
 /** @} */
 
 /*===========================================================================*/

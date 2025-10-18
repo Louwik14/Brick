@@ -39,6 +39,7 @@
 #include "ui_controller.h"
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 #include "brick_config.h"
+#include "rt_diag.h"
 
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
@@ -51,15 +52,6 @@
 #endif
 
 extern CCM_DATA volatile systime_t ui_task_last_tick;
-
-#if CH_CFG_USE_REGISTRY && DEBUG_ENABLE
-__attribute__((weak)) void chThdDump(BaseSequentialStream *stream) {
-  if (stream != NULL) {
-    chprintf(stream, "[watchdog] chThdDump() stub\r\n");
-  }
-}
-#endif
-
 
 /* ===========================================================
  * INITIALISATION EN BLOCS
@@ -143,12 +135,22 @@ int main(void) {
 
     const systime_t now = chVTGetSystemTimeX();
     const systime_t last_ui = ui_task_last_tick;
+#if DEBUG_ENABLE
+    static systime_t last_diag = 0;
+    if ((now - last_diag) > TIME_S2I(5)) {
+      last_diag = now;
+      BaseSequentialStream *stream = (BaseSequentialStream *)&SD2;
+      chprintf(stream, "\r\n[diag] heartbeat=%lu\r\n", (unsigned long)ST2MS(now - last_ui));
+      rt_diag_dump_stats(stream);
+    }
+#endif
     if ((last_ui != 0) && ((now - last_ui) > TIME_MS2I(500))) {
 #if CH_CFG_USE_REGISTRY && DEBUG_ENABLE
       BaseSequentialStream *stream = (BaseSequentialStream *)&SD2;
       chprintf(stream, "\r\n[watchdog] UI stalled, dumping threads...\r\n");
-      chThdDump(stream);
+      rt_dump_threads(stream);
 #endif
+      rt_diag_record_panic_reason("UI stalled");
       panic("UI stalled");
     }
   }
