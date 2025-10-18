@@ -66,6 +66,9 @@ const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index);
 /*                   HELPERS BAS-NIVEAU (FRAMEBUFFER)                     */
 /* ====================================================================== */
 
+static void display_draw_text_inverted(const font_t *font, uint8_t x, uint8_t y, const char *txt);
+static void display_draw_text_inverted_box(const font_t *font, uint8_t x, uint8_t y, const char *txt);
+
 static inline void set_pixel(int x, int y, bool on) {
     if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
     uint8_t *buf = drv_display_get_buffer();
