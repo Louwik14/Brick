@@ -38,6 +38,10 @@ typedef enum {
   UI_LED_MODE_CUSTOM
 } ui_led_mode_t;
 
+#ifndef UI_LED_BACKEND_QUEUE_CAPACITY
+#define UI_LED_BACKEND_QUEUE_CAPACITY 64U
+#endif
+
 /* ===== API principale ===== */
 /** @brief Init du backend (driver + état visuel). */
 void ui_led_backend_init(void);
@@ -85,6 +89,14 @@ uint32_t ui_led_backend_debug_queue_drops(void);
 ui_led_mode_t ui_led_backend_debug_get_mode(void);
 bool ui_led_backend_debug_track_muted(uint8_t track);
 const led_state_t *ui_led_backend_debug_led_state(void);
+#endif
+
+#if DEBUG_ENABLE
+uint32_t ui_led_backend_get_post_fail_count(void);
+uint32_t ui_led_backend_get_high_watermark(void);
+#else
+static inline uint32_t ui_led_backend_get_post_fail_count(void) { return 0U; }
+static inline uint32_t ui_led_backend_get_high_watermark(void) { return 0U; }
 #endif
 
 #endif /* BRICK_UI_LED_BACKEND_H */
