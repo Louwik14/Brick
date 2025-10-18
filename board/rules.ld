@@ -1,11 +1,11 @@
 /* Stack rules inclusion.*/
-INCLUDE rules_stacks.ld
+INCLUDE "board/rules_stacks.ld"
 
 /* Code rules inclusion.*/
-INCLUDE rules_code.ld
+INCLUDE "board/rules_code.ld"
 
 /* Data rules inclusion.*/
-INCLUDE rules_data.ld
+INCLUDE "board/rules_data.ld"
 
 /* Memory rules inclusion.*/
-INCLUDE rules_memory.ld
+INCLUDE "board/rules_memory.ld"

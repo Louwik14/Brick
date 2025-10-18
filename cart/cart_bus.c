@@ -71,6 +71,7 @@ typedef struct {
  * Variables globales
  * =========================================================== */
 static CCM_DATA cart_port_t s_port[CART_COUNT];
+static uint8_t s_cart_frame[CART_COUNT][4];
 static uint16_t s_cart_mb_fill[CART_COUNT];
 static uint16_t s_cart_mb_high_water[CART_COUNT];
 cart_tx_stats_t    cart_stats[CART_COUNT];
@@ -117,12 +118,12 @@ static SerialDriver* map_uart(cart_id_t id) {
 /* ===========================================================
  * Thread d’émission
  * =========================================================== */
-static CCM_DATA THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
+static CCM_DATA THD_WORKING_AREA(waCartTx[CART_COUNT], 2048);
 
 static THD_FUNCTION(cart_tx_thread, arg) {
     const cart_id_t id = (cart_id_t)(uintptr_t)arg;
     cart_port_t *p = &s_port[id];
-    uint8_t frame[4];
+    uint8_t *frame = s_cart_frame[id];
 
 #if CH_CFG_USE_REGISTRY
     char name[16];

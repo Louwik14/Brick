@@ -26,7 +26,7 @@
     do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
 #endif
 
-#define SEQ_ENGINE_PLAYER_STACK_SIZE   768U
+#define SEQ_ENGINE_PLAYER_STACK_SIZE   4096U
 #define SEQ_ENGINE_MICRO_MAX           12
 #define SEQ_ENGINE_MICRO_DIVISOR       24
 
