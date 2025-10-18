@@ -21,7 +21,7 @@
 #define LED_PORT GPIOD
 #define LED_PIN  3
 
-static led_color_t led_buffer[NUM_ADRESS_LEDS];
+static CCM_DATA led_color_t led_buffer[NUM_ADRESS_LEDS];
 
 /* === Transmission bit à bit (ASM calibré 168 MHz) === */
 static inline void send_bit_asm(uint32_t mask_set, uint32_t mask_reset, int bit) {
@@ -120,7 +120,7 @@ void drv_leds_addr_set_color(int index, led_color_t color) {
  *                              API logique
  * ======================================================================= */
 
-led_state_t drv_leds_addr_state[NUM_ADRESS_LEDS];
+CCM_DATA led_state_t drv_leds_addr_state[NUM_ADRESS_LEDS];
 
 void drv_leds_addr_set(int index, led_color_t color, led_mode_t mode) {
     if (index < 0 || index >= NUM_ADRESS_LEDS) return;

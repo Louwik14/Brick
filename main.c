@@ -38,11 +38,28 @@
 #include "ui_spec.h"
 #include "ui_controller.h"
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
+#include "brick_config.h"
 
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
 #include "midi.h"
 #include "midi_clock.h"
+
+#if DEBUG_ENABLE
+#include "chprintf.h"
+#include "chdebug.h"
+#endif
+
+extern CCM_DATA volatile systime_t ui_task_last_tick;
+
+#if CH_CFG_USE_REGISTRY && DEBUG_ENABLE
+__attribute__((weak)) void chThdDump(BaseSequentialStream *stream) {
+  if (stream != NULL) {
+    chprintf(stream, "[watchdog] chThdDump() stub\r\n");
+  }
+}
+#endif
+
 
 /* ===========================================================
  * INITIALISATION EN BLOCS
@@ -122,7 +139,17 @@ int main(void) {
   ui_task_start();
 
   while (true) {
-    // --- FIX: le thread UI gère désormais le rafraîchissement LED pour éviter les doubles rendus ---
     chThdSleepMilliseconds(20);
+
+    const systime_t now = chVTGetSystemTimeX();
+    const systime_t last_ui = ui_task_last_tick;
+    if ((last_ui != 0) && ((now - last_ui) > TIME_MS2I(500))) {
+#if CH_CFG_USE_REGISTRY && DEBUG_ENABLE
+      BaseSequentialStream *stream = (BaseSequentialStream *)&SD2;
+      chprintf(stream, "\r\n[watchdog] UI stalled, dumping threads...\r\n");
+      chThdDump(stream);
+#endif
+      panic("UI stalled");
+    }
   }
 }
