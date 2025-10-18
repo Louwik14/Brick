@@ -8,6 +8,7 @@
 #include "apps/seq_led_bridge.h"
 #include "apps/ui_keyboard_app.h"
 #include "apps/seq_recorder.h"
+#include "core/seq/seq_engine.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_live_capture.h"
 #include "core/clock_manager.h"
@@ -27,6 +28,54 @@ static uint8_t g_keyboard_last_note_on;
 static uint8_t g_keyboard_last_note_off;
 static ui_led_mode_t g_keyboard_led_mode;
 static bool g_keyboard_led_omni;
+static thread_t g_stub_thread;
+
+/* ===== Basic ChibiOS stubs =============================================== */
+
+void chMtxObjectInit(mutex_t *mtx) {
+    (void)mtx;
+}
+
+void chMtxLock(mutex_t *mtx) {
+    (void)mtx;
+}
+
+void chMtxUnlock(mutex_t *mtx) {
+    (void)mtx;
+}
+
+void chBSemObjectInit(binary_semaphore_t *sem, bool taken) {
+    if (sem != NULL) {
+        sem->taken = taken;
+    }
+}
+
+msg_t chBSemWaitTimeout(binary_semaphore_t *sem, systime_t timeout) {
+    (void)sem;
+    (void)timeout;
+    return MSG_OK;
+}
+
+void chBSemSignal(binary_semaphore_t *sem) {
+    (void)sem;
+}
+
+thread_t *chThdCreateStatic(void *wa, size_t size, tprio_t prio, tfunc_t func, void *arg) {
+    (void)wa;
+    (void)size;
+    (void)prio;
+    (void)func;
+    (void)arg;
+    return &g_stub_thread;
+}
+
+void chThdWait(thread_t *thread) {
+    (void)thread;
+}
+
+void chRegSetThreadName(const char *name) {
+    (void)name;
+}
 
 systime_t chVTGetSystemTimeX(void) {
     return g_stub_time;
@@ -318,6 +367,110 @@ static void test_live_capture_records_length(void) {
     assert(has_length_plock);
 }
 
+static void test_live_capture_ignores_orphan_note_off(void) {
+    seq_model_pattern_t pattern;
+    seq_model_pattern_init(&pattern);
+
+    seq_live_capture_t capture;
+    seq_live_capture_config_t cfg = { .pattern = &pattern };
+    seq_live_capture_init(&capture, &cfg);
+    seq_live_capture_set_recording(&capture, true);
+
+    clock_step_info_t info = {
+        .now = 0,
+        .step_idx_abs = 0,
+        .bpm = 120.0f,
+        .tick_st = 100,
+        .step_st = 600,
+        .ext_clock = false
+    };
+    seq_live_capture_update_clock(&capture, &info);
+
+    seq_live_capture_input_t off = {
+        .type = SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF,
+        .timestamp = 50,
+        .note = 64,
+        .velocity = 0,
+        .voice_index = 0
+    };
+
+    seq_live_capture_plan_t plan;
+    assert(seq_live_capture_plan_event(&capture, &off, &plan));
+    assert(!seq_live_capture_commit_plan(&capture, &plan));
+
+    seq_model_step_t *step = &pattern.steps[plan.step_index];
+    assert(!seq_model_step_has_playable_voice(step));
+    assert(!seq_model_step_has_any_plock(step));
+}
+
+static void test_seq_engine_quick_step_consecutive_notes(void) {
+    seq_model_pattern_t pattern;
+    seq_model_pattern_init(&pattern);
+
+    seq_model_voice_t voice;
+    seq_model_voice_init(&voice, true);
+    voice.state = SEQ_MODEL_VOICE_ENABLED;
+    voice.velocity = 100U;
+    voice.note = 60U;
+    voice.length = 0U;
+    assert(seq_model_step_set_voice(&pattern.steps[0], 0U, &voice));
+
+    voice.note = 62U;
+    assert(seq_model_step_set_voice(&pattern.steps[1], 0U, &voice));
+
+    seq_engine_t engine;
+    seq_engine_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.pattern = &pattern;
+    seq_engine_init(&engine, &config);
+    engine.clock_attached = true;
+
+    clock_step_info_t info = {
+        .now = 0,
+        .step_idx_abs = 0,
+        .bpm = 120.0f,
+        .tick_st = 100,
+        .step_st = 600,
+        .ext_clock = false
+    };
+
+    seq_engine_process_step(&engine, &info);
+
+    info.step_idx_abs = 1;
+    info.now = 600;
+    seq_engine_process_step(&engine, &info);
+
+    size_t note_on_count = 0U;
+    bool first_note_seen = false;
+    bool second_note_seen = false;
+    bool guard_offset_applied = false;
+
+    seq_engine_event_t event;
+    while (seq_engine_scheduler_pop(&engine.scheduler, &event)) {
+        if (event.type == SEQ_ENGINE_EVENT_NOTE_ON) {
+            ++note_on_count;
+            if (note_on_count == 1U) {
+                assert(event.data.note_on.note == 60U);
+                assert(event.scheduled_time == 0U);
+                first_note_seen = true;
+            } else if (note_on_count == 2U) {
+                assert(event.data.note_on.note == 62U);
+                assert(event.scheduled_time == 600U);
+                second_note_seen = true;
+            }
+        } else if ((event.type == SEQ_ENGINE_EVENT_NOTE_OFF) &&
+                   (event.data.note_off.note == 60U)) {
+            guard_offset_applied = (event.scheduled_time > 0U);
+            assert(event.scheduled_time > 0U);
+        }
+    }
+
+    assert(note_on_count >= 2U);
+    assert(first_note_seen);
+    assert(second_note_seen);
+    assert(guard_offset_applied);
+}
+
 static void keyboard_sink_note_on(uint8_t ch, uint8_t note, uint8_t vel) {
     (void)ch;
     (void)vel;
@@ -368,6 +521,8 @@ int main(void) {
     test_seq_plock_keeps_velocity_and_length();
     test_seq_recorder_commits_length_and_led_state();
     test_live_capture_records_length();
+    test_live_capture_ignores_orphan_note_off();
+    test_seq_engine_quick_step_consecutive_notes();
     test_keyboard_note_off_does_not_emit_all_notes_off();
 
     printf("seq_hold_runtime_tests: OK\n");

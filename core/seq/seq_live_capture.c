@@ -199,12 +199,16 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         if (slot >= SEQ_MODEL_VOICES_PER_STEP) {
             slot = (plan->voice_index < SEQ_MODEL_VOICES_PER_STEP) ? plan->voice_index : 0U;
         }
-
-        size_t target_step = plan->step_index;
-        if ((slot < SEQ_MODEL_VOICES_PER_STEP) && capture->voices[slot].active) {
-            target_step = capture->voices[slot].step_index;
+        if (slot >= SEQ_MODEL_VOICES_PER_STEP) {
+            return false;
         }
-        target_step %= SEQ_MODEL_STEPS_PER_PATTERN;
+
+        seq_live_capture_t *state = capture;
+        if ((state == NULL) || !state->voices[slot].active) {
+            return false;
+        }
+
+        size_t target_step = state->voices[slot].step_index % SEQ_MODEL_STEPS_PER_PATTERN;
 
         seq_model_step_t *step = &capture->pattern->steps[target_step];
         const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
@@ -215,11 +219,9 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
             seq_model_voice_init(&voice, slot == 0U);
         }
 
-        const systime_t start_time_raw = capture->voices[slot].active ?
-                                          capture->voices[slot].start_time_raw : plan->input_time;
+        const systime_t start_time_raw = state->voices[slot].start_time_raw;
         const systime_t end_time_raw = plan->input_time;
-        const systime_t start_step_duration = capture->voices[slot].active ?
-                                              capture->voices[slot].step_duration : capture->clock_step_duration;
+        const systime_t start_step_duration = state->voices[slot].step_duration;
         const uint8_t length_steps = _seq_live_capture_compute_length_steps(capture,
                                                                             start_time_raw,
                                                                             end_time_raw,
@@ -241,9 +243,9 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                                       slot,
                                                       length_steps);
 
-        capture->voices[slot].active = false;
-        capture->voices[slot].note = 0U;
-        capture->voices[slot].start_time_raw = 0U;
+        state->voices[slot].active = false;
+        state->voices[slot].note = 0U;
+        state->voices[slot].start_time_raw = 0U;
 
         seq_model_gen_bump(&capture->pattern->generation);
         return true;

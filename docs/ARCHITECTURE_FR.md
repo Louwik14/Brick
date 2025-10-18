@@ -31,7 +31,7 @@ Principes structurants :
 * `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
 ### `apps/`
-* `seq_engine_runner.c` : instancie `seq_engine`, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
+* `seq_engine_runner.c` : instancie un `seq_engine_t` par piste active, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
 * `seq_led_bridge.c` : conserve un snapshot `seq_model_pattern_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
 * `seq_recorder.c` : relie `ui_keyboard_bridge` au live capture, maintient les voix actives pour mesurer les longueurs de note.
 * `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---
@@ -77,7 +77,7 @@ SEQ
 
 ### `tests/`
 * `seq_model_tests.c` : tests unitaires du modèle.
-* `seq_hold_runtime_tests.c` : tests host intégrant `seq_led_bridge`, `seq_live_capture` et les chemins hold/preview.
+* `seq_hold_runtime_tests.c` : tests host intégrant `seq_led_bridge`, `seq_live_capture` et les chemins hold/preview, incluant les assertions sur le recalage NOTE_OFF des quick-steps et l’ignorance des NOTE_OFF orphelins.
 * `tests/stubs/ch.h` : stubs ChibiOS pour la compilation host.
 
 ## 3. Dépendances clés et interfaces
@@ -109,7 +109,7 @@ SEQ
    * Paramètres cart (`UI_DEST_CART`) ⇒ `seq_led_bridge_apply_cart_param()` enregistre les p-locks cart dans les steps maintenus.
 3. À la release, `seq_led_bridge_end_plock_preview()` et `_hold_sync_mask()` committent les steps stagés, recalculent le `seq_runtime_t` et forcent `seq_led_bridge_publish()` pour rafraîchir les LED.
 4. Les steps verts (actifs ou contenant des p-locks SEQ) conservent leur note et leur vélocité (`seq_model_step_make_neutral()`), les steps bleus (automation pure) ont vélocité voix1 = 0.
-5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback.
+5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback, et les NOTE_OFF sont recalés pour garantir qu'un pas activé juste après un autre reste audible.
 
 ### 4.3 Lecture et classification
 * `seq_led_bridge_publish()` agrège le pattern et renseigne `seq_runtime_t.steps[]` : `active`, `automation`, `muted`.
@@ -122,6 +122,7 @@ SEQ
 3. `sink_note_on()` route soit directement vers `seq_recorder_handle_note_on_at()` + `ui_backend_note_on()` (ARP OFF), soit vers `arp_note_input()` (ARP ON). Les accords omnichord/ARP partagent désormais le même timestamp système (burst ≤1 ms) afin d'éviter les micro-retards entre voix enregistrées. Le moteur planifie swing/strum/repeat, applique l'intensité VelAcc et l'effet "harp strum" Omnichord (offsets millisecondes, alternance Up/Down, randomisation douce des vélocités) avant de renvoyer les notes générées via ses callbacks, qui continuent d'alimenter le recorder avant l'émission MIDI. // --- ARP FIX: strum naturel ---
 4. `sink_note_off()` applique la même logique (direct MIDI ou `arp_note_input(..., pressed=false)`), garantissant que l'arrêt clavier provoque immédiatement les NOTE_OFF ou un `arp_stop_all()` si nécessaire. // --- ARP: gestion release ---
 5. `ui_keyboard_bridge_tick()` est appelé à chaque boucle UI (`systime_t now`) pour faire avancer `arp_engine` à haute résolution (BPM courant) et désenfiler les note-on/off planifiés.
+6. Les NOTE_OFF sans voice suivie sont ignorés par `seq_live_capture_commit_plan()` pour éviter les notes fantômes lors d’un overdub sur un pas laissé vide.
 
 ### 4.5 Modes MUTE / PMUTE
 1. Entrer en PMUTE (`UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE`) bascule le backend LED en mode MUTE, republie l'état courant via `ui_mute_backend_publish_state()` et garantit que les LED reflètent immédiatement les tracks préparées ou commitées.
@@ -147,7 +148,7 @@ SEQ
 * `make -j8 all` : build complet embarqué via les règles ChibiOS.
 * `make clean` : nettoyage du répertoire `build/`.
 * `make lint-cppcheck` : exécute `cppcheck` sur `core/` et `ui/`.
-* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests` et `tests/ui_mode_edgecase_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
+* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests` et `tests/ui_mode_edgecase_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`, et vérifie au passage les régressions quick-step / live capture.
 * `tests/ui_track_pmute_regression_tests.c` : scénario complet Track overlay + QUICK/PMute, exécuté via `make check-host` avec stubs LED/flash dédiés. 【F:tests/ui_track_pmute_regression_tests.c†L1-L102】【F:Makefile†L307-L320】
 * Les stubs `tests/stubs/ch.h` fournissent les symboles ChibiOS manquants pour les tests host.
 
@@ -157,7 +158,7 @@ SEQ
 * **Système de projets** : `seq_project_save()/load()` et `seq_pattern_save()/load()` permettent de sérialiser les 16 banques × 16 patterns dans la flash externe (1 Mo par projet) en conservant les cartouches (`cart_id`) et en remappant automatiquement les slots disponibles.
 * **Nouveaux modes UI** : `ui_backend.c` gère les overlays via `ui_overlay.h` et `ui_shortcuts`. Ajouter un mode implique de fournir un `ui_cart_spec_t` et de mettre à jour les cycles BM dans `ui_controller.c`.
 * **Cartouches supplémentaires** : enregistrer une nouvelle spec via `cart_registry_register()` et fournir les mappings `ui_spec`/`cart_link`.
-* **Tests runtime** : `tests/seq_hold_runtime_tests.c` montre comment instrumenter `seq_led_bridge_apply_plock_param()` et `seq_live_capture_commit_plan()` sans RTOS.
+* **Tests runtime** : `tests/seq_hold_runtime_tests.c` montre comment instrumenter `seq_led_bridge_apply_plock_param()` et `seq_live_capture_commit_plan()` sans RTOS, et expose désormais un harness minimal pour `seq_engine_process_step()` (multi-voix rapide).
 
 ## 8. Éléments obsolètes ou redondants
 

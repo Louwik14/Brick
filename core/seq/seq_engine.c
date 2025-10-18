@@ -625,7 +625,16 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
             int64_t t_on_raw = (int64_t)step_start + _seq_engine_micro_to_delta(step_duration, micro);
             const systime_t note_on_time = _seq_engine_saturate_time(t_on_raw);
             int64_t t_off_raw = t_on_raw + ((int64_t)step_duration * (int64_t)length_steps);
-            const systime_t note_off_time = _seq_engine_saturate_time(t_off_raw);
+            systime_t note_off_time = _seq_engine_saturate_time(t_off_raw);
+            if (note_off_time <= note_on_time) {
+                const int64_t guard = (int64_t)note_on_time + 1;
+                const systime_t bumped = _seq_engine_saturate_time(guard);
+                if (bumped > note_on_time) {
+                    note_off_time = bumped;
+                } else if ((systime_t)(note_on_time + 1U) > note_on_time) {
+                    note_off_time = (systime_t)(note_on_time + 1U);
+                }
+            }
 
             seq_engine_event_t ev;
             memset(&ev, 0, sizeof(ev));

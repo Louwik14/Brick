@@ -14,6 +14,7 @@
 #include "ch.h"
 #include "midi.h"
 #include "seq_engine.h"
+#include "seq_led_bridge.h"
 #include "ui_mute_backend.h"
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -41,7 +42,16 @@
 #define SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS 24U
 #endif
 
-static CCM_DATA seq_engine_t s_engine;
+#ifndef SEQ_ENGINE_RUNNER_TRACK_CAPACITY
+#define SEQ_ENGINE_RUNNER_TRACK_CAPACITY SEQ_PROJECT_MAX_TRACKS
+#endif
+
+typedef struct {
+    bool active;
+    uint8_t track;
+    seq_model_pattern_t *pattern;
+    seq_engine_t engine;
+} seq_engine_runner_track_ctx_t;
 
 typedef struct {
     bool active;
@@ -52,6 +62,9 @@ typedef struct {
 } seq_engine_runner_plock_state_t;
 
 static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
+static CCM_DATA seq_engine_runner_track_ctx_t s_tracks[SEQ_ENGINE_RUNNER_TRACK_CAPACITY];
+static seq_engine_runner_track_ctx_t *s_current_track_ctx;
+static seq_engine_callbacks_t s_runner_callbacks;
 
 static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time);
 static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time);
@@ -61,34 +74,83 @@ static uint8_t _runner_clamp_u8(int16_t value);
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id);
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
+static seq_engine_runner_track_ctx_t *_runner_find_track_ctx(uint8_t track);
+static seq_engine_runner_track_ctx_t *_runner_acquire_track_ctx(uint8_t track);
+static uint8_t _runner_resolve_track_index(seq_model_pattern_t *pattern);
 
 void seq_engine_runner_init(seq_model_pattern_t *pattern) {
-    seq_engine_callbacks_t callbacks = {
-        .note_on = _runner_note_on_cb,
-        .note_off = _runner_note_off_cb,
-        .plock = _runner_plock_cb
-    };
+    s_runner_callbacks.note_on = _runner_note_on_cb;
+    s_runner_callbacks.note_off = _runner_note_off_cb;
+    s_runner_callbacks.plock = _runner_plock_cb;
 
-    seq_engine_config_t config = {
-        .pattern = pattern,
-        .callbacks = callbacks,
-        .is_track_muted = _runner_track_muted
-    };
-
-    seq_engine_init(&s_engine, &config);
+    memset(s_tracks, 0, sizeof(s_tracks));
     memset(s_plock_state, 0, sizeof(s_plock_state));
+    s_current_track_ctx = NULL;
+
+    seq_project_t *project = seq_led_bridge_get_project();
+    if (project != NULL) {
+        const uint8_t count = seq_project_get_track_count(project);
+        for (uint8_t t = 0U; t < count; ++t) {
+            seq_model_pattern_t *track_pattern = seq_project_get_track(project, t);
+            if (track_pattern != NULL) {
+                seq_engine_runner_attach_pattern(track_pattern);
+            }
+        }
+    } else if (pattern != NULL) {
+        seq_engine_runner_attach_pattern(pattern);
+    }
 }
 
 void seq_engine_runner_attach_pattern(seq_model_pattern_t *pattern) {
-    seq_engine_attach_pattern(&s_engine, pattern);
+    if (pattern == NULL) {
+        return;
+    }
+
+    uint8_t track = _runner_resolve_track_index(pattern);
+    if (track >= SEQ_ENGINE_RUNNER_TRACK_CAPACITY) {
+        if (seq_led_bridge_get_project_const() != NULL) {
+            return;
+        }
+        track = 0U;
+    }
+
+    seq_engine_runner_track_ctx_t *ctx = _runner_find_track_ctx(track);
+    if (ctx == NULL) {
+        ctx = _runner_acquire_track_ctx(track);
+        if (ctx == NULL) {
+            return;
+        }
+        seq_engine_config_t config = {
+            .pattern = pattern,
+            .callbacks = s_runner_callbacks,
+            .is_track_muted = _runner_track_muted
+        };
+        seq_engine_init(&ctx->engine, &config);
+    } else {
+        seq_engine_attach_pattern(&ctx->engine, pattern);
+    }
+
+    ctx->pattern = pattern;
 }
 
 void seq_engine_runner_on_transport_play(void) {
-    (void)seq_engine_start(&s_engine);
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_TRACK_CAPACITY; ++i) {
+        seq_engine_runner_track_ctx_t *ctx = &s_tracks[i];
+        if (!ctx->active || (ctx->pattern == NULL)) {
+            continue;
+        }
+        (void)seq_engine_start(&ctx->engine);
+    }
 }
 
 void seq_engine_runner_on_transport_stop(void) {
-    seq_engine_stop(&s_engine);
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_TRACK_CAPACITY; ++i) {
+        seq_engine_runner_track_ctx_t *ctx = &s_tracks[i];
+        if (!ctx->active || (ctx->pattern == NULL)) {
+            continue;
+        }
+        seq_engine_stop(&ctx->engine);
+    }
     cart_id_t cart = cart_registry_get_active_id();
     if (cart < CART_COUNT) {
         for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS; ++i) {
@@ -115,7 +177,15 @@ void seq_engine_runner_on_transport_stop(void) {
 }
 
 void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
-    seq_engine_process_step(&s_engine, info);
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_TRACK_CAPACITY; ++i) {
+        seq_engine_runner_track_ctx_t *ctx = &s_tracks[i];
+        if (!ctx->active || (ctx->pattern == NULL)) {
+            continue;
+        }
+        s_current_track_ctx = ctx;
+        seq_engine_process_step(&ctx->engine, info);
+    }
+    s_current_track_ctx = NULL;
 }
 
 static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
@@ -184,7 +254,57 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
 }
 
 static bool _runner_track_muted(uint8_t track) {
-    return ui_mute_backend_is_muted(track);
+    (void)track;
+    if (s_current_track_ctx == NULL) {
+        return false;
+    }
+    return ui_mute_backend_is_muted(s_current_track_ctx->track);
+}
+
+static seq_engine_runner_track_ctx_t *_runner_find_track_ctx(uint8_t track) {
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_TRACK_CAPACITY; ++i) {
+        seq_engine_runner_track_ctx_t *ctx = &s_tracks[i];
+        if (ctx->active && (ctx->track == track)) {
+            return ctx;
+        }
+    }
+    return NULL;
+}
+
+static seq_engine_runner_track_ctx_t *_runner_acquire_track_ctx(uint8_t track) {
+    seq_engine_runner_track_ctx_t *ctx = _runner_find_track_ctx(track);
+    if (ctx != NULL) {
+        return ctx;
+    }
+
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_TRACK_CAPACITY; ++i) {
+        ctx = &s_tracks[i];
+        if (!ctx->active) {
+            ctx->active = true;
+            ctx->track = track;
+            ctx->pattern = NULL;
+            memset(&ctx->engine, 0, sizeof(ctx->engine));
+            return ctx;
+        }
+    }
+
+    return NULL;
+}
+
+static uint8_t _runner_resolve_track_index(seq_model_pattern_t *pattern) {
+    const seq_project_t *project = seq_led_bridge_get_project_const();
+    if ((project == NULL) || (pattern == NULL)) {
+        return SEQ_ENGINE_RUNNER_TRACK_CAPACITY;
+    }
+
+    const uint8_t count = seq_project_get_track_count(project);
+    for (uint8_t t = 0U; t < count; ++t) {
+        if (seq_project_get_track_const(project, t) == pattern) {
+            return t;
+        }
+    }
+
+    return SEQ_ENGINE_RUNNER_TRACK_CAPACITY;
 }
 
 static uint8_t _runner_clamp_u8(int16_t value) {
