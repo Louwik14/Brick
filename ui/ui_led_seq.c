@@ -29,7 +29,7 @@ typedef struct {
     bool          has_tick;     /* Latch: vrai après 1er tick post-PLAY */
 } seq_renderer_t;
 
-static seq_renderer_t g;
+static CCM_DATA seq_renderer_t g;
 
 /* ============== Mapping logique (0..15) → LED physique =================== */
 static inline int _led_index_for_step(uint8_t s){

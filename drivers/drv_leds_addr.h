@@ -100,7 +100,7 @@ typedef struct {
 } led_state_t;
 
 /** @brief État logique global de chaque LED. */
-extern led_state_t drv_leds_addr_state[NUM_ADRESS_LEDS];
+extern CCM_DATA led_state_t drv_leds_addr_state[NUM_ADRESS_LEDS];
 
 /* =======================================================================
  *                              API MATÉRIELLE

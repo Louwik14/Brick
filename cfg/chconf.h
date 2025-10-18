@@ -604,7 +604,7 @@
  * @note    The default is @p CH_DBG_TRACE_MASK_DISABLED.
  */
 #if !defined(CH_DBG_TRACE_MASK)
-#define CH_DBG_TRACE_MASK                   CH_DBG_TRACE_MASK_DISABLED
+#define CH_DBG_TRACE_MASK                   CH_DBG_TRACE_MASK_SLOW
 #endif
 
 /**
@@ -627,7 +627,7 @@
  *          @p panic_msg variable set to @p NULL.
  */
 #if !defined(CH_DBG_ENABLE_STACK_CHECK)
-#define CH_DBG_ENABLE_STACK_CHECK           FALSE
+#define CH_DBG_ENABLE_STACK_CHECK           TRUE
 #endif
 
 /**

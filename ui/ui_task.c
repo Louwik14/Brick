@@ -44,7 +44,7 @@
 // #include "seq_led_bridge.h"
 
 #ifndef UI_TASK_STACK
-#define UI_TASK_STACK  (1024)
+#define UI_TASK_STACK  (6144)
 #endif
 #ifndef UI_TASK_PRIO
 #define UI_TASK_PRIO   (NORMALPRIO)
@@ -54,6 +54,7 @@
 #endif
 
 static CCM_DATA THD_WORKING_AREA(waUI, UI_TASK_STACK);
+CCM_DATA volatile systime_t ui_task_last_tick = 0;
 static thread_t* s_ui_thread = NULL;
 
 /* ============================================================================
@@ -88,6 +89,8 @@ static THD_FUNCTION(UIThread, arg) {
   chRegSetThreadName("UI");
 #endif
 
+  ui_task_last_tick = chVTGetSystemTimeX();
+
   /* 1) Init UI depuis la cart active */
   {
     cart_id_t active = cart_registry_get_active_id();
@@ -110,6 +113,7 @@ static THD_FUNCTION(UIThread, arg) {
 
   for (;;) {
     const systime_t now = chVTGetSystemTimeX();
+    ui_task_last_tick = now;
     const bool got = ui_input_poll(&evt, TIME_MS2I(UI_TASK_POLL_MS));
 
     if (got) {
