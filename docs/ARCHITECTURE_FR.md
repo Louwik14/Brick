@@ -48,12 +48,21 @@ Principes structurants :
 #### Hiérarchie des modes UI
 
 * **SEQ par défaut** : mode base, navigation pas/pages.
-* **Overlays SEQ / ARP** : affichage contextuel (MODE / SETUP) au-dessus du SEQ.
+* **Overlays SEQ / ARP** : affichage contextuel (MODE / SETUP) au-dessus du SEQ, avec bannière pilotée par `ui_overlay_prepare_banner()`.
 * **Keyboard** : vitrine dédiée (octaves, sous-menu ARP) conservant l'état overlay.
-* **Track Select** : mode custom temporaire (SHIFT+BS11), priorité sur overlays/Keyboard.
-* **MUTE / PMUTE** : bascule d'écoute avec préparation et commit.
+* **Track Select** : mode custom temporaire (SHIFT+BS11) qui force un placeholder neutre “TRACK”, neutralise overlays/Keyboard et commute le backend LED en `UI_LED_MODE_TRACK` avec suivi focus/cart. 【F:ui/ui_backend.c†L206-L244】【F:ui/ui_led_backend.c†L229-L336】
+* **MUTE / PMUTE** : bascule d'écoute avec préparation et commit ; LEDs SEQ reflètent uniquement les mutes réels, les prévisualisations restent confinées au mode Mute. 【F:apps/seq_led_bridge.c†L742-L753】
 * **Overlays additionnels** : s'insèrent sur la couche SEQ en respectant la réinitialisation centrale `ui_mode_reset_context()`.
-* Chaque transition publie un snapshot `UI_MODE_TRACE()` (mode précédent → suivant, `pmute.active`, `track.active`, tag overlay) pour corréler les couches UI/LED/engine lors des diagnostics. 【F:ui/ui_mode_transition.c†L46-L93】【F:ui/ui_backend.c†L168-L244】
+* Chaque transition publie un snapshot `UI_MODE_TRACE()` (mode précédent → suivant, `pmute.active`, `track.active`, tag overlay) pour corréler les couches UI/LED/engine ; la file LED journalise aussi les drops via `UI_LED_TRACE`. 【F:ui/ui_mode_transition.c†L46-L93】【F:ui/ui_backend.c†L168-L244】【F:ui/ui_led_backend.c†L20-L87】
+
+```
+SEQ
+ ├─ SHIFT+BS11 ──▶ TRACK (placeholder neutre)
+ │       └─ SHIFT+BS11 / overlay exit ──▶ SEQ
+ ├─ SHIFT+PLUS ──▶ QUICK MUTE ──(SHIFT maintenu)──▶ PMUTE
+ │       └─ relâche PLUS ──▶ retour SEQ (LEDs vertes)
+ └─ SHIFT+SEQx ──▶ Overlays SEQ / ARP ou Keyboard
+```
 
 ### `cart/`
 * `cart_registry.c` : enregistre les specs de cartouche (XVA1), expose l’ID actif, stocke les identifiants uniques (`cart_registry_set_uid`) utilisés pour remapper les patterns sauvegardés.
@@ -139,6 +148,7 @@ Principes structurants :
 * `make clean` : nettoyage du répertoire `build/`.
 * `make lint-cppcheck` : exécute `cppcheck` sur `core/` et `ui/`.
 * `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests` et `tests/ui_mode_edgecase_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
+* `tests/ui_track_pmute_regression_tests.c` : scénario complet Track overlay + QUICK/PMute, exécuté via `make check-host` avec stubs LED/flash dédiés. 【F:tests/ui_track_pmute_regression_tests.c†L1-L102】【F:Makefile†L307-L320】
 * Les stubs `tests/stubs/ch.h` fournissent les symboles ChibiOS manquants pour les tests host.
 
 ## 7. Points d'extension identifiés
