@@ -66,6 +66,9 @@ const ui_menu_spec_t* ui_resolve_menu(uint8_t bm_index);
 /*                   HELPERS BAS-NIVEAU (FRAMEBUFFER)                     */
 /* ====================================================================== */
 
+static void display_draw_text_inverted(const font_t *font, uint8_t x, uint8_t y, const char *txt);
+static void display_draw_text_inverted_box(const font_t *font, uint8_t x, uint8_t y, const char *txt);
+
 static inline void set_pixel(int x, int y, bool on) {
     if (x < 0 || x >= OLED_WIDTH || y < 0 || y >= OLED_HEIGHT) return;
     uint8_t *buf = drv_display_get_buffer();
@@ -113,6 +116,111 @@ static int text_width_px(const font_t *font, const char *s) {
     if (!font || !s) return 0;
     int n = (int)strlen(s);
     return (n <= 0) ? 0 : n * (font->width + font->spacing) - font->spacing;
+}
+
+static void _copy_project_name(const seq_project_t *project, char *dst, size_t dst_size) {
+    if (!dst || dst_size == 0U) {
+        return;
+    }
+    dst[0] = '\0';
+    if (!project) {
+        (void)snprintf(dst, dst_size, "%s", "PROJECT");
+        return;
+    }
+
+    size_t max_len = (size_t)SEQ_PROJECT_NAME_MAX;
+    size_t len = 0U;
+    while ((len < max_len) && (project->name[len] != '\0')) {
+        ++len;
+    }
+
+    if (len == 0U) {
+        (void)snprintf(dst, dst_size, "%s", "PROJECT");
+        return;
+    }
+
+    if (len >= dst_size) {
+        len = dst_size - 1U;
+    }
+
+    memcpy(dst, project->name, len);
+    dst[len] = '\0';
+}
+
+static void _draw_track_mode_placeholder(const seq_project_t *project,
+                                         const ui_mode_context_t *ctx) {
+    static const int frame_w = 31;
+    static const int frame_h = 37;
+    static const int x_offsets[4] = {0, 32, 65, 97};
+    const int y_frames = 16;
+
+    for (int slot = 0; slot < 4; ++slot) {
+        int x = x_offsets[slot];
+        int y = y_frames;
+        draw_rect_open_corners(x, y, frame_w, frame_h);
+
+        char label[12];
+        (void)snprintf(label, sizeof(label), "CART%d", slot + 1);
+        int tw_label = text_width_px(&FONT_4X6, label);
+        drv_display_draw_text_with_font(&FONT_4X6,
+                                        (uint8_t)(x + (frame_w - tw_label) / 2),
+                                        (uint8_t)(y + 3),
+                                        label);
+
+        for (int row = 0; row < 4; ++row) {
+            uint8_t track_idx = (uint8_t)(slot * 4 + row);
+            const seq_model_pattern_t *pattern =
+                (project != NULL) ? seq_project_get_track_const(project, track_idx) : NULL;
+            const bool present = (pattern != NULL);
+            const bool active = present && ctx && (track_idx == ctx->seq.track_index);
+
+            char line[12];
+            if (!present) {
+                (void)snprintf(line, sizeof(line), "--");
+            } else {
+                (void)snprintf(line, sizeof(line), "%cT%02u",
+                               active ? '>' : ' ',
+                               (unsigned)(track_idx + 1U));
+            }
+
+            int y_line = y + 10 + row * (FONT_4X6.height + 1);
+            if (active) {
+                int tw_line = text_width_px(&FONT_4X6, line);
+                draw_filled_rect(x + 2, y_line - 1, tw_line + 2, FONT_4X6.height + 2);
+                display_draw_text_inverted(&FONT_4X6,
+                                           (uint8_t)(x + 3),
+                                           (uint8_t)y_line,
+                                           line);
+            } else {
+                drv_display_draw_text_with_font(&FONT_4X6,
+                                                (uint8_t)(x + 3),
+                                                (uint8_t)y_line,
+                                                line);
+            }
+        }
+
+        char bs_hint[12];
+        (void)snprintf(bs_hint, sizeof(bs_hint), "BS%u-%u",
+                       (unsigned)(slot * 4U + 1U),
+                       (unsigned)(slot * 4U + 4U));
+        int tw_hint = text_width_px(&FONT_4X6, bs_hint);
+        int hint_y = y + frame_h - (FONT_4X6.height + 2);
+        if (hint_y < y + 20) {
+            hint_y = y + frame_h - (FONT_4X6.height + 1);
+        }
+        drv_display_draw_text_with_font(&FONT_4X6,
+                                        (uint8_t)(x + (frame_w - tw_hint) / 2),
+                                        (uint8_t)hint_y,
+                                        bs_hint);
+    }
+
+    const char *exit_hint = "SHIFT+BS11 EXIT";
+    int tw_exit = text_width_px(&FONT_4X6, exit_hint);
+    int exit_x = (OLED_WIDTH - tw_exit) / 2;
+    if (exit_x < 0) {
+        exit_x = 0;
+    }
+    drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)exit_x, 56, exit_hint);
 }
 
 /* Texte inversé (fond noir, texte blanc) */
@@ -218,6 +326,12 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     const seq_led_bridge_hold_view_t *hold_view = seq_led_bridge_get_hold_view();
     const bool hold_active = (hold_view != NULL) && hold_view->active && (hold_view->step_count > 0U);
 
+    const ui_mode_context_t *mode_ctx = ui_backend_get_mode_context();
+    const bool track_mode_active = (mode_ctx != NULL) && mode_ctx->track.active;
+    const seq_project_t *project = seq_led_bridge_get_project_const();
+    char project_name[SEQ_PROJECT_NAME_MAX + 1U];
+    _copy_project_name(project, project_name, sizeof(project_name));
+
     /* ===== Bandeau haut ===== */
 
     /* 1) Numéro de cartouche, à GAUCHE en inversé */
@@ -236,6 +350,9 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     const char *override_name = ui_overlay_get_banner_cart_override();
     if (override_name && override_name[0]) {
         cart_name = override_name;
+    }
+    if (track_mode_active && project_name[0] != '\0') {
+        cart_name = project_name;
     }
     if (cart_name && cart_name[0]) {
         drv_display_draw_text_with_font(&FONT_4X6, (uint8_t)x0_left, 0, cart_name);
@@ -265,7 +382,11 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     (void)tw_tag;  // --- FIX: idem pour le tag overlay ---
 
     /* === Titre du menu : centré entre fin (cart+tag) et zone note (~100 px) === */
-    snprintf(buf, sizeof(buf), "%s", menu->name ? menu->name : "");
+    const char *menu_title = menu->name ? menu->name : "";
+    if (track_mode_active && project_name[0] != '\0') {
+        menu_title = project_name;
+    }
+    snprintf(buf, sizeof(buf), "%s", menu_title);
 
     /* 1) Cadre à coins ouverts (esthétique : pas de pixels aux 4 coins) */
     draw_rect_open_corners(MENU_FRAME_X, MENU_FRAME_Y, MENU_FRAME_W, MENU_FRAME_H);
@@ -294,6 +415,12 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
     drv_display_draw_text_at_baseline(&FONT_4X6, 113, 15, "A-12");
 
+
+    if (track_mode_active) {
+        _draw_track_mode_placeholder(project, mode_ctx);
+        drv_display_update();
+        return;
+    }
 
     /* ===== 4 cadres paramètres ===== */
     const int frame_w = 31, frame_h = 37;
