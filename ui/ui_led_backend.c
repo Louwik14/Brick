@@ -15,6 +15,23 @@
 #include <string.h>
 #include "ch.h"
 #include "brick_config.h"
+#include "chsys.h"
+
+#if !defined(chVTIsSystemLocked)
+static inline bool chVTIsSystemLocked(void) {
+#if defined(port_get_lock_status) && defined(port_is_locked)
+    return port_is_locked(port_get_lock_status());
+#else
+    return false;
+#endif
+}
+#endif
+
+#if !defined(chSysIsInISR)
+static inline bool chSysIsInISR(void) {
+    return port_is_isr_context();
+}
+#endif
 #include "ui_led_backend.h"
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
@@ -302,7 +319,8 @@ void ui_led_backend_post_event(ui_led_event_t event, uint8_t index, bool state) 
     const ui_led_backend_evt_t evt = { event, index, state };
 
 #if DEBUG_ENABLE
-    chDbgAssert(!chIsIRQHandler(), "ui_led_backend_post_event: IRQ context");
+    chDbgAssert(!(chVTIsSystemLocked() || chSysIsInISR()),
+                "ui_led_backend_post_event: IRQ/System locked context");
 #endif
 
     chSysLock();
@@ -315,15 +333,22 @@ void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state
     const ui_led_backend_evt_t evt = { event, index, state };
 
 #if DEBUG_ENABLE
-    chDbgAssert(chIsIRQHandler() || chSchIsPreemptionEnabled() || chIsIdleThread(),
+    chDbgAssert(chSysIsInISR() || chVTIsSystemLocked() ||
+                    chSchIsPreemptionEnabled() || chIsIdleThread(),
                 "ui_led_backend_post_event_i: bad context");
 #endif
 
-    if (chIsIRQHandler()) {
+    const bool system_locked = chVTIsSystemLocked();
+    const bool in_isr = chSysIsInISR();
+
+    if (in_isr) {
         chSysLockFromISR();
         bool dropped = _queue_push_locked(&evt);
         _queue_update_stats_locked(dropped);
         chSysUnlockFromISR();
+    } else if (system_locked) {
+        bool dropped = _queue_push_locked(&evt);
+        _queue_update_stats_locked(dropped);
     } else {
         chSysLock();
         bool dropped = _queue_push_locked(&evt);
