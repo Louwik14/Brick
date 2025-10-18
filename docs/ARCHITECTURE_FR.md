@@ -120,14 +120,11 @@ Principes structurants :
 3. `ui_mode_reset_context()` conserve désormais le flag `mute_plus_down` lorsque la transition cible `SEQ_MODE_PMUTE`, ce qui permet au shortcut `SHIFT + +` de promouvoir correctement QUICK → PMUTE (relâche/reprise de SHIFT). Les actions QUICK / PMUTE / COMMIT / EXIT tracent l'état (`SHIFT`, `PLUS`, label actif) avant de déclencher `ui_led_refresh_state_on_mode_change()`. 【F:ui/ui_mode_transition.c†L46-L93】【F:ui/ui_backend.c†L467-L514】
 
 ### 4.6 Track Select (SHIFT+BS11)
-1. `ui_shortcut_map_process()` détecte **SHIFT + BS11** → `UI_SHORTCUT_ACTION_ENTER_TRACK_MODE`; la structure `ui_track_state_t` passe `active=true` et le bandeau affiche `TRACK` (réinitialisation centralisée via `ui_mode_reset_context()`).
-2. Pendant que `ctx->track.active` est vrai, les autres raccourcis SEQ (pages, overlays, p-locks) sont bloqués ; seules les grilles BS1..BS16 produisent `UI_SHORTCUT_ACTION_TRACK_SELECT`.
-3. `ui_track_select_from_bs()` délègue à `seq_led_bridge_select_track()` qui :
-   - change la piste active dans `seq_project_t` ;
-   - réinitialise les caches hold/preview et attache la nouvelle piste au runner/recorder ;
-   - publie présence + focus via `ui_led_backend_set_track_present/focus()`.
-4. `ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK)` force `ui_led_backend` à rendre la grille 4×4 : piste active en vert, autres disponibles couleur cartouche, tracks absentes éteintes. La transition passe par `ui_mode_transition_t`, garantissant la synchronisation UI → LEDs → moteur et la purge des aperçus PMUTE.
-5. SHIFT + BS11 à nouveau (ou tout changement d'overlay/custom) déclenche `UI_SHORTCUT_ACTION_EXIT_TRACK_MODE`, qui force désormais `_set_mode_label("SEQ")` / `_reset_overlay_banner_tags()` même si `track.active` est déjà tombé côté shortcuts, garantissant la remise à zéro de la bannière et du mode LED (`SEQ_MODE_DEFAULT`). 【F:ui/ui_backend.c†L210-L244】
+1. `ui_shortcut_map_process()` détecte **SHIFT + BS11** → `UI_SHORTCUT_ACTION_ENTER_TRACK_MODE`; `ui_track_mode_enter()` réactive le contexte (`ui_mode_reset_context(..., SEQ_MODE_TRACK)`), mémorise l'état SHIFT, rafraîchit le runtime via `_update_seq_runtime_from_bridge()` puis force le label custom "TRACK" et le mode LED `UI_LED_MODE_TRACK`. 【F:ui/ui_backend.c†L210-L226】
+2. Le renderer affiche immédiatement un **placeholder dédié** : le titre de menu reprend le nom du projet actif, le bandeau gauche et la grille 4×4 listent `CART1..4` avec les pistes disponibles (`--` si absentes) et la piste active inversée, tandis qu'un hint `SHIFT+BS11 EXIT` rappelle la sortie. Cette vitrine s'appuie sur `_copy_project_name()` et `_draw_track_mode_placeholder()` pour rester cohérente avec les données `seq_project_t`. 【F:ui/ui_renderer.c†L64-L141】【F:ui/ui_renderer.c†L204-L236】【F:ui/ui_renderer.c†L244-L261】
+3. Les pads BS sans SHIFT génèrent `UI_SHORTCUT_ACTION_TRACK_SELECT`; `ui_track_select_from_bs()` délègue à `seq_led_bridge_select_track()` qui commute la piste active, remappe la cartouche éventuelle et republie présence/focus côté LEDs avant d'actualiser le placeholder. 【F:ui/ui_backend.c†L256-L285】
+4. Les combinaisons **SHIFT + BSX** (overlays SEQ/ARP, Keyboard, Mute) appellent `_disarm_track_mode_if_active()` avant le changement de mode, ce qui garantit une transition fluide identique à SEQ/KEYBOARD : le label "TRACK" tombe, les LEDs repassent en mode cible et la trace `UI_MODE_TRACE()` capture la sortie. 【F:ui/ui_backend.c†L494-L575】
+5. SHIFT + BS11 (ou tout autre mode) déclenche `ui_track_mode_exit()` → `_set_mode_label("SEQ")`, rétablissement des overlays/keyboard au besoin et `ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT)` pour réaligner LEDs et trace. 【F:ui/ui_backend.c†L231-L248】
 
 ## 5. Politique MIDI et cartouches
 
