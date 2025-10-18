@@ -40,6 +40,7 @@
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 #include "brick_config.h"
 #include "rt_diag.h"
+#include "panic.h"
 
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
