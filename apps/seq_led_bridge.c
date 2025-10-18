@@ -65,13 +65,13 @@ typedef struct {
     seq_led_bridge_hold_view_t hold;    /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
-static CCM_DATA seq_project_t g_project;
+static seq_project_t g_project;
 
 #ifndef SEQ_LED_BRIDGE_TRACK_CAPACITY
 #define SEQ_LED_BRIDGE_TRACK_CAPACITY 2U
 #endif
 
-static CCM_DATA seq_model_pattern_t g_project_patterns[SEQ_LED_BRIDGE_TRACK_CAPACITY];
+static seq_model_pattern_t g_project_patterns[SEQ_LED_BRIDGE_TRACK_CAPACITY];
 static CCM_DATA seq_led_bridge_state_t g;
 
 static inline seq_project_t *_seq_led_bridge_project(void) {
