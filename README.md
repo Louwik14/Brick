@@ -410,6 +410,9 @@ int main(void) {
 - **Menus cycliques (BM)** : passés en **data-driven** via `ui_spec.h::cycles[]` (chargés automatiquement par `ui_controller`).  
   *Ex. XVA1 : BM8 → {FX1, FX2, FX3, FX4}, `resume=true`.*
 - **Mode SEQ overlay** : UI interne activée par `SHIFT+SEQ9`, bandeau cart **conservé**, sortie SEQ au **premier BM** (avec ou sans SHIFT).
+- **Quick-Step** : planification NOTE_OFF recalée pour conserver une durée minimale entre deux pas consécutifs même sans micro-offset (fin des steps "muets").
+- **REC live** : les NOTE_OFF ignorent désormais les pas sans voice armée, supprimant les notes fantômes lors d’un overdub sur un step vide.
+- **Runner multi-piste** : changement de track actif sans mute ne coupe plus les autres pistes, chaque piste dispose de son moteur `seq_engine_t` dédié.
 
 #### ⚠️ Points à garder en vigilance (court terme)
 
@@ -724,4 +727,4 @@ Les vérifications rapides à lancer avant une PR :
 
 - `make` — compilation firmware complète (nécessite le dépôt ChibiOS `../../chibios2111`).
 - `make lint-cppcheck` — analyse statique (`cppcheck`) des dossiers `core/` et `ui/`.
-- `make check-host` — exécute les tests hôtes (modèle SEQ, bridge hold/runtime, transitions UI, edge-cases) **et** la régression `ui_track_pmute_regression_tests` (overlay Track + QUICK/PMute) via stubs LED/flash.
+- `make check-host` — exécute les tests hôtes (modèle SEQ, bridge hold/runtime, transitions UI, edge-cases), la régression `ui_track_pmute_regression_tests` (overlay Track + QUICK/PMute) via stubs LED/flash **et** les garde-fous quick-step / live capture (note fantôme) dans `seq_hold_runtime_tests`.
