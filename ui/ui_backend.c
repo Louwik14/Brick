@@ -75,7 +75,6 @@ static void _set_mode_label(const char *label) {
     (void)snprintf(s_mode_label, sizeof(s_mode_label), "%s", label);
     s_mode_label[sizeof(s_mode_label) - 1U] = '\0';
     ui_model_set_active_overlay_tag(s_mode_label);
-    UI_MODE_TRACE("mode_label=%s", s_mode_label);
 }
 
 static void _reset_overlay_banner_tags(void) {
@@ -188,15 +187,6 @@ void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
     ui_led_backend_set_mode(led_mode);
     ui_mode_transition_mark_led_synced(&transition);
 
-    UI_MODE_TRACE("led_refresh prev=%d new=%d led_mode=%d mute_state=%d track=%d overlay=%d label=%s",
-                  (int)s_active_seq_mode,
-                  (int)new_mode,
-                  (int)led_mode,
-                  (int)s_mode_ctx.mute_state,
-                  s_mode_ctx.track.active ? 1 : 0,
-                  s_mode_ctx.overlay_active ? 1 : 0,
-                  ui_backend_get_mode_label());
-
     seq_led_bridge_publish();
     ui_mode_transition_mark_seq_synced(&transition);
 
@@ -209,7 +199,6 @@ void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
 
 void ui_track_mode_enter(void) {
     if (s_mode_ctx.track.active && s_active_seq_mode == SEQ_MODE_TRACK) {
-        UI_MODE_TRACE("track_enter_refresh track=%d seq_mode=%d", 1, (int)s_active_seq_mode);
         ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
         return;
     }
@@ -225,8 +214,6 @@ void ui_track_mode_enter(void) {
     _set_mode_label("TRACK");
     _reset_overlay_banner_tags();
     ui_overlay_update_banner_tag("TRACK");
-    UI_MODE_TRACE("track_enter shift=%d overlay=%d", s_mode_ctx.track.shift_latched ? 1 : 0,
-                  s_mode_ctx.overlay_active ? 1 : 0);
     ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
     ui_mark_dirty();
 }
@@ -247,11 +234,6 @@ void ui_track_mode_exit(void) {
         _reset_overlay_banner_tags();
     }
 
-    UI_MODE_TRACE("track_exit was_active=%d keyboard=%d overlay=%d label=%s",
-                  was_active ? 1 : 0,
-                  s_mode_ctx.keyboard.active ? 1 : 0,
-                  s_mode_ctx.overlay_active ? 1 : 0,
-                  ui_backend_get_mode_label());
     ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
     ui_mark_dirty();
 }
@@ -497,9 +479,6 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state = UI_MUTE_STATE_QUICK;
         _neutralize_overlay_for_mute();
         _set_mode_label("MUTE");
-        UI_MODE_TRACE("shortcut_enter_quick plus=%d shift=%d",
-                      s_mode_ctx.mute_plus_down ? 1 : 0,
-                      s_mode_ctx.mute_shift_latched ? 1 : 0);
         ui_led_refresh_state_on_mode_change(SEQ_MODE_PMUTE);
         ui_mark_dirty();
         break;
@@ -509,9 +488,6 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state = UI_MUTE_STATE_PMUTE;
         _neutralize_overlay_for_mute();
         _set_mode_label("PMUTE");
-        UI_MODE_TRACE("shortcut_enter_pmute plus=%d shift=%d",
-                      s_mode_ctx.mute_plus_down ? 1 : 0,
-                      s_mode_ctx.mute_shift_latched ? 1 : 0);
         ui_led_refresh_state_on_mode_change(SEQ_MODE_PMUTE); // --- FIX: re-synchroniser les LEDs préparées à chaque entrée PMUTE ---
         ui_mark_dirty();
         break;
@@ -523,9 +499,6 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         ui_mute_backend_cancel();
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
-        UI_MODE_TRACE("shortcut_exit_mute overlay=%d label=%s",
-                      s_mode_ctx.overlay_active ? 1 : 0,
-                      ui_backend_get_mode_label());
         ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;
@@ -543,9 +516,6 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         s_mode_ctx.mute_state = UI_MUTE_STATE_OFF;
         _reset_overlay_banner_tags();
         _restore_overlay_visuals_after_mute();
-        UI_MODE_TRACE("shortcut_commit_pmute overlay=%d label=%s",
-                      s_mode_ctx.overlay_active ? 1 : 0,
-                      ui_backend_get_mode_label());
         ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
         ui_mark_dirty();
         break;

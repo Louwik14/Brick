@@ -125,7 +125,8 @@ midi_tx_stats_t midi_tx_stats = {0};
 /**
  * @brief Zone de travail du thread de transmission USB-MIDI.
  */
-static CCM_DATA THD_WORKING_AREA(waMidiUsbTx, 512);
+static CCM_DATA THD_WORKING_AREA(waMidiUsbTx, 2048);
+static uint8_t midi_usb_tx_buf[MIDI_EP_SIZE];
 
 /**
  * @brief Thread d’agrégation et d’envoi USB-MIDI.
@@ -147,7 +148,7 @@ static THD_FUNCTION(thdMidiUsbTx, arg) {
 #if CH_CFG_USE_REGISTRY
   chRegSetThreadName("MIDI_USB_TX");
 #endif
-  uint8_t buf[64];
+  uint8_t *buf = midi_usb_tx_buf;
   size_t n = 0;
 
   while (true) {
@@ -161,7 +162,7 @@ static THD_FUNCTION(thdMidiUsbTx, arg) {
       buf[n++] = (uint8_t)((msg >> 8)  & 0xFF);
       buf[n++] = (uint8_t)( msg        & 0xFF);
 
-      if (n == sizeof(buf)) {
+      if (n == sizeof(midi_usb_tx_buf)) {
         if (usb_midi_tx_ready) {
           const systime_t tw = TIME_MS2I(MIDI_USB_TX_WAIT_MS);
           if (chBSemWaitTimeout(&tx_sem, tw) == MSG_OK) {

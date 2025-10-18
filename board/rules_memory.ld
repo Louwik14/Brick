@@ -172,18 +172,16 @@ SECTIONS
         __ram4_noinit__ = .;
         *(.ram4)
         *(.ram4.*)
-        . = ALIGN(4);
-        __ram4_free__ = .;
-    } > ram4
-
-    .ccmram (NOLOAD) : ALIGN(4)
-    {
         __ccmram_start__ = .;
         *(.ccmram)
         *(.ccmram.*)
         . = ALIGN(4);
         __ccmram_end__ = .;
+        . = ALIGN(4);
+        __ram4_free__ = .;
     } > ram4
+
+    ASSERT((__ccmram_end__ - __ccmram_start__) <= LENGTH(ram4), "CCM RAM overflow")
 
     .ram5_init : ALIGN(4)
     {

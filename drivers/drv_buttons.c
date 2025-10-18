@@ -97,7 +97,7 @@ static void sr_read_buttons(void) {
 /* ====================================================================== */
 
 /** @brief Thread responsable du scan périodique des boutons (~200 Hz). */
-static CCM_DATA THD_WORKING_AREA(waButtons, 512);
+static CCM_DATA THD_WORKING_AREA(waButtons, 2048);
 static THD_FUNCTION(ButtonsThread, arg) {
     (void)arg;
     chRegSetThreadName("Buttons");

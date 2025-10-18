@@ -37,15 +37,6 @@ static inline bool chSysIsInISR(void) {
 #include "drv_leds_addr.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
 
-#ifdef UI_DEBUG_TRACE_LED_BACKEND
-#include <stdio.h>
-#define UI_LED_TRACE(...)                                                              \
-    do { printf("[ui-led] "); printf(__VA_ARGS__); printf("\n"); } while (0)
-#else
-#define UI_LED_TRACE(...)                                                              \
-    do { (void)sizeof(#__VA_ARGS__); } while (0)
-#endif
-
 #ifndef NUM_STEPS
 #define NUM_STEPS 16
 #endif
@@ -76,65 +67,21 @@ static uint8_t s_evt_tail = 0U;
 static uint32_t s_queue_drop_count = 0U;
 #endif
 
-#if DEBUG_ENABLE
-static CCM_DATA volatile uint32_t s_evt_post_fail = 0U;
-static CCM_DATA volatile uint32_t s_evt_high_water = 0U;
-#endif
-
 static inline uint8_t _queue_next(uint8_t idx) {
     return (uint8_t)((idx + 1U) % UI_LED_BACKEND_QUEUE_CAPACITY);
 }
 
-static inline uint32_t _queue_used_locked(void) {
-    if (s_evt_tail >= s_evt_head) {
-        return (uint32_t)(s_evt_tail - s_evt_head);
-    }
-    return (uint32_t)(UI_LED_BACKEND_QUEUE_CAPACITY - (s_evt_head - s_evt_tail));
-}
-
-#if DEBUG_ENABLE
-static void _queue_update_stats_locked(bool dropped) {
-    const uint32_t used = _queue_used_locked();
-    uint32_t effective_used = used;
-    if (dropped && (effective_used < UI_LED_BACKEND_QUEUE_CAPACITY)) {
-        effective_used++;
-    }
-    if (effective_used > s_evt_high_water) {
-        s_evt_high_water = effective_used;
-    }
-    if (dropped) {
-        s_evt_post_fail++;
-        UI_LED_TRACE("queue_drop (used=%lu/%u)",
-                     (unsigned long)effective_used,
-                     (unsigned)UI_LED_BACKEND_QUEUE_CAPACITY);
-    }
-}
-#else
-#define _queue_update_stats_locked(dropped) do { (void)(dropped); } while (0)
-#endif
-
-static bool _queue_push_locked(const ui_led_backend_evt_t *evt) {
+static void _queue_push_locked(const ui_led_backend_evt_t *evt) {
     uint8_t next_tail = _queue_next(s_evt_tail);
-    bool dropped = false;
     if (next_tail == s_evt_head) {
         /* Saturation : drop le plus ancien pour éviter de bloquer. */
         s_evt_head = _queue_next(s_evt_head);
 #ifdef UI_LED_BACKEND_TESTING
         s_queue_drop_count++;
 #endif
-        dropped = true;
-        if (evt != NULL) {
-            UI_LED_TRACE("queue_drop event=%d index=%u state=%d",
-                         (int)evt->event,
-                         (unsigned)evt->index,
-                         evt->state ? 1 : 0);
-        } else {
-            UI_LED_TRACE("queue_drop event=unknown");
-        }
     }
     s_evt_queue[s_evt_tail] = *evt;
     s_evt_tail = next_tail;
-    return dropped;
 }
 
 static bool _queue_pop_locked(ui_led_backend_evt_t *evt) {
@@ -318,48 +265,39 @@ void ui_led_backend_init(void) {
 void ui_led_backend_post_event(ui_led_event_t event, uint8_t index, bool state) {
     const ui_led_backend_evt_t evt = { event, index, state };
 
-#if DEBUG_ENABLE
     chDbgAssert(!(chVTIsSystemLocked() || chSysIsInISR()),
                 "ui_led_backend_post_event: IRQ/System locked context");
-#endif
 
     chSysLock();
-    bool dropped = _queue_push_locked(&evt);
-    _queue_update_stats_locked(dropped);
+    _queue_push_locked(&evt);
     chSysUnlock();
 }
 
 void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state) {
     const ui_led_backend_evt_t evt = { event, index, state };
 
-#if DEBUG_ENABLE
     chDbgAssert(chSysIsInISR() || chVTIsSystemLocked() ||
                     chSchIsPreemptionEnabled() || chIsIdleThread(),
                 "ui_led_backend_post_event_i: bad context");
-#endif
 
     const bool system_locked = chVTIsSystemLocked();
     const bool in_isr = chSysIsInISR();
 
     if (in_isr) {
         chSysLockFromISR();
-        bool dropped = _queue_push_locked(&evt);
-        _queue_update_stats_locked(dropped);
+        _queue_push_locked(&evt);
         chSysUnlockFromISR();
     } else if (system_locked) {
-        bool dropped = _queue_push_locked(&evt);
-        _queue_update_stats_locked(dropped);
+        _queue_push_locked(&evt);
     } else {
         chSysLock();
-        bool dropped = _queue_push_locked(&evt);
-        _queue_update_stats_locked(dropped);
+        _queue_push_locked(&evt);
         chSysUnlock();
     }
 }
 
 void ui_led_backend_set_record_mode(bool active) { s_rec_active = active; }
 void ui_led_backend_set_mode(ui_led_mode_t mode) {
-    UI_LED_TRACE("set_mode %d->%d", (int)s_mode, (int)mode);
     s_mode = mode;
 }
 void ui_led_backend_set_cart_track_count(uint8_t cart_idx, uint8_t tracks) {
@@ -416,9 +354,4 @@ bool ui_led_backend_debug_track_muted(uint8_t track) {
     return (track < NUM_STEPS) ? s_track_muted[track] : false;
 }
 const led_state_t *ui_led_backend_debug_led_state(void) { return drv_leds_addr_state; }
-#endif
-
-#if DEBUG_ENABLE
-uint32_t ui_led_backend_get_post_fail_count(void) { return s_evt_post_fail; }
-uint32_t ui_led_backend_get_high_watermark(void) { return s_evt_high_water; }
 #endif

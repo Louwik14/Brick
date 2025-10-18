@@ -14,21 +14,6 @@ extern "C" {
 #endif
 
 /**
- * @brief Trace macro utilisée pour diagnostiquer les transitions de mode.
- *
- * Activez la compilation avec `-DUI_DEBUG_TRACE_MODE_TRANSITION` pour obtenir
- * un log textuel sur stdout (en environnement host) ou la sortie console.
- */
-#ifdef UI_DEBUG_TRACE_MODE_TRANSITION
-#include <stdio.h>
-#define UI_MODE_TRACE(fmt, ...) \
-    do { printf("[ui-mode] " fmt "\n", ##__VA_ARGS__); } while (0)
-#else
-#define UI_MODE_TRACE(fmt, ...) \
-    do { (void)sizeof(fmt); } while (0)
-#endif
-
-/**
  * @brief Snapshot runtime d'une transition de mode.
  */
 typedef struct {

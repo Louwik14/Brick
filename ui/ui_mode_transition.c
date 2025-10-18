@@ -32,10 +32,6 @@ void ui_mode_transition_begin(ui_mode_transition_t *transition,
     transition->seq_synced    = false;
 
     s_last_transition = *transition;
-    UI_MODE_TRACE("transition begin %d -> %d (%s)",
-                  (int)previous_mode,
-                  (int)next_mode,
-                  reason ? reason : "-");
 }
 
 void ui_mode_transition_mark_ui_synced(ui_mode_transition_t *transition)
@@ -45,8 +41,6 @@ void ui_mode_transition_mark_ui_synced(ui_mode_transition_t *transition)
     }
     transition->ui_synced = true;
     s_last_transition.ui_synced = true;
-    UI_MODE_TRACE("transition ui synced %d -> %d", (int)transition->previous_mode,
-                  (int)transition->next_mode);
 }
 
 void ui_mode_transition_mark_led_synced(ui_mode_transition_t *transition)
@@ -56,8 +50,6 @@ void ui_mode_transition_mark_led_synced(ui_mode_transition_t *transition)
     }
     transition->led_synced = true;
     s_last_transition.led_synced = true;
-    UI_MODE_TRACE("transition led synced %d -> %d", (int)transition->previous_mode,
-                  (int)transition->next_mode);
 }
 
 void ui_mode_transition_mark_seq_synced(ui_mode_transition_t *transition)
@@ -67,8 +59,6 @@ void ui_mode_transition_mark_seq_synced(ui_mode_transition_t *transition)
     }
     transition->seq_synced = true;
     s_last_transition.seq_synced = true;
-    UI_MODE_TRACE("transition seq synced %d -> %d", (int)transition->previous_mode,
-                  (int)transition->next_mode);
 }
 
 void ui_mode_reset_context(ui_context_t *ctx, seq_mode_t next_mode)
@@ -112,14 +102,6 @@ void ui_mode_reset_context(ui_context_t *ctx, seq_mode_t next_mode)
         }
     }
 
-    UI_MODE_TRACE("reset_context next=%d shift=%d plus=%d mute_state=%d track=%d overlay=%d tag=%s",
-                  (int)next_mode,
-                  shift_pressed ? 1 : 0,
-                  ctx->mute_plus_down ? 1 : 0,
-                  (int)ctx->mute_state,
-                  ctx->track.active ? 1 : 0,
-                  ctx->overlay_active ? 1 : 0,
-                  ui_model_get_active_overlay_tag());
 }
 
 void ui_mode_transition_commit(const ui_mode_transition_t *transition)
@@ -128,8 +110,6 @@ void ui_mode_transition_commit(const ui_mode_transition_t *transition)
         return;
     }
     s_last_transition = *transition;
-    UI_MODE_TRACE("transition commit %d -> %d", (int)transition->previous_mode,
-                  (int)transition->next_mode);
 }
 
 const ui_mode_transition_t *ui_mode_transition_last(void)

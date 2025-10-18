@@ -347,10 +347,6 @@ Façade unique : `drivers_init_all()` et `drivers_update_all()` dans `drivers.c/
 Exemples (actuels) :
 
 ```c
-/* Debug désactivé (pas de flux UART pour éviter les collisions avec MIDI DIN) */
-#define DEBUG_ENABLE 0
-#define debug_log(...) ((void)0)
-
 /* Cadence UI */
 #define UI_FRAME_INTERVAL_MS 16
 
@@ -406,7 +402,6 @@ int main(void) {
 - **Initialisation** : insertion explicite de `cart_link_init()` après `cart_registry_init()`.
 - **USB/MIDI** : ajout de `usb_device_start()`, `midi_init()`, `midi_clock_init()` dans l’ordre d’init avant l’UI.
 - **MIDI TX USB** : priorité dédiée `MIDI_USB_TX_PRIO (NORMALPRIO+1)` + **timeout** sur sémaphore d’EP IN (anti-deadlock).
-- **Debug UART** : **désactivé** (`DEBUG_ENABLE 0`) pour éviter toute collision avec **MIDI DIN (SD2)**.
 - **Menus cycliques (BM)** : passés en **data-driven** via `ui_spec.h::cycles[]` (chargés automatiquement par `ui_controller`).  
   *Ex. XVA1 : BM8 → {FX1, FX2, FX3, FX4}, `resume=true`.*
 - **Mode SEQ overlay** : UI interne activée par `SHIFT+SEQ9`, bandeau cart **conservé**, sortie SEQ au **premier BM** (avec ou sans SHIFT).

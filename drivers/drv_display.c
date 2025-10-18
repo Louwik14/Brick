@@ -23,7 +23,6 @@
 #include "ch.h"
 #include "hal.h"
 #include "brick_config.h"
-#include "chprintf.h"
 #include <string.h>
 
 /* ====================================================================== */
@@ -261,7 +260,7 @@ void drv_display_draw_char_in_box(const font_t *font, uint8_t x, uint8_t y, uint
 /**
  * @brief Thread d’affichage : met à jour l’écran à ~30 FPS.
  */
-static CCM_DATA THD_WORKING_AREA(waDisplay, 512);
+static CCM_DATA THD_WORKING_AREA(waDisplay, 2048);
 static THD_FUNCTION(displayThread, arg) {
     (void)arg;
     chRegSetThreadName("Display");
