@@ -219,6 +219,8 @@ void ui_track_mode_enter(void) {
     s_mode_ctx.overlay_id      = UI_OVERLAY_NONE;
     s_mode_ctx.overlay_submode = 0u;
 
+    _update_seq_runtime_from_bridge();
+
     _set_mode_label("TRACK");
     _reset_overlay_banner_tags();
     ui_overlay_update_banner_tag("TRACK");
@@ -477,6 +479,12 @@ static void _keyboard_toggle_submenu(void) {
     _apply_keyboard_overlay();
 }
 
+static void _disarm_track_mode_if_active(void) {
+    if (s_mode_ctx.track.active) {
+        ui_track_mode_exit();
+    }
+}
+
 static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
     if (!act) {
         return;
@@ -484,6 +492,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
 
     switch (act->type) {
     case UI_SHORTCUT_ACTION_ENTER_MUTE_QUICK:
+        _disarm_track_mode_if_active();
         s_mode_ctx.mute_state = UI_MUTE_STATE_QUICK;
         _neutralize_overlay_for_mute();
         _set_mode_label("MUTE");
@@ -495,6 +504,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         break;
 
     case UI_SHORTCUT_ACTION_ENTER_MUTE_PMUTE:
+        _disarm_track_mode_if_active();
         s_mode_ctx.mute_state = UI_MUTE_STATE_PMUTE;
         _neutralize_overlay_for_mute();
         _set_mode_label("PMUTE");
@@ -540,14 +550,17 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         break;
 
     case UI_SHORTCUT_ACTION_OPEN_SEQ_OVERLAY:
+        _disarm_track_mode_if_active();
         _apply_seq_overlay_cycle();
         break;
 
     case UI_SHORTCUT_ACTION_OPEN_ARP_OVERLAY:
+        _disarm_track_mode_if_active();
         _apply_arp_overlay_cycle();
         break;
 
     case UI_SHORTCUT_ACTION_OPEN_KBD_OVERLAY:
+        _disarm_track_mode_if_active();
         _apply_keyboard_overlay();
         break;
     case UI_SHORTCUT_ACTION_ENTER_TRACK_MODE:
@@ -560,6 +573,7 @@ static void _handle_shortcut_action(const ui_shortcut_action_t *act) {
         ui_track_select_from_bs(act->data.track.index);
         break;
     case UI_SHORTCUT_ACTION_KEYBOARD_TOGGLE_SUBMENU:
+        _disarm_track_mode_if_active();
         if (!ui_overlay_is_active() ||
             (ui_overlay_get_spec() != s_kbd_keyboard_spec_banner &&
              ui_overlay_get_spec() != s_kbd_arp_config_spec_banner)) {

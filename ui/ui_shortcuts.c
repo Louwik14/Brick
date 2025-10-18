@@ -130,21 +130,22 @@ static bool _map_track_mode(const ui_input_event_t *evt,
             return true;
         }
 
-        if (evt->has_button && _is_seq_pad(evt->btn_id)) {
+        if (evt->has_button && _is_seq_pad(evt->btn_id) && !shift_now) {
+            ui_shortcut_action_t *act = NULL;
             if (evt->btn_pressed) {
-                ui_shortcut_action_t *act =
-                    _push_action(res, UI_SHORTCUT_ACTION_TRACK_SELECT);
+                act = _push_action(res, UI_SHORTCUT_ACTION_TRACK_SELECT);
                 if (act) {
                     act->data.track.index = _seq_index(evt->btn_id);
                 }
             }
+            (void)act; /* act may be unused when !evt->btn_pressed */
             ctx->track.shift_latched = shift_now;
             res->consumed = true;
             return true;
         }
 
         ctx->track.shift_latched = shift_now;
-        return ctx->track.active;
+        return false;
     }
 
     if (evt->has_button && evt->btn_pressed && shift_now &&
@@ -165,9 +166,6 @@ static bool _map_overlays(const ui_input_event_t *evt,
                           ui_shortcut_map_result_t *res,
                           bool shift_now) {
     if (ctx->mute_state != UI_MUTE_STATE_OFF) {
-        return false;
-    }
-    if (ctx->track.active) {
         return false;
     }
     if (!evt->has_button || !evt->btn_pressed || !shift_now) {
