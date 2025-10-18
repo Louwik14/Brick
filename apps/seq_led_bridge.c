@@ -18,28 +18,6 @@
 #include "ui_mute_backend.h"
 #include "ui_led_backend.h"
 
-#ifdef BRICK_DEBUG_PLOCK
-#include "chprintf.h"
-#ifndef BRICK_DEBUG_PLOCK_STREAM
-#define BRICK_DEBUG_PLOCK_STREAM ((BaseSequentialStream *)NULL)
-#endif
-#endif
-
-#ifndef BRICK_DEBUG_PLOCK_LOG
-#ifdef BRICK_DEBUG_PLOCK
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { \
-        if (BRICK_DEBUG_PLOCK_STREAM != NULL) { \
-            chprintf(BRICK_DEBUG_PLOCK_STREAM, "[PLOCK][%s] param=%u value=%ld t=%lu\r\n", \
-                     (tag), (unsigned)(param), (long)(value), (unsigned long)(time)); \
-        } \
-    } while (0)
-#else
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
-#endif
-#endif
-
 #ifndef SEQ_MAX_PAGES
 #define SEQ_MAX_PAGES 16U
 #endif
@@ -1055,7 +1033,6 @@ void seq_led_bridge_plock_remove(uint8_t i) {
 }
 
 void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
-    BRICK_DEBUG_PLOCK_LOG("UI_HOLD_START", held_mask, 0, chVTGetSystemTimeX());
     _hold_sync_mask(held_mask & 0xFFFFu);
     _hold_update(g.page_hold_mask[g.visible_page]);
     seq_led_bridge_publish();
@@ -1064,7 +1041,6 @@ void seq_led_bridge_begin_plock_preview(uint16_t held_mask) {
 void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                                       int32_t value,
                                       uint16_t held_mask) {
-    BRICK_DEBUG_PLOCK_LOG("UI_ENCODER", param_id, value, chVTGetSystemTimeX());
     if ((g.visible_page >= SEQ_MAX_PAGES) || (param_id >= SEQ_HOLD_PARAM_COUNT)) {
         return;
     }
@@ -1213,7 +1189,6 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 }
 
 void seq_led_bridge_end_plock_preview(void) {
-    BRICK_DEBUG_PLOCK_LOG("UI_HOLD_COMMIT", g.hold.mask, 0, chVTGetSystemTimeX());
     _hold_sync_mask(0U);
     _hold_update(0U);
     seq_led_bridge_publish();
@@ -1244,7 +1219,6 @@ bool seq_led_bridge_hold_get_cart_param(uint16_t parameter_id,
 void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
                                      int32_t value,
                                      uint16_t held_mask) {
-    BRICK_DEBUG_PLOCK_LOG("UI_ENCODER_CART", parameter_id, value, chVTGetSystemTimeX());
     if (g.visible_page >= SEQ_MAX_PAGES) {
         return;
     }

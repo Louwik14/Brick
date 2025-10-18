@@ -17,23 +17,6 @@
 #include "seq_led_bridge.h"
 #include "ui_mute_backend.h"
 
-#ifdef BRICK_DEBUG_PLOCK
-#include "chprintf.h"
-#ifndef BRICK_DEBUG_PLOCK_STREAM
-#define BRICK_DEBUG_PLOCK_STREAM ((BaseSequentialStream *)NULL)
-#endif
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { \
-        if (BRICK_DEBUG_PLOCK_STREAM != NULL) { \
-            chprintf(BRICK_DEBUG_PLOCK_STREAM, "[PLOCK][%s] param=%u value=%u t=%lu\r\n", \
-                     (tag), (unsigned)(param), (unsigned)(value), (unsigned long)(time)); \
-        } \
-    } while (0)
-#else
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
-#endif
-
 #ifndef SEQ_ENGINE_RUNNER_MIDI_CHANNEL
 #define SEQ_ENGINE_RUNNER_MIDI_CHANNEL 0U
 #endif
@@ -159,7 +142,6 @@ void seq_engine_runner_on_transport_stop(void) {
                 continue;
             }
             if (slot->cart == cart) {
-                BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_RESTORE", slot->param_id, slot->previous, chVTGetSystemTimeX());
                 cart_link_param_changed(slot->param_id, slot->previous, false, 0U);
             }
             _runner_plock_release(slot);
@@ -230,7 +212,6 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
                 slot->depth++;
             }
         }
-        BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_APPLY", payload->parameter_id, value, scheduled_time);
         cart_link_param_changed(payload->parameter_id, value, false, 0U);
         break;
     }
@@ -239,7 +220,6 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
         if ((slot != NULL) && (slot->depth > 0U)) {
             slot->depth--;
             if (slot->depth == 0U) {
-                BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_RESTORE", payload->parameter_id, slot->previous, scheduled_time);
                 cart_link_param_changed(payload->parameter_id, slot->previous, false, 0U);
                 _runner_plock_release(slot);
             }

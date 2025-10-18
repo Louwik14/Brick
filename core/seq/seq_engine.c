@@ -9,23 +9,6 @@
 #include <limits.h>
 #include <string.h>
 
-#ifdef BRICK_DEBUG_PLOCK
-#include "chprintf.h"
-#ifndef BRICK_DEBUG_PLOCK_STREAM
-#define BRICK_DEBUG_PLOCK_STREAM ((BaseSequentialStream *)NULL)
-#endif
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { \
-        if (BRICK_DEBUG_PLOCK_STREAM != NULL) { \
-            chprintf(BRICK_DEBUG_PLOCK_STREAM, "[PLOCK][%s] param=%u value=%ld t=%lu\r\n", \
-                     (tag), (unsigned)(param), (long)(value), (unsigned long)(time)); \
-        } \
-    } while (0)
-#else
-#define BRICK_DEBUG_PLOCK_LOG(tag, param, value, time) \
-    do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
-#endif
-
 #define SEQ_ENGINE_PLAYER_STACK_SIZE   4096U
 #define SEQ_ENGINE_MICRO_MAX           12
 #define SEQ_ENGINE_MICRO_DIVISOR       24
@@ -525,7 +508,6 @@ static void _seq_engine_schedule_plocks(seq_engine_t *engine,
         ev.scheduled_time = apply_time;
         ev.data.plock.plock = *plock;
         ev.data.plock.action = SEQ_ENGINE_PLOCK_APPLY;
-        BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_PLOCK", plock->parameter_id, plock->value, apply_time);
         _seq_engine_schedule_event(engine, &ev);
 
         memset(&ev, 0, sizeof(ev));
@@ -533,7 +515,6 @@ static void _seq_engine_schedule_plocks(seq_engine_t *engine,
         ev.scheduled_time = restore_time;
         ev.data.plock.plock = *plock;
         ev.data.plock.action = SEQ_ENGINE_PLOCK_RESTORE;
-        BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_PLOCK_RESTORE", plock->parameter_id, plock->value, restore_time);
         _seq_engine_schedule_event(engine, &ev);
     }
 }
@@ -644,10 +625,6 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
             ev.data.note_on.note = note;
             ev.data.note_on.velocity = (uint8_t)velocity;
             note_events[note_event_count++] = ev;
-            BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_NOTE_ON",
-                                  (uint16_t)(((uint16_t)voice_index << 8) | note),
-                                  velocity,
-                                  note_on_time);
 
             memset(&ev, 0, sizeof(ev));
             ev.type = SEQ_ENGINE_EVENT_NOTE_OFF;
@@ -655,10 +632,6 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
             ev.data.note_off.voice = voice_index;
             ev.data.note_off.note = note;
             note_events[note_event_count++] = ev;
-            BRICK_DEBUG_PLOCK_LOG("ENGINE_SCHED_NOTE_OFF",
-                                  (uint16_t)(((uint16_t)voice_index << 8) | note),
-                                  0,
-                                  note_off_time);
 
             any_voice_scheduled = true;
             if (note_on_time < earliest_on) {

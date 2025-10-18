@@ -67,16 +67,4 @@
 #define CART_BUS_TIMEOUT_MS  50
 #define CART_LINK_DEFAULT    CART1
 
-/* =======================================================================
- *   Debug et journalisation
- * ======================================================================= */
-#define DEBUG_ENABLE     0
-#define DEBUG_UART_BAUD  115200
-
-#if DEBUG_ENABLE
-  #define debug_log(fmt, ...) chprintf((BaseSequentialStream*)&SD2, "[DBG] " fmt "\r\n", ##__VA_ARGS__)
-#else
-  #define debug_log(fmt, ...) ((void)0)
-#endif
-
 #endif /* BRICK_CONFIG_H */

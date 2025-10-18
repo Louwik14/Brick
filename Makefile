@@ -242,8 +242,6 @@ lint-cppcheck:
 
 HOST_CC ?= gcc
 HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g \
-               -DUI_DEBUG_TRACE_MODE_TRANSITION \
-               -DUI_DEBUG_TRACE_LED_BACKEND \
                -DUI_LED_BACKEND_TESTING
 HOST_TEST_DIR := $(BUILDDIR)/host
 HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
