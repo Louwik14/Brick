@@ -724,4 +724,4 @@ Les vérifications rapides à lancer avant une PR :
 
 - `make` — compilation firmware complète (nécessite le dépôt ChibiOS `../../chibios2111`).
 - `make lint-cppcheck` — analyse statique (`cppcheck`) des dossiers `core/` et `ui/`.
-- `make check-host` — exécute les tests hôtes du modèle séquenceur (`core/seq/seq_model.*`) sans dépendance ChibiOS.
+- `make check-host` — exécute les tests hôtes (modèle SEQ, bridge hold/runtime, transitions UI, edge-cases) **et** la régression `ui_track_pmute_regression_tests` (overlay Track + QUICK/PMute) via stubs LED/flash.

@@ -15,6 +15,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "drv_leds_addr.h"
 
 /** @ingroup ui */
 typedef enum {
@@ -78,5 +79,12 @@ void ui_led_backend_set_track_present(uint8_t track_index, bool present);
 /* ===== Spécifique Keyboard (inchangé) ===== */
 /** @brief Active/valide le layout Omnichord (Keyboard). */
 void ui_led_backend_set_keyboard_omnichord(bool enabled);
+
+#ifdef UI_LED_BACKEND_TESTING
+uint32_t ui_led_backend_debug_queue_drops(void);
+ui_led_mode_t ui_led_backend_debug_get_mode(void);
+bool ui_led_backend_debug_track_muted(uint8_t track);
+const led_state_t *ui_led_backend_debug_led_state(void);
+#endif
 
 #endif /* BRICK_UI_LED_BACKEND_H */

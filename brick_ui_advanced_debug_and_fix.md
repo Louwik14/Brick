@@ -56,3 +56,24 @@ Ces changements stabilisent la chaîne `ui_state → ui_mode_transition → ui_l
 * `ui_track_mode_enter()` et `ui_track_mode_exit()` rafraîchissent explicitement les tags (`_reset_overlay_banner_tags()`) et ne court-circuitent plus la restauration overlay/keyboard lorsque `track.active` est déjà tombé, ce qui supprime la bannière vide et assure la sortie complète du mode. 【F:ui/ui_backend.c†L210-L244】
 * Les raccourcis QUICK/PMUTE/EXIT/COMMIT tracent leur contexte (`SHIFT`, `PLUS`, label actif) pour comprendre les séquences d’entrée/sortie et synchronisent l’étiquette après commit/cancel. 【F:ui/ui_backend.c†L467-L514】
 * Le test host `test_quick_to_pmute_sequence()` reproduit la combinaison `SHIFT + +` (maintien de `PLUS`, relâche/represse de SHIFT) et garantit la remise à zéro du flag dans `ui_mode_reset_context()` ; le binaire edge-case embarque désormais le stub `ui_model_*`. 【F:tests/ui_mode_edgecase_tests.c†L1-L105】【F:tests/stubs/ui_model_stub.c†L1-L9】【F:Makefile†L294-L299】
+
+## 7. Phase 10 : Overlay Track & PMute — régressions finales
+
+### Diagnostic
+
+* Le mode Track n'initialisait plus sa vitrine lorsqu'on y entrait depuis SEQ : le garde-fou `if (s_mode_ctx.track.active)` court-circuitait l'appel `ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK)` lors de la première entrée (état `track.active` déjà prépositionné). Résultat : bannière vide et LED restées en mode SEQ. 【F:ui/ui_backend.c†L206-L223】
+* En sortie de PMute, `seq_led_bridge_publish()` continuait de marquer les steps comme `muted` en se basant sur `seq_led_runtime_step_t.muted`; `apps/seq_led_bridge.c` recopiant l'état `muted` réel a donc repeint la grille SEQ en rouge alors qu'on venait de quitter le mode. 【F:apps/seq_led_bridge.c†L742-L753】
+* Lorsqu'on ré-ouvrait PMute, la LED de la piste réellement mutée restait grise : le backend LED ne conservait pas l'état `s_track_muted[]` faute d'API de lecture côté tests, et une saturation silencieuse de la queue masquait les évènements en rafale. 【F:ui/ui_led_backend.c†L38-L87】
+
+### Correctifs ciblés
+
+* `ui_track_mode_enter()` vérifie désormais **le mode séquenceur courant** avant d'esquiver la réinitialisation, et trace le rafraîchissement forcé. La première entrée dans Track re-synchronise donc bannière et LEDs. 【F:ui/ui_backend.c†L206-L223】
+* Le runtime SEQ ne propage plus l'état `muted` de la piste lorsqu'on revient en mode SEQ : `dst->muted` est forcé à `false` et documenté comme “mute visible uniquement en mode MUTE”. 【F:apps/seq_led_bridge.c†L742-L753】
+* Le backend LED expose des hooks de test (`ui_led_backend_debug_*`) et journalise les drops. La file a été doublée (64 entrées) pour absorber tous les événements MUTE/PMute d'une rafale SHIFT+PLUS. 【F:ui/ui_led_backend.h†L18-L88】【F:ui/ui_led_backend.c†L20-L336】
+* Nouveau stub `drv_leds_addr_stub.c` + en-tête minimal garantissent un état LED accessible côté host, sans importer le driver complet. 【F:tests/stubs/drv_leds_addr_stub.c†L1-L42】【F:tests/stubs/drv_leds_addr.h†L1-L44】
+
+### Validation
+
+* Le binaire host `ui_track_pmute_regression_tests` rejoue l'entrée/sortie Track (SHIFT+BS11) et la séquence QUICK Mute → SEQ → PMute. Les assertions vérifient la bannière, le mode LED actif, l'absence de queue drops et la couleur des pads SEQ. 【F:tests/ui_track_pmute_regression_tests.c†L1-L102】
+* `Makefile` compile désormais ce test avec les stubs LED/flash/registry nécessaires pour isoler la pile UI. 【F:Makefile†L307-L320】【F:tests/stubs/board_flash_stub.c†L1-L27】【F:tests/stubs/ui_backend_test_stubs.c†L1-L140】
+* `make check-host` exécute le scénario complet ; la trace `[ui-led] set_mode …` / `[ui-mode] …` confirme la chaîne `ui_backend → ui_led_backend` et l'absence de saturation. 【f03272†L1-L73】

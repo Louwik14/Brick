@@ -208,7 +208,8 @@ void ui_led_refresh_state_on_mode_change(seq_mode_t new_mode) {
 }
 
 void ui_track_mode_enter(void) {
-    if (s_mode_ctx.track.active) {
+    if (s_mode_ctx.track.active && s_active_seq_mode == SEQ_MODE_TRACK) {
+        UI_MODE_TRACE("track_enter_refresh track=%d seq_mode=%d", 1, (int)s_active_seq_mode);
         ui_led_refresh_state_on_mode_change(SEQ_MODE_TRACK);
         return;
     }

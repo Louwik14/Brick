@@ -20,6 +20,15 @@
 #include "drv_leds_addr.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
 
+#ifdef UI_DEBUG_TRACE_LED_BACKEND
+#include <stdio.h>
+#define UI_LED_TRACE(...)                                                              \
+    do { printf("[ui-led] "); printf(__VA_ARGS__); printf("\n"); } while (0)
+#else
+#define UI_LED_TRACE(...)                                                              \
+    do { (void)sizeof(#__VA_ARGS__); } while (0)
+#endif
+
 #ifndef NUM_STEPS
 #define NUM_STEPS 16
 #endif
@@ -43,12 +52,17 @@ typedef struct {
 } ui_led_backend_evt_t;
 
 #ifndef UI_LED_BACKEND_QUEUE_CAPACITY
-#define UI_LED_BACKEND_QUEUE_CAPACITY 32U
+/* 16 tracks × (mute+pmute) ⇒ 32 événements : garder une marge pour éviter le drop. */
+#define UI_LED_BACKEND_QUEUE_CAPACITY 64U
 #endif
 
 static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;
+
+#ifdef UI_LED_BACKEND_TESTING
+static uint32_t s_queue_drop_count = 0U;
+#endif
 
 static inline uint8_t _queue_next(uint8_t idx) {
     return (uint8_t)((idx + 1U) % UI_LED_BACKEND_QUEUE_CAPACITY);
@@ -59,6 +73,17 @@ static void _queue_push_locked(const ui_led_backend_evt_t *evt) {
     if (next_tail == s_evt_head) {
         /* Saturation : drop le plus ancien pour éviter de bloquer. */
         s_evt_head = _queue_next(s_evt_head);
+#ifdef UI_LED_BACKEND_TESTING
+        s_queue_drop_count++;
+#endif
+        if (evt != NULL) {
+            UI_LED_TRACE("queue_drop event=%d index=%u state=%d",
+                         (int)evt->event,
+                         (unsigned)evt->index,
+                         evt->state ? 1 : 0);
+        } else {
+            UI_LED_TRACE("queue_drop event=unknown");
+        }
     }
     s_evt_queue[s_evt_tail] = *evt;
     s_evt_tail = next_tail;
@@ -204,7 +229,7 @@ static inline void _render_keyboard_normal(void) {
     }
 }
 static inline void _render_keyboard_omnichord(void) {
-    static const led_color_t chord_colors[8] = {
+    const led_color_t chord_colors[8] = {
         UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
         UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
     };
@@ -259,7 +284,10 @@ void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state
 }
 
 void ui_led_backend_set_record_mode(bool active) { s_rec_active = active; }
-void ui_led_backend_set_mode(ui_led_mode_t mode) { s_mode = mode; }
+void ui_led_backend_set_mode(ui_led_mode_t mode) {
+    UI_LED_TRACE("set_mode %d->%d", (int)s_mode, (int)mode);
+    s_mode = mode;
+}
 void ui_led_backend_set_cart_track_count(uint8_t cart_idx, uint8_t tracks) {
     if (cart_idx > 3) return;
     if (tracks > 4) tracks = 4;
@@ -306,3 +334,12 @@ void ui_led_backend_refresh(void) {
     /* 3) Conversion state[] → buffer + envoi (unique point d’accès au buffer) */
     drv_leds_addr_render();
 }
+
+#ifdef UI_LED_BACKEND_TESTING
+uint32_t ui_led_backend_debug_queue_drops(void) { return s_queue_drop_count; }
+ui_led_mode_t ui_led_backend_debug_get_mode(void) { return s_mode; }
+bool ui_led_backend_debug_track_muted(uint8_t track) {
+    return (track < NUM_STEPS) ? s_track_muted[track] : false;
+}
+const led_state_t *ui_led_backend_debug_led_state(void) { return drv_leds_addr_state; }
+#endif

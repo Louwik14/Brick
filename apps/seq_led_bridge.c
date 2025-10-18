@@ -745,7 +745,8 @@ static void _rebuild_runtime_from_pattern(void) {
         dst->recorded = has_voice || has_seq_plock || has_cart_plock;
         dst->param_only = automation;
         dst->automation = automation;
-        dst->muted = muted;
+        (void)muted; /* Track mute reflété uniquement en mode MUTE (pas en SEQ). */
+        dst->muted = false;
         dst->track = track;
     }
 
