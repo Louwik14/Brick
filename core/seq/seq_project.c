@@ -121,6 +121,83 @@ static uint32_t project_base(uint8_t project_index) {
     return (uint32_t)project_index * SEQ_PROJECT_FLASH_SLOT_SIZE;
 }
 
+static void project_cache_reset(seq_project_t *project) {
+    if (project == NULL) {
+        return;
+    }
+    for (uint8_t i = 0U; i < SEQ_PROJECT_PATTERNS_PER_BANK; ++i) {
+        pattern_desc_reset(&project->bank_cache[i]);
+    }
+    project->bank_cache_index = 0U;
+    project->bank_cache_valid = 0U;
+}
+
+static void project_cache_populate(seq_project_t *project,
+                                   uint8_t bank,
+                                   const seq_project_directory_t *dir,
+                                   uint32_t base) {
+    if ((project == NULL) || (bank >= SEQ_PROJECT_BANK_COUNT)) {
+        return;
+    }
+
+    for (uint8_t p = 0U; p < SEQ_PROJECT_PATTERNS_PER_BANK; ++p) {
+        pattern_desc_reset(&project->bank_cache[p]);
+    }
+
+    if ((dir != NULL) &&
+        (dir->magic == SEQ_PROJECT_DIRECTORY_MAGIC) &&
+        (dir->version == SEQ_PROJECT_DIRECTORY_VERSION)) {
+        for (uint8_t p = 0U; p < SEQ_PROJECT_PATTERNS_PER_BANK; ++p) {
+            seq_project_pattern_desc_t *desc = &project->bank_cache[p];
+            const seq_project_directory_entry_t *entry = &dir->entries[bank][p];
+            desc->version = entry->version;
+            desc->track_count = (entry->track_count <= SEQ_PROJECT_MAX_TRACKS)
+                                     ? entry->track_count
+                                     : SEQ_PROJECT_MAX_TRACKS;
+            if ((entry->length > 0U) &&
+                (entry->offset < SEQ_PROJECT_FLASH_SLOT_SIZE) &&
+                (entry->offset + entry->length <= SEQ_PROJECT_FLASH_SLOT_SIZE)) {
+                desc->storage_length = entry->length;
+                desc->storage_offset = base + entry->offset;
+            }
+        }
+    }
+
+    project->bank_cache_index = bank;
+    project->bank_cache_valid = 1U;
+}
+
+static bool project_cache_load(seq_project_t *project, uint8_t bank) {
+    if ((project == NULL) || (bank >= SEQ_PROJECT_BANK_COUNT)) {
+        return false;
+    }
+    if (project->bank_cache_valid && (project->bank_cache_index == bank)) {
+        return true;
+    }
+
+    project->bank_cache_valid = 0U;
+
+    if (project->project_index >= SEQ_PROJECT_MAX_PROJECTS) {
+        project_cache_populate(project, bank, NULL, 0U);
+        return true;
+    }
+
+    if (!ensure_flash_ready()) {
+        project_cache_populate(project, bank, NULL, 0U);
+        return false;
+    }
+
+    const uint32_t base = project_base(project->project_index);
+    seq_project_directory_t dir;
+    if (!board_flash_read(base, &dir, sizeof(dir))) {
+        project_cache_populate(project, bank, NULL, base);
+        return false;
+    }
+
+    project_cache_populate(project, bank, &dir, base);
+    return true;
+}
+
 static uint8_t pattern_linear_index(uint8_t bank, uint8_t pattern) {
     return (uint8_t)(bank * SEQ_PROJECT_PATTERNS_PER_BANK + pattern);
 }
@@ -396,11 +473,7 @@ void seq_project_init(seq_project_t *project) {
     }
 
     memset(project, 0, sizeof(*project));
-    for (uint8_t b = 0U; b < SEQ_PROJECT_BANK_COUNT; ++b) {
-        for (uint8_t p = 0U; p < SEQ_PROJECT_PATTERNS_PER_BANK; ++p) {
-            pattern_desc_reset(&project->banks[b].patterns[p]);
-        }
-    }
+    project_cache_reset(project);
 
     project->tempo = 120U;
     project->project_index = 0U;
@@ -539,6 +612,8 @@ bool seq_project_set_active_slot(seq_project_t *project, uint8_t bank, uint8_t p
         return true;
     }
 
+    (void)project_cache_load(project, bank);
+
     project->active_bank = bank;
     project->active_pattern = pattern;
     seq_project_bump_generation(project);
@@ -563,19 +638,35 @@ seq_project_pattern_desc_t *seq_project_get_pattern_descriptor(seq_project_t *pr
     if ((project == NULL) || (bank >= SEQ_PROJECT_BANK_COUNT) || (pattern >= SEQ_PROJECT_PATTERNS_PER_BANK)) {
         return NULL;
     }
-    return &project->banks[bank].patterns[pattern];
+    if (!project_cache_load(project, bank)) {
+        return NULL;
+    }
+    return &project->bank_cache[pattern];
 }
 
 const seq_project_pattern_desc_t *seq_project_get_pattern_descriptor_const(const seq_project_t *project, uint8_t bank, uint8_t pattern) {
     if ((project == NULL) || (bank >= SEQ_PROJECT_BANK_COUNT) || (pattern >= SEQ_PROJECT_PATTERNS_PER_BANK)) {
         return NULL;
     }
-    return &project->banks[bank].patterns[pattern];
+    if (!project_cache_load((seq_project_t *)project, bank)) {
+        return NULL;
+    }
+    return &project->bank_cache[pattern];
 }
 
 static bool update_directory(const seq_project_t *project, uint8_t project_index) {
+    const uint32_t base = project_base(project_index);
     seq_project_directory_t dir;
-    memset(&dir, 0, sizeof(dir));
+    bool has_valid = false;
+
+    if (board_flash_read(base, &dir, sizeof(dir))) {
+        has_valid = (dir.magic == SEQ_PROJECT_DIRECTORY_MAGIC) &&
+                    (dir.version == SEQ_PROJECT_DIRECTORY_VERSION);
+    }
+
+    if (!has_valid) {
+        memset(&dir, 0, sizeof(dir));
+    }
 
     dir.magic = SEQ_PROJECT_DIRECTORY_MAGIC;
     dir.version = SEQ_PROJECT_DIRECTORY_VERSION;
@@ -586,15 +677,16 @@ static bool update_directory(const seq_project_t *project, uint8_t project_index
     dir.track_count = project->track_count;
     memcpy(dir.name, project->name, sizeof(dir.name));
 
-    const uint32_t base = project_base(project_index);
-
-    for (uint8_t b = 0U; b < SEQ_PROJECT_BANK_COUNT; ++b) {
+    if (project->bank_cache_valid && (project->bank_cache_index < SEQ_PROJECT_BANK_COUNT)) {
+        const uint8_t bank = project->bank_cache_index;
         for (uint8_t p = 0U; p < SEQ_PROJECT_PATTERNS_PER_BANK; ++p) {
-            const seq_project_pattern_desc_t *desc = &project->banks[b].patterns[p];
-            seq_project_directory_entry_t *entry = &dir.entries[b][p];
+            const seq_project_pattern_desc_t *desc = &project->bank_cache[p];
+            seq_project_directory_entry_t *entry = &dir.entries[bank][p];
             entry->version = desc->version;
             entry->track_count = desc->track_count;
-            if ((desc->storage_length > 0U) && (desc->storage_offset >= base)) {
+            if ((desc->storage_length > 0U) &&
+                (desc->storage_offset >= base) &&
+                (desc->storage_offset - base < SEQ_PROJECT_FLASH_SLOT_SIZE)) {
                 entry->offset = desc->storage_offset - base;
                 entry->length = desc->storage_length;
             } else {
@@ -620,6 +712,8 @@ bool seq_project_save(uint8_t project_index) {
     if (!ensure_flash_ready()) {
         return false;
     }
+
+    (void)project_cache_load(s_active_project, s_active_project->active_bank);
 
     if (!update_directory(s_active_project, project_index)) {
         return false;
@@ -655,19 +749,7 @@ bool seq_project_load(uint8_t project_index) {
     project->track_count = (dir.track_count <= SEQ_PROJECT_MAX_TRACKS) ? dir.track_count : SEQ_PROJECT_MAX_TRACKS;
     memcpy(project->name, dir.name, sizeof(project->name));
 
-    for (uint8_t b = 0U; b < SEQ_PROJECT_BANK_COUNT; ++b) {
-        for (uint8_t p = 0U; p < SEQ_PROJECT_PATTERNS_PER_BANK; ++p) {
-            seq_project_pattern_desc_t *desc = &project->banks[b].patterns[p];
-            pattern_desc_reset(desc);
-            const seq_project_directory_entry_t *entry = &dir.entries[b][p];
-            desc->version = entry->version;
-            desc->track_count = (entry->track_count <= SEQ_PROJECT_MAX_TRACKS) ? entry->track_count : SEQ_PROJECT_MAX_TRACKS;
-            if (entry->length > 0U) {
-                desc->storage_offset = base + entry->offset;
-                desc->storage_length = entry->length;
-            }
-        }
-    }
+    project_cache_populate(project, project->active_bank, &dir, base);
 
     seq_project_bump_generation(project);
     return true;
@@ -682,7 +764,10 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
     }
 
     seq_project_t *project = s_active_project;
-    seq_project_pattern_desc_t *desc = &project->banks[bank].patterns[pattern];
+    seq_project_pattern_desc_t *desc = seq_project_get_pattern_descriptor(project, bank, pattern);
+    if (desc == NULL) {
+        return false;
+    }
 
     uint8_t track_count = 0U;
     for (uint8_t i = 0U; i < project->track_count; ++i) {
@@ -772,7 +857,10 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
     }
 
     seq_project_t *project = s_active_project;
-    seq_project_pattern_desc_t *desc = &project->banks[bank].patterns[pattern];
+    seq_project_pattern_desc_t *desc = seq_project_get_pattern_descriptor(project, bank, pattern);
+    if (desc == NULL) {
+        return false;
+    }
 
     if ((desc->storage_length == 0U) || (desc->storage_offset == 0U)) {
         for (uint8_t t = 0U; t < project->track_count; ++t) {
