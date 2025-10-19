@@ -37,6 +37,10 @@ static inline bool chSysIsInISR(void) {
 #include "drv_leds_addr.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
 
+#ifndef BRICK_DISABLE_ADDR_LEDS
+#define BRICK_DISABLE_ADDR_LEDS 0
+#endif
+
 #ifndef NUM_STEPS
 #define NUM_STEPS 16
 #endif
@@ -410,21 +414,34 @@ void ui_led_backend_refresh(void) {
     if (should_render) {
         s_last_render_stamp = now;
 #if defined(BRICK_ENABLE_INSTRUMENTATION)
-        const rtcnt_t render_start = chSysGetRealtimeCounterX();
+        rtcnt_t render_start = 0;
+        rtcnt_t refresh_end;
+#if !BRICK_DISABLE_ADDR_LEDS
+        render_start = chSysGetRealtimeCounterX();
         drv_leds_addr_render();
-        const rtcnt_t refresh_end = chSysGetRealtimeCounterX();
+        refresh_end = chSysGetRealtimeCounterX();
+#else
+        (void)render_start;
+        refresh_end = chSysGetRealtimeCounterX();
+#endif
         const uint32_t refresh_ticks = (uint32_t)(refresh_end - refresh_start);
-        const uint32_t render_ticks = (uint32_t)(refresh_end - render_start);
         s_refresh_last_ticks = refresh_ticks;
         if (refresh_ticks > s_refresh_max_ticks) {
             s_refresh_max_ticks = refresh_ticks;
         }
+#if !BRICK_DISABLE_ADDR_LEDS
+        const uint32_t render_ticks = (uint32_t)(refresh_end - render_start);
         s_render_last_ticks = render_ticks;
         if (render_ticks > s_render_max_ticks) {
             s_render_max_ticks = render_ticks;
         }
 #else
+        s_render_last_ticks = 0U;
+#endif
+#else
+#if !BRICK_DISABLE_ADDR_LEDS
         drv_leds_addr_render();
+#endif
 #endif
     }
 #if defined(BRICK_ENABLE_INSTRUMENTATION)

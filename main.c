@@ -40,6 +40,7 @@
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 #include "brick_config.h"
 #include "panic.h"
+#include "runtime_trace.h"
 
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
@@ -56,8 +57,13 @@ extern CCM_DATA volatile systime_t ui_task_last_tick;
  * @brief Initialise le système (ChibiOS + HAL).
  */
 static void system_init(void) {
+  runtime_trace_stage(RUNTIME_STAGE_BEFORE_HAL);
   halInit();
+  runtime_trace_on_hal_ready();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_HAL);
   chSysInit();
+  runtime_trace_mark_kernel_ready();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_SYS);
 }
 
 /**
@@ -69,9 +75,12 @@ static void system_init(void) {
  * 3) Clock 24 PPQN (GPT + thread haute priorité).
  */
 static void io_realtime_init(void) {
+  runtime_trace_stage(RUNTIME_STAGE_BEFORE_USB);
   usb_device_start();   /* USB device + réénumération (usbcfg/usbd) */
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_USB);
   midi_init();          /* UART DIN @ 31250 + mailbox USB + thread TX */
   midi_clock_init();    /* GPT + thread Clock @ NORMALPRIO+3 */
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_MIDI);
 }
 
 /**
@@ -112,18 +121,25 @@ static void ui_init_all(void) {
  * avant d’entrer dans la boucle principale de rendu (LEDs).
  */
 int main(void) {
+  runtime_trace_pre_init();
   system_init();
 
   /* I/O temps réel d’abord (USB/MIDI/Clock), puis drivers/cart, puis UI */
   io_realtime_init();
   drivers_and_cart_init();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_DRIVERS);
   ui_init_all();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_UI_INIT);
 
   /* Phase 6 : Initialisation du backend LED avant démarrage UI */
   ui_led_backend_init();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_LED_BACKEND);
 
   /* Démarre le thread de gestion de l’interface utilisateur */
   ui_task_start();
+  runtime_trace_stage(RUNTIME_STAGE_AFTER_UI_THREAD);
+
+  runtime_trace_stage(RUNTIME_STAGE_MAIN_LOOP);
 
   while (true) {
     chThdSleepMilliseconds(20);
