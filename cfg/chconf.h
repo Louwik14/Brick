@@ -341,7 +341,11 @@
 #endif
 
 #if !defined(CH_DBG_FILL_THREADS)
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+#define CH_DBG_FILL_THREADS                  TRUE
+#else
 #define CH_DBG_FILL_THREADS                  FALSE
+#endif
 #endif
 
 #if !defined(CH_DBG_THREADS_PROFILING)

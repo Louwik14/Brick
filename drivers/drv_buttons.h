@@ -21,6 +21,10 @@
 #include "brick_config.h"
 #include "hal.h"
 
+#ifndef DRV_BUTTONS_QUEUE_LEN
+#define DRV_BUTTONS_QUEUE_LEN 16U
+#endif
+
 /* ====================================================================== */
 /*                              TYPES ET STRUCTURES                       */
 /* ====================================================================== */
@@ -70,5 +74,12 @@ bool drv_button_is_pressed(int id);
  * @return `true` si un événement a été lu avec succès, sinon `false` (timeout).
  */
 bool drv_buttons_poll(button_event_t *evt, systime_t timeout);
+
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+uint16_t drv_buttons_queue_high_water(void);
+uint32_t drv_buttons_queue_drop_count(void);
+uint16_t drv_buttons_queue_fill(void);
+void drv_buttons_stats_reset(void);
+#endif
 
 #endif /* DRV_BUTTONS_H */

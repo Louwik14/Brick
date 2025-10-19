@@ -51,7 +51,13 @@ static bool last_states[NUM_BUTTONS];
 /** @brief Mailbox utilisée pour poster les événements boutons. */
 static mailbox_t evt_mb;
 /** @brief File de messages associée à la mailbox. */
-static CCM_DATA msg_t evt_queue[16];
+static CCM_DATA msg_t evt_queue[DRV_BUTTONS_QUEUE_LEN];
+
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+static uint16_t s_evt_fill = 0;
+static uint16_t s_evt_high_water = 0;
+static uint32_t s_evt_drop_count = 0;
+#endif
 
 /* ====================================================================== */
 /*                     LECTURE DES REGISTRES À DÉCALAGE                   */
@@ -80,7 +86,27 @@ static void sr_read_buttons(void) {
             evt.type = bit ? BUTTON_EVENT_PRESS : BUTTON_EVENT_RELEASE;
 
             // Encodage compact : 8 bits d’ID + 8 bits de type
-            chMBPostTimeout(&evt_mb, (msg_t)(evt.id | (evt.type << 8)), TIME_IMMEDIATE);
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+            const msg_t post_res = chMBPostTimeout(&evt_mb,
+                                                  (msg_t)(evt.id | (evt.type << 8)),
+                                                  TIME_IMMEDIATE);
+            if (post_res == MSG_OK) {
+                osalSysLock();
+                if (s_evt_fill < DRV_BUTTONS_QUEUE_LEN) {
+                    s_evt_fill++;
+                    if (s_evt_fill > s_evt_high_water) {
+                        s_evt_high_water = s_evt_fill;
+                    }
+                }
+                osalSysUnlock();
+            } else {
+                osalSysLock();
+                s_evt_drop_count++;
+                osalSysUnlock();
+            }
+#else
+            (void)chMBPostTimeout(&evt_mb, (msg_t)(evt.id | (evt.type << 8)), TIME_IMMEDIATE);
+#endif
         }
 
         last_states[i] = bit;
@@ -132,7 +158,12 @@ void drv_buttons_start(void) {
         last_states[i] = false;
     }
 
-    chMBObjectInit(&evt_mb, evt_queue, 16);
+    chMBObjectInit(&evt_mb, evt_queue, DRV_BUTTONS_QUEUE_LEN);
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    s_evt_fill = 0;
+    s_evt_high_water = 0;
+    s_evt_drop_count = 0;
+#endif
     chThdCreateStatic(waButtons, sizeof(waButtons), NORMALPRIO, ButtonsThread, NULL);
 }
 
@@ -156,9 +187,47 @@ bool drv_button_is_pressed(int id) {
 bool drv_buttons_poll(button_event_t *evt, systime_t timeout) {
     msg_t msg;
     if (chMBFetchTimeout(&evt_mb, &msg, timeout) == MSG_OK) {
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+        osalSysLock();
+        if (s_evt_fill > 0U) {
+            s_evt_fill--;
+        }
+        osalSysUnlock();
+#endif
         evt->id   = msg & 0xFF;
         evt->type = (msg >> 8) & 0xFF;
         return true;
     }
     return false;
 }
+
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+uint16_t drv_buttons_queue_high_water(void) {
+    osalSysLock();
+    const uint16_t high = s_evt_high_water;
+    osalSysUnlock();
+    return high;
+}
+
+uint32_t drv_buttons_queue_drop_count(void) {
+    osalSysLock();
+    const uint32_t drops = s_evt_drop_count;
+    osalSysUnlock();
+    return drops;
+}
+
+uint16_t drv_buttons_queue_fill(void) {
+    osalSysLock();
+    const uint16_t fill = s_evt_fill;
+    osalSysUnlock();
+    return fill;
+}
+
+void drv_buttons_stats_reset(void) {
+    osalSysLock();
+    s_evt_fill = 0;
+    s_evt_high_water = 0;
+    s_evt_drop_count = 0;
+    osalSysUnlock();
+}
+#endif

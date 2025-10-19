@@ -102,8 +102,8 @@ PROJECT = ch
 MCU  = cortex-m4
 
 # Imported source files and paths.
-# NOTE: adapté pour la nouvelle arborescence fournie (archive ChibiOS-master).
-CHIBIOS  := C:/ChibiOS-master
+PROJECT_DIR := $(abspath .)
+CHIBIOS ?= $(PROJECT_DIR)/ChibiOS
 CONFDIR  := ./cfg
 BUILDDIR := ./build
 DEPDIR   := ./.dep
@@ -120,7 +120,6 @@ include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
 
 # --- Board: utiliser le dossier local du projet ---
-PROJECT_DIR := .
 BOARD_PATH  := $(PROJECT_DIR)/board
 include $(BOARD_PATH)/board.mk
 
@@ -130,8 +129,12 @@ include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
 # RTOS files (ChibiOS/RT).
 include $(CHIBIOS)/os/rt/rt.mk
 
-# ARMv7-M GCC port.
-include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
+# ARM Cortex-M GCC port (ChibiOS 21.11+ layout fallback to legacy ARMv7-M).
+CH_PORT_MK := $(CHIBIOS)/os/common/ports/ARMCMx/compilers/GCC/mk/port.mk
+ifeq (,$(wildcard $(CH_PORT_MK)))
+CH_PORT_MK := $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
+endif
+include $(CH_PORT_MK)
 
 # Auto-build files in ./source recursively.
 -include $(CHIBIOS)/tools/mk/autobuild.mk
@@ -143,7 +146,7 @@ include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
 endif
 
 # Define linker script file here
-LDSCRIPT= board/STM32F429xI.ld
+LDSCRIPT= $(BOARD_PATH)/STM32F429xI.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -192,6 +195,13 @@ CPPWARN = -Wall -Wextra -Wundef
 
 # List all user C define here, like -D_DEBUG=1
 UDEFS =
+
+# Enable instrumentation helpers (stack/queues) by default, can be disabled
+# with `make BRICK_ENABLE_INSTRUMENTATION=0`.
+BRICK_ENABLE_INSTRUMENTATION ?= 1
+ifeq ($(BRICK_ENABLE_INSTRUMENTATION),1)
+UDEFS += -DBRICK_ENABLE_INSTRUMENTATION=1
+endif
 
 # Define ASM defines here
 UADEFS =

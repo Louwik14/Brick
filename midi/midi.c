@@ -63,11 +63,13 @@ extern volatile bool usb_midi_tx_ready;
  */
 #define MIDI_UART   &SD2   /* PA2=TX, PA3=RX */
 
+#ifndef MIDI_USB_QUEUE_LEN
 /**
  * @brief Taille de la file (mailbox) de messages USB-MIDI (en éléments de 32 bits).
  * @details Chaque élément correspond à un paquet USB-MIDI de 4 octets packé dans un `msg_t`.
  */
 #define MIDI_USB_QUEUE_LEN   256
+#endif
 
 /** @brief Mailbox de transmission USB-MIDI (producteur/consommateur). */
 static CCM_DATA mailbox_t midi_usb_mb;
@@ -522,6 +524,20 @@ void midi_poly_mode_on(midi_dest_t dest, uint8_t ch) {
 
 uint16_t midi_usb_queue_high_watermark(void) {
   return midi_usb_queue_high_water;
+}
+
+uint16_t midi_usb_queue_fill_level(void) {
+  uint16_t fill;
+  osalSysLock();
+  fill = midi_usb_queue_fill;
+  osalSysUnlock();
+  return fill;
+}
+
+void midi_usb_queue_reset_stats(void) {
+  osalSysLock();
+  midi_usb_queue_high_water = midi_usb_queue_fill;
+  osalSysUnlock();
 }
 
 /**

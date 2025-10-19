@@ -23,6 +23,10 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef CART_QUEUE_LEN
+#define CART_QUEUE_LEN 32U
+#endif
+
 /* ===========================================================
  * Types et structures
  * =========================================================== */
@@ -83,4 +87,8 @@ bool cart_get_param(cart_id_t id, uint16_t param);
 
 /** @brief Retourne le high-water mark de la mailbox pour un port donné. */
 uint16_t cart_bus_get_mailbox_high_water(cart_id_t id);
+/** @brief Retourne le remplissage courant de la mailbox pour un port donné. */
+uint16_t cart_bus_get_mailbox_fill(cart_id_t id);
+/** @brief Réinitialise les compteurs de saturation/mailbox. */
+void cart_bus_reset_mailbox_stats(void);
 #endif /* BRICK_CART_CART_BUS_H */
