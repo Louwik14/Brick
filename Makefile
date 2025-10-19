@@ -95,6 +95,18 @@ endif
 # Project, target, sources and paths
 #
 
+# -------- Cross-platform project root (Windows vs Linux) ---------------------
+# Under Windows/ChibiStudio we need native C:/... paths for ld.exe.
+# Under Linux (e.g., Codex CI) we keep POSIX paths.
+ifeq ($(OS),Windows_NT)
+  HOST_OS := WINDOWS
+  PROJECT_DIR := $(abspath .)
+else
+  HOST_OS := LINUX
+  PROJECT_DIR := $(shell pwd)
+endif
+# ---------------------------------------------------------------------------
+
 # Define project name here
 PROJECT = ch
 
@@ -102,7 +114,6 @@ PROJECT = ch
 MCU  = cortex-m4
 
 # Imported source files and paths.
-PROJECT_DIR := $(abspath .)
 CHIBIOS ?= $(PROJECT_DIR)/ChibiOS
 CONFDIR  := ./cfg
 BUILDDIR := ./build
@@ -145,7 +156,7 @@ include $(CH_PORT_MK)
 -include $(CHIBIOS)/test/oslib/oslib_test.mk
 endif
 
-# Define linker script file here
+# Define linker script file here (portable)
 LDSCRIPT= $(BOARD_PATH)/STM32F429xI.ld
 
 # C sources that can be compiled in ARM or THUMB mode depending on the global
@@ -249,4 +260,3 @@ lint-cppcheck:
 #
 # Custom rules
 ##############################################################################
-

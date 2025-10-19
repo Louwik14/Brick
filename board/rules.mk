@@ -150,7 +150,33 @@ else
   CFLAGS    = $(MCFLAGS) $(OPT) $(COPT) $(CWARN) $(DEFS)
   CPPFLAGS  = $(MCFLAGS) $(OPT) $(CPPOPT) $(CPPWARN) $(DEFS)
 endif
-LDFLAGS   = $(MCFLAGS) $(OPT) -nostartfiles $(LLIBDIR) -Wl,-Map=$(BUILDDIR)/$(PROJECT).map,--cref,--no-warn-mismatch,--library-path=$(STARTUPLD_NATIVE),--script=$(LDSCRIPT_NATIVE)$(LDOPT)
+
+# --- Windows path normalization (kill /cygdrive/ prefixes) ---
+# Convertit /cygdrive/c/... ou /c/... en c:/...
+LDS_WIN := $(LDSCRIPT)
+STARTUPLD_WIN := $(STARTUPLD)
+
+ifeq ($(OS),Windows_NT)
+  # /cygdrive/c/... -> c:/...
+  LDS_WIN := $(patsubst /cygdrive/c/%,c:/%,$(LDS_WIN))
+  STARTUPLD_WIN := $(patsubst /cygdrive/c/%,c:/%,$(STARTUPLD_WIN))
+  # /c/... -> c:/...
+  LDS_WIN := $(patsubst /c/%,c:/%,$(LDS_WIN))
+  STARTUPLD_WIN := $(patsubst /c/%,c:/%,$(STARTUPLD_WIN))
+endif
+
+# Debug (temporaire) :
+# $(info LDSCRIPT=$(LDSCRIPT))
+# $(info LDS_WIN=$(LDS_WIN))
+# $(info STARTUPLD=$(STARTUPLD))
+# $(info STARTUPLD_WIN=$(STARTUPLD_WIN))
+
+
+LDFLAGS = $(MCFLAGS) $(OPT) -nostartfiles $(LLIBDIR) \
+          -Wl,-Map=$(BUILDDIR)/$(PROJECT).map,--cref,--no-warn-mismatch \
+          -Wl,--library-path="$(STARTUPLD_WIN)" \
+          -Wl,-T"$(LDS_WIN)"$(LDOPT)
+
 
 # Generate dependency information
 ASFLAGS  += -MD -MP -MF $(DEPDIR)/$(@F).d
