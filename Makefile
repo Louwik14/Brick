@@ -186,7 +186,8 @@ CSRC = $(ALLCSRC) \
        $(wildcard cart/*.c) \
        $(wildcard core/*.c) \
        $(wildcard core/arp/*.c) \
-       $(wildcard core/seq/*.c)
+       $(wildcard core/seq/*.c) \
+       $(wildcard debug/*.c)
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -199,7 +200,7 @@ ASMSRC = $(ALLASMSRC)
 ASMXSRC = $(ALLXASMSRC)
 
 # Inclusion directories.
-INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams
+INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams debug
 
 # Define C warning options here.
 CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
