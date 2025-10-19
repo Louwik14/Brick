@@ -17,6 +17,18 @@ extern "C" {
 #define BOARD_FLASH_SECTOR_SIZE 4096U
 #endif
 
+/**
+ * @brief Maximum size, in bytes, accepted by the RAM shadow simulator.
+ *
+ * The embedded target cannot reserve tens of megabytes for a mirror of the
+ * external flash.  When @ref BOARD_FLASH_CAPACITY_BYTES exceeds this value the
+ * simulator backend is disabled and @ref board_flash_init() falls back to a
+ * "not ready" state unless a hardware backend is provided.
+ */
+#ifndef BOARD_FLASH_SIMULATOR_MAX_CAPACITY
+#define BOARD_FLASH_SIMULATOR_MAX_CAPACITY (1024U * 1024U)
+#endif
+
 bool board_flash_init(void);
 bool board_flash_is_ready(void);
 uint32_t board_flash_get_capacity(void);

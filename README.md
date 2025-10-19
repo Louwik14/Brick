@@ -733,6 +733,7 @@ Les vérifications rapides à lancer avant une PR :
 - Les compteurs unitaires restent disponibles :
   - MIDI : `midi_usb_queue_high_watermark()`, `midi_usb_queue_fill_level()`, `midi_tx_stats.*`.
   - Cart bus : `cart_bus_get_mailbox_high_water()`, `cart_bus_get_mailbox_fill()`, `cart_stats[id].mb_full`.
-  - Boutons : `drv_buttons_queue_high_water()`, `drv_buttons_queue_fill()`, `drv_buttons_queue_drop_count()`.
+  - Boutons : `drv_buttons_queue_high_water()`, `drv_buttons_queue_fill()`, `drv_buttons_queue_drop_count()` (mailbox ×32).
   - Backend LED : `ui_led_backend_queue_high_water()`, `ui_led_backend_queue_fill()`, `ui_led_backend_queue_drop_count()`.
-- Réinitialisation des compteurs : `brick_metrics_reset_queue_counters()` synchronise MIDI/cart/boutons/LED.
+  - Temps de rendu LED : `brick_metrics_get_led_backend_timing()` retourne les durées (ticks) totales/`drv_leds_addr_render()` ainsi que la fréquence du compteur temps-réel.
+  - Réinitialisation des compteurs : `brick_metrics_reset_queue_counters()` synchronise MIDI/cart/boutons/LED.

@@ -67,6 +67,10 @@ static uint8_t s_evt_tail = 0U;
 static uint16_t s_evt_fill = 0U;
 static uint16_t s_evt_high_water = 0U;
 static uint32_t s_evt_drop_count = 0U;
+static uint32_t s_refresh_last_ticks = 0U;
+static uint32_t s_refresh_max_ticks = 0U;
+static uint32_t s_render_last_ticks = 0U;
+static uint32_t s_render_max_ticks = 0U;
 
 static inline void _update_queue_stats_after_push(void) {
     uint16_t fill;
@@ -356,6 +360,9 @@ void ui_led_backend_set_track_present(uint8_t track_index, bool present) {
 
 /* ===== Rendu ===== */
 void ui_led_backend_refresh(void) {
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    const rtcnt_t refresh_start = chSysGetRealtimeCounterX();
+#endif
 
     /* 0) Appliquer les événements accumulés (non bloquant). */
     _drain_event_queue();
@@ -385,7 +392,23 @@ void ui_led_backend_refresh(void) {
     _set_led(LED_REC, s_rec_active ? UI_LED_COL_REC_ACTIVE : UI_LED_COL_OFF, LED_MODE_ON);
 
     /* 3) Conversion state[] → buffer + envoi (unique point d’accès au buffer) */
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    const rtcnt_t render_start = chSysGetRealtimeCounterX();
+#endif
     drv_leds_addr_render();
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    const rtcnt_t refresh_end = chSysGetRealtimeCounterX();
+    const uint32_t refresh_ticks = (uint32_t)(refresh_end - refresh_start);
+    const uint32_t render_ticks = (uint32_t)(refresh_end - render_start);
+    s_refresh_last_ticks = refresh_ticks;
+    if (refresh_ticks > s_refresh_max_ticks) {
+        s_refresh_max_ticks = refresh_ticks;
+    }
+    s_render_last_ticks = render_ticks;
+    if (render_ticks > s_render_max_ticks) {
+        s_render_max_ticks = render_ticks;
+    }
+#endif
 }
 
 #ifdef UI_LED_BACKEND_TESTING
@@ -414,5 +437,28 @@ void ui_led_backend_queue_reset_stats(void) {
     s_evt_fill = 0U;
     s_evt_high_water = 0U;
     s_evt_drop_count = 0U;
+}
+
+uint32_t ui_led_backend_last_refresh_ticks(void) {
+    return s_refresh_last_ticks;
+}
+
+uint32_t ui_led_backend_max_refresh_ticks(void) {
+    return s_refresh_max_ticks;
+}
+
+uint32_t ui_led_backend_last_render_ticks(void) {
+    return s_render_last_ticks;
+}
+
+uint32_t ui_led_backend_max_render_ticks(void) {
+    return s_render_max_ticks;
+}
+
+void ui_led_backend_reset_timing_stats(void) {
+    s_refresh_last_ticks = 0U;
+    s_refresh_max_ticks = 0U;
+    s_render_last_ticks = 0U;
+    s_render_max_ticks = 0U;
 }
 #endif

@@ -17,6 +17,7 @@
 #endif
 
 static bool s_initialized;
+static bool s_ready;
 static bool s_use_hw;
 static uint8_t *s_shadow;
 
@@ -47,6 +48,11 @@ static bool shadow_alloc(void) {
     if (s_shadow != NULL) {
         return true;
     }
+
+    if (BOARD_FLASH_CAPACITY_BYTES > BOARD_FLASH_SIMULATOR_MAX_CAPACITY) {
+        return false;
+    }
+
     s_shadow = (uint8_t *)malloc(BOARD_FLASH_CAPACITY_BYTES);
     if (s_shadow == NULL) {
         return false;
@@ -68,26 +74,31 @@ static bool check_bounds(uint32_t address, size_t length) {
 
 bool board_flash_init(void) {
     if (s_initialized) {
-        return true;
+        return s_ready;
     }
 
     if (board_flash_hw_init()) {
         s_use_hw = true;
         s_initialized = true;
+        s_ready = true;
         return true;
     }
 
     if (!shadow_alloc()) {
+        s_use_hw = false;
+        s_initialized = true;
+        s_ready = false;
         return false;
     }
 
     s_use_hw = false;
     s_initialized = true;
+    s_ready = true;
     return true;
 }
 
 bool board_flash_is_ready(void) {
-    return s_initialized;
+    return s_ready;
 }
 
 uint32_t board_flash_get_capacity(void) {
@@ -113,11 +124,18 @@ bool board_flash_read(uint32_t address, void *buffer, size_t length) {
         return board_flash_hw_read(address, buffer, length);
     }
 
+    if (s_shadow == NULL) {
+        return false;
+    }
+
     memcpy(buffer, &s_shadow[address], length);
     return true;
 }
 
 static bool shadow_write(uint32_t address, const uint8_t *data, size_t length) {
+    if (s_shadow == NULL) {
+        return false;
+    }
     for (size_t i = 0; i < length; ++i) {
         const uint8_t current = s_shadow[address + i];
         const uint8_t incoming = data[i];
@@ -160,6 +178,10 @@ bool board_flash_erase_sector(uint32_t address) {
 
     if (s_use_hw) {
         return board_flash_hw_erase_sector(aligned);
+    }
+
+    if (s_shadow == NULL) {
+        return false;
     }
 
     memset(&s_shadow[aligned], BOARD_FLASH_SIMULATOR_FILL, sector_size);

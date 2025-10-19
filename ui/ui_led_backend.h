@@ -89,6 +89,11 @@ uint16_t ui_led_backend_queue_high_water(void);
 uint32_t ui_led_backend_queue_drop_count(void);
 uint16_t ui_led_backend_queue_fill(void);
 void ui_led_backend_queue_reset_stats(void);
+uint32_t ui_led_backend_last_refresh_ticks(void);
+uint32_t ui_led_backend_max_refresh_ticks(void);
+uint32_t ui_led_backend_last_render_ticks(void);
+uint32_t ui_led_backend_max_render_ticks(void);
+void ui_led_backend_reset_timing_stats(void);
 #endif
 
 #ifdef UI_LED_BACKEND_TESTING
