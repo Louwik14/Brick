@@ -23,6 +23,7 @@
 #include "ch.h"
 #include "hal.h"
 #include "brick_config.h"
+#include <stdio.h>
 #include <string.h>
 
 /* ====================================================================== */
@@ -234,7 +235,7 @@ void drv_display_draw_text_at_baseline(const font_t *font, uint8_t x, uint8_t ba
  */
 void drv_display_draw_number(uint8_t x, uint8_t y, int num) {
     char buf[16];
-    chsnprintf(buf, sizeof(buf), "%d   ", num);
+    (void)snprintf(buf, sizeof(buf), "%d   ", num);
     drv_display_draw_text(x, y, buf);
 }
 

@@ -66,56 +66,9 @@ static const char* const kbd_note_order_labels[] = {
 };
 enum { KBD_NOTE_ORDER_COUNT = (int)(sizeof(kbd_note_order_labels)/sizeof(kbd_note_order_labels[0])) };
 
-/* ============================================================================
- *  Page 1 “Play Setup” (4 paramètres)
- * ==========================================================================*/
-
-static const ui_page_spec_t kbd_page_play = {
-    .params = {
-        { .label="Gamme", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_SCALE),
-          .default_value=0,
-          .meta.en={ .labels=kbd_scale_labels, .count=KBD_SCALE_COUNT },
-          .is_bitwise=false, .bit_mask=0 },
-
-        { .label="Root", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_ROOT),
-          .default_value=0,
-          .meta.en={ .labels=kbd_root_labels, .count=KBD_ROOT_COUNT },
-          .is_bitwise=false, .bit_mask=0 },
-
-        { .label="Arp", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_ARP),
-          .default_value=0,
-          .meta.en={ .labels=kbd_onoff_labels, .count=2 },
-          .is_bitwise=false, .bit_mask=0 },
-
-        { .label="Chord", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_OMNICHORD),
-          .default_value=0,
-          .meta.en={ .labels=kbd_onoff_labels, .count=2 },
-          .is_bitwise=false, .bit_mask=0 }
-    },
-    .header_label = "Setup"
-};
-
-/* ============================================================================
- *  Page 2 “Keyboard Settings” (2 paramètres)
- * ==========================================================================*/
-
-static const ui_page_spec_t kbd_page_settings = {
-    .params = {
-        { .label="Order", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_NOTE_ORDER),
-          .default_value=0, /* Natural par défaut */
-          .meta.en={ .labels=kbd_note_order_labels, .count=KBD_NOTE_ORDER_COUNT },
-          .is_bitwise=false, .bit_mask=0 },
-
-        { .label="Outkey", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_CHORD_OVERRIDE),
-          .default_value=0, /* Off par défaut → diatonique strict */
-          .meta.en={ .labels=kbd_onoff_labels, .count=2 },
-          .is_bitwise=false, .bit_mask=0 },
-
-        /* Remplissage neutre pour les 2 slots restants (pas affichés si label=NULL) */
-        { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0, .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 },
-        { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0, .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 }
-    },
-    .header_label = "Settings"
+static const ui_page_spec_t kbd_empty_page = {
+    .params = { {0}, {0}, {0}, {0} },
+    .header_label = NULL
 };
 
 /* ============================================================================
@@ -125,7 +78,54 @@ static const ui_page_spec_t kbd_page_settings = {
 static const ui_menu_spec_t kbd_menu = {
     .name = "KEYBOARD",
     .page_titles = { "Play", "Setup", "-", "-", "-" },
-    .pages = { kbd_page_play, kbd_page_settings, (ui_page_spec_t){0}, (ui_page_spec_t){0}, (ui_page_spec_t){0} }
+    .pages = {
+        {
+            .params = {
+                { .label="Gamme", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_SCALE),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_scale_labels, .count=KBD_SCALE_COUNT },
+                  .is_bitwise=false, .bit_mask=0 },
+
+                { .label="Root", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_ROOT),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_root_labels, .count=KBD_ROOT_COUNT },
+                  .is_bitwise=false, .bit_mask=0 },
+
+                { .label="Arp", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_ARP),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_onoff_labels, .count=2 },
+                  .is_bitwise=false, .bit_mask=0 },
+
+                { .label="Chord", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_OMNICHORD),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_onoff_labels, .count=2 },
+                  .is_bitwise=false, .bit_mask=0 }
+            },
+            .header_label = "Setup"
+        },
+        {
+            .params = {
+                { .label="Order", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_NOTE_ORDER),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_note_order_labels, .count=KBD_NOTE_ORDER_COUNT },
+                  .is_bitwise=false, .bit_mask=0 },
+
+                { .label="Outkey", .kind=UI_PARAM_ENUM, .dest_id=KBD_UI(KBD_CHORD_OVERRIDE),
+                  .default_value=0,
+                  .meta.en={ .labels=kbd_onoff_labels, .count=2 },
+                  .is_bitwise=false, .bit_mask=0 },
+
+                { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0,
+                  .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 },
+                { .label=NULL, .kind=UI_PARAM_NONE, .dest_id=0, .default_value=0,
+                  .meta.en={ .labels=NULL, .count=0 }, .is_bitwise=false, .bit_mask=0 }
+            },
+            .header_label = "Settings"
+        },
+        kbd_empty_page,
+        kbd_empty_page,
+        kbd_empty_page
+    }
 };
 
 /* ============================================================================

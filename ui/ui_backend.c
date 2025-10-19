@@ -59,7 +59,7 @@
 
 static CCM_DATA ui_mode_context_t s_mode_ctx;
 static seq_mode_t s_active_seq_mode = SEQ_MODE_DEFAULT;
-static char s_mode_label[8] = "SEQ";
+static char s_mode_label[32] = "SEQ";
 
 static const ui_cart_spec_t *s_seq_mode_spec_banner   = &seq_ui_spec;
 static const ui_cart_spec_t *s_seq_setup_spec_banner  = &seq_setup_ui_spec;
@@ -219,8 +219,6 @@ void ui_track_mode_enter(void) {
 }
 
 void ui_track_mode_exit(void) {
-    const bool was_active = s_mode_ctx.track.active;
-
     s_mode_ctx.track.active = false;
     s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
 

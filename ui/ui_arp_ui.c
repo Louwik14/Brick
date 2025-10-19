@@ -31,47 +31,57 @@ enum {
 
 #define ARP_UI(idlocal) (UI_DEST_UI | ((uint16_t)(idlocal) & 0x1FFF))
 
-/* ============================================================
- * MODE : paramètres principaux
- * ============================================================ */
-static const ui_page_spec_t arp_page_mode = {
-    .params = {
-        { .label="On/Off", .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_ENABLE),
-          .meta.en={.labels=(const char*[]){"Off","On"}, .count=2}, .is_bitwise=false },
-        { .label="Rate",   .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_RATE),
-          .meta.en={.labels=(const char*[]){"1/1","1/2","1/4","1/8","1/16"}, .count=5}, .is_bitwise=false },
-        { .label="Oct",    .kind=UI_PARAM_CONT, .dest_id=ARP_UI(ARP_OCTAVE),
-          .meta.range={.min=1,.max=4,.step=1}, .is_bitwise=false },
-        { .label="-", .kind=UI_PARAM_NONE }
-    },
-    .header_label = "Mode"
+static const char* const kArpOnOffLabels[] = { "Off", "On" };
+static const char* const kArpRateLabels[] = { "1/1", "1/2", "1/4", "1/8", "1/16" };
+static const char* const kArpSyncLabels[] = { "Int", "Ext" };
+static const ui_page_spec_t kEmptyPage = {
+    .params = { {0}, {0}, {0}, {0} },
+    .header_label = NULL
 };
 
 static const ui_menu_spec_t arp_menu_mode = {
     .name = "ARP",
     .page_titles = { "Mode", "-", "-", "-", "-" },
-    .pages = { arp_page_mode, {0}, {0}, {0}, {0} }
-};
-
-/* ============================================================
- * SETUP : configuration MIDI
- * ============================================================ */
-static const ui_page_spec_t arp_page_setup = {
-    .params = {
-        { .label="Sync", .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_SETUP_SYNC),
-          .meta.en={.labels=(const char*[]){"Int","Ext"}, .count=2}, .is_bitwise=false },
-        { .label="Chan", .kind=UI_PARAM_CONT, .dest_id=ARP_UI(ARP_SETUP_CHANNEL),
-          .meta.range={.min=1,.max=16,.step=1}, .is_bitwise=false },
-        { .label="-", .kind=UI_PARAM_NONE },
-        { .label="-", .kind=UI_PARAM_NONE }
-    },
-    .header_label = "Setup"
+    .pages = {
+        {
+            .params = {
+                { .label="On/Off", .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_ENABLE),
+                  .meta.en={ .labels=kArpOnOffLabels, .count=2 }, .is_bitwise=false },
+                { .label="Rate",   .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_RATE),
+                  .meta.en={ .labels=kArpRateLabels, .count=5 }, .is_bitwise=false },
+                { .label="Oct",    .kind=UI_PARAM_CONT, .dest_id=ARP_UI(ARP_OCTAVE),
+                  .meta.range={.min=1,.max=4,.step=1}, .is_bitwise=false },
+                { .label="-", .kind=UI_PARAM_NONE }
+            },
+            .header_label = "Mode"
+        },
+        kEmptyPage,
+        kEmptyPage,
+        kEmptyPage,
+        kEmptyPage
+    }
 };
 
 static const ui_menu_spec_t arp_menu_setup = {
     .name = "Setup",
     .page_titles = { "Setup", "-", "-", "-", "-" },
-    .pages = { arp_page_setup, {0}, {0}, {0}, {0} }
+    .pages = {
+        {
+            .params = {
+                { .label="Sync", .kind=UI_PARAM_ENUM, .dest_id=ARP_UI(ARP_SETUP_SYNC),
+                  .meta.en={ .labels=kArpSyncLabels, .count=2 }, .is_bitwise=false },
+                { .label="Chan", .kind=UI_PARAM_CONT, .dest_id=ARP_UI(ARP_SETUP_CHANNEL),
+                  .meta.range={.min=1,.max=16,.step=1}, .is_bitwise=false },
+                { .label="-", .kind=UI_PARAM_NONE },
+                { .label="-", .kind=UI_PARAM_NONE }
+            },
+            .header_label = "Setup"
+        },
+        kEmptyPage,
+        kEmptyPage,
+        kEmptyPage,
+        kEmptyPage
+    }
 };
 
 /* ============================================================

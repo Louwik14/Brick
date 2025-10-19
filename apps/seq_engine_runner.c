@@ -189,6 +189,7 @@ static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_
 }
 
 static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t scheduled_time) {
+    (void)scheduled_time;
     if ((plock == NULL) || (plock->plock.domain != SEQ_MODEL_PLOCK_CART)) {
         return MSG_OK;
     }

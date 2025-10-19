@@ -13,6 +13,17 @@ ifeq ($(USE_COPT),)
   USE_COPT =
 endif
 
+DEBUG ?= 0
+BRICK_PROFILE ?= release
+
+ifeq ($(BRICK_PROFILE),debug)
+  DEBUG := 1
+endif
+
+ifeq ($(DEBUG),1)
+  USE_COPT += -Werror=implicit-function-declaration -Werror=format-truncation
+endif
+
 # Optional warnings control (default: enabled).
 ifeq ($(USE_WARNINGS),)
   USE_WARNINGS = yes

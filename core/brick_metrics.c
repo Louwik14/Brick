@@ -141,7 +141,13 @@ bool brick_metrics_get_led_backend_timing(brick_led_timing_metric_t *out) {
   out->refresh_max_ticks = ui_led_backend_max_refresh_ticks();
   out->render_last_ticks = ui_led_backend_last_render_ticks();
   out->render_max_ticks = ui_led_backend_max_render_ticks();
-  out->tick_frequency_hz = chSysGetRealtimeCounterFrequency();
+#if defined(CH_CFG_ST_FREQUENCY)
+  out->tick_frequency_hz = CH_CFG_ST_FREQUENCY;
+#elif defined(OSAL_ST_FREQUENCY)
+  out->tick_frequency_hz = OSAL_ST_FREQUENCY;
+#else
+  out->tick_frequency_hz = 0U;
+#endif
   return true;
 #else
   (void)out;
