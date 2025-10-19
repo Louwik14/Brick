@@ -321,12 +321,17 @@ void ui_led_backend_post_event(ui_led_event_t event, uint8_t index, bool state) 
 void ui_led_backend_post_event_i(ui_led_event_t event, uint8_t index, bool state) {
     const ui_led_backend_evt_t evt = { event, index, state };
 
-    chDbgAssert(chSysIsInISR() || chVTIsSystemLocked() ||
-                    chSchIsPreemptionEnabled() || chIsIdleThread(),
-                "ui_led_backend_post_event_i: bad context");
-
-    const bool system_locked = chVTIsSystemLocked();
     const bool in_isr = chSysIsInISR();
+    const bool system_locked = chVTIsSystemLocked();
+#if (CH_CFG_NO_IDLE_THREAD == FALSE)
+    thread_t *self = chThdGetSelfX();
+    const bool in_idle = (self != NULL) && (self == chSysGetIdleThreadX());
+#else
+    const bool in_idle = false;
+#endif
+
+    chDbgAssert(in_isr || system_locked || in_idle,
+                "ui_led_backend_post_event_i: bad context");
 
     if (in_isr) {
         chSysLockFromISR();

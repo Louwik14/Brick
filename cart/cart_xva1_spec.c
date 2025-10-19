@@ -50,22 +50,22 @@ const char* const phaserModes[3] = { "Mono","Stereo","Cross" };
 /* ==========================================================================
  *  Labels internes (utilisés uniquement ici)
  * ========================================================================== */
-static const char* const sync[2]       = { "Free","Sync" };
-static const char* const keytrack[2]   = { "Keytrk","Fixed" };
+static const char* const sync[2]       __attribute__((unused)) = { "Free","Sync" };
+static const char* const keytrack[2]   __attribute__((unused)) = { "Keytrk","Fixed" };
 static const char* const routing[3]    = { "Paral","Indep","Bypass" };
 
 static const char* const lfoSync[4]    = { "1FR","1KS","MFR","MKS" };
-static const char* const egLoop[2]     = { "LoopOff","LoopOn" };
-static const char* const egLoopSeg[2]  = { "ToAtk","ToDcy" };
-static const char* const egRst[2]      = { "Keep","Rst" };
-static const char* const legato[2]     = { "Poly","Mono" };
-static const char* const portaMode[3]  = { "Off","Alw","Fngr" };
+static const char* const egLoop[2]     __attribute__((unused)) = { "LoopOff","LoopOn" };
+static const char* const egLoopSeg[2]  __attribute__((unused)) = { "ToAtk","ToDcy" };
+static const char* const egRst[2]      __attribute__((unused)) = { "Keep","Rst" };
+static const char* const legato[2]     __attribute__((unused)) = { "Poly","Mono" };
+static const char* const portaMode[3]  __attribute__((unused)) = { "Off","Alw","Fngr" };
 
 static const char* const gateCurve[2]  = { "S1","S2" };
 static const char* const gain[4]       = { "0dB","+6dB","+12dB","+18dB" };
 static const char* const phase[4]      = { "0°","90°","180°","270°" };
 static const char* const drive[8]      = { "0","1","2","3","4","5","6","7" };
-static const char* const bandw[8]      = {
+static const char* const bandw[8]      __attribute__((unused)) = {
   "Full 48kHz","20 kHz","18 kHz","16 kHz","14 kHz","12 kHz","10 kHz","8 kHz"
 };
 
