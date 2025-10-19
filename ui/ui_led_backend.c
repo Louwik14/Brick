@@ -45,7 +45,7 @@ static inline bool chSysIsInISR(void) {
 static CCM_DATA bool     s_track_muted[NUM_STEPS];
 static CCM_DATA bool     s_track_pmutes[NUM_STEPS];
 static CCM_DATA bool     s_track_present[NUM_STEPS];
-static CCM_DATA uint8_t  s_cart_tracks[4] = {4,4,4,4};
+static CCM_DATA uint8_t  s_cart_tracks[4];
 static uint8_t           s_track_focus = 0U;
 static bool     s_rec_active = false;
 static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
