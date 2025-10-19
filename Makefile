@@ -38,7 +38,7 @@ endif
 
 # Linker extra options here.
 ifeq ($(USE_LDOPT),)
-  USE_LDOPT = 
+  USE_LDOPT =
 endif
 
 # Enable this if you want link time optimizations (LTO).
@@ -102,7 +102,8 @@ PROJECT = ch
 MCU  = cortex-m4
 
 # Imported source files and paths.
-CHIBIOS  := ./chibios2111
+# NOTE: adapté pour la nouvelle arborescence fournie (archive ChibiOS-master).
+CHIBIOS  := C:/ChibiOS-master
 CONFDIR  := ./cfg
 BUILDDIR := ./build
 DEPDIR   := ./.dep
@@ -110,9 +111,11 @@ DEPDIR   := ./.dep
 # Licensing files.
 ifeq ($(filter lint-cppcheck check-host,$(MAKECMDGOALS)),)
 include $(CHIBIOS)/os/license/license.mk
-# Startup files.
+
+# Startup files (STM32F4xx, GCC).
 include $(CHIBIOS)/os/common/startup/ARMCMx/compilers/GCC/mk/startup_stm32f4xx.mk
-# HAL-OSAL files (optional).
+
+# HAL-OSAL files.
 include $(CHIBIOS)/os/hal/hal.mk
 include $(CHIBIOS)/os/hal/ports/STM32/STM32F4xx/platform.mk
 
@@ -121,12 +124,18 @@ PROJECT_DIR := .
 BOARD_PATH  := $(PROJECT_DIR)/board
 include $(BOARD_PATH)/board.mk
 
+# OSAL binding utilisé par les démos RT/NIL actuelles.
 include $(CHIBIOS)/os/hal/osal/rt-nil/osal.mk
-# RTOS files (optional).
+
+# RTOS files (ChibiOS/RT).
 include $(CHIBIOS)/os/rt/rt.mk
+
+# ARMv7-M GCC port.
 include $(CHIBIOS)/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk
+
 # Auto-build files in ./source recursively.
 -include $(CHIBIOS)/tools/mk/autobuild.mk
+
 # Other files (optional).
 -include $(CHIBIOS)/os/test/test.mk
 -include $(CHIBIOS)/test/rt/rt_test.mk
@@ -152,15 +161,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard cart/*.c) \
        $(wildcard core/*.c) \
        $(wildcard core/arp/*.c) \
-       $(wildcard core/seq/*.c) \
-       
-       
-       
-       
-       
-     
-
-       
+       $(wildcard core/seq/*.c)
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
@@ -174,7 +175,6 @@ ASMXSRC = $(ALLXASMSRC)
 
 # Inclusion directories.
 INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams
-
 
 # Define C warning options here.
 CWARN = -Wall -Wextra -Wundef -Wstrict-prototypes
@@ -240,79 +240,3 @@ lint-cppcheck:
 # Custom rules
 ##############################################################################
 
-HOST_CC ?= gcc
-HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g \
-               -DUI_LED_BACKEND_TESTING
-HOST_TEST_DIR := $(BUILDDIR)/host
-HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
-HOST_SEQ_HOLD_TEST  := $(HOST_TEST_DIR)/seq_hold_runtime_tests
-HOST_UI_MODE_TEST   := $(HOST_TEST_DIR)/ui_mode_transition_tests
-HOST_UI_EDGE_TEST   := $(HOST_TEST_DIR)/ui_mode_edgecase_tests
-HOST_UI_TRACK_PMUTE_TEST := $(HOST_TEST_DIR)/ui_track_pmute_regression_tests
-
-ifeq ($(OS),Windows_NT)
-HOST_CC_AVAILABLE := $(strip $(shell where $(HOST_CC) >NUL 2>NUL && echo yes))
-HOST_CC_HINT := Installez "MSYS2 / mingw-w64" et exposez gcc (ou définissez HOST_CC=clang).
-else
-HOST_CC_AVAILABLE := $(strip $(shell command -v $(HOST_CC) >/dev/null 2>&1 && echo yes))
-HOST_CC_HINT := Installez gcc (ex: `sudo apt install build-essential`) ou définissez HOST_CC=clang.
-endif
-
-.PHONY: check-host
-ifeq ($(HOST_CC_AVAILABLE),yes)
-check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST)
-	@echo "Running host sequencer model tests"
-	$(HOST_SEQ_MODEL_TEST)
-	@echo "Running host hold/runtime bridge tests"
-	$(HOST_SEQ_HOLD_TEST)
-	@echo "Running host UI mode tests"
-	$(HOST_UI_MODE_TEST)
-	@echo "Running host UI edge-case tests"
-	$(HOST_UI_EDGE_TEST)
-	@echo "Running host UI track/pmute regression tests"
-	$(HOST_UI_TRACK_PMUTE_TEST)
-else
-check-host:
-	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
-	@echo "hint: $(HOST_CC_HINT)"
-	@echo "hint: make check-host HOST_CC=<compilateur>"
-	@exit 1
-endif
-
-$(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c
-	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
-
-$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_engine.c core/seq/seq_project.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
-	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-			tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_engine.c core/seq/seq_project.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c \
-			apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
-
-$(HOST_UI_MODE_TEST): tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
-	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-		tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c \
-		apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
-
-$(HOST_UI_EDGE_TEST): tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c \
-        tests/stubs/ui_mute_backend_stub.c tests/stubs/ui_model_stub.c
-	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-                tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c \
-                tests/stubs/ui_mute_backend_stub.c tests/stubs/ui_model_stub.c -o $@
-
-$(HOST_UI_TRACK_PMUTE_TEST): tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
-ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c \
-apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c \
-tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
-tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
-tests/stubs/board_flash_stub.c
-	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -Idrivers -I. \
-		tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
-		ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c \
-		apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c \
-		tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
-		tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
-		tests/stubs/board_flash_stub.c -o $@

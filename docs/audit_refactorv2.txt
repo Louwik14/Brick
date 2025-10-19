@@ -1,0 +1,200 @@
+Résumé exécutif
+
+    La SRAM principale est saturée par seq_project_t g_project (~73 KB) et deux copies locales de seq_model_pattern_t, ce qui explique le bss > 256 KB observé; ces structures résident en SRAM et non dans la CCM.
+
+Le Makefile référence encore os/common/ports/ARMv7-M : la construction échoue immédiatement avec ChibiOS 21.11 faute de port.mk, empêchant la génération du .map et toute mesure automatisée.
+
+Le pipeline LED repose sur un thread UI unique ; ui_led_backend_refresh() refait le rendu complet puis appelle drv_leds_addr_render() qui verrouille le système le temps d’un bit-banging WS2812, créant des fenêtres sans préemption susceptibles de retarder les tâches temps-réel.
+
+Les files boutons/MIDI/cart reposent sur des mails non bloquants avec abandon silencieux en cas de saturation ; l’instrumentation existe pour MIDI/cart mais pas pour les boutons, ce qui peut expliquer des “gel UI” ressentis.
+
+Jusqu’à 16 threads seq_player (prio NORMALPRIO+1, pile 4 KB) peuvent coexister via seq_engine_runner, tous rangés en CCM mais s’appuyant sur des mutex et sémaphores partagés avec le thread UI.
+Threads & synchronisation
+Thread / Fonction	Source	Prio	Pile déclarée	Rôle & synchronisation	Observations
+UIThread	ui/ui_task.c	NORMALPRIO	6144 B (CCM)	Boucle UI : poll inputs (drv_buttons), synchro clavier, rafraîchit LEDs & écran, relaie clock via _on_clock_step.	Maintient ui_task_last_tick pour watchdog dans main. Toute surcharge retarde aussi le rendu LED.
+thdMidiUsbTx	midi/midi.c	NORMALPRIO+1	2048 B (CCM)	Vide midi_usb_mb, agrège paquets, attend tx_sem signalé par ISR USB avant usbStartTransmitI.	Drop contrôlé si endpoint indisponible ; surveiller midi_usb_queue_high_water.
+thMidiClk	core/midi_clock.c	NORMALPRIO+3	2048 B (CCM)	Attente sur clk_sem (généré par GPT3 ISR) → envoie 0xF8 + callback séquenceur.	Thread critique : toute section critique prolongée (LED) peut dérégler la clock si interruptions retardées.
+cart_tx_thread ×4	cart/cart_bus.c	NORMALPRIO+2	2048 B (CCM)	Consomme mailbox par cartouche, reconstruit trame, sdWrite UART.	Mailbox 32 entrées + pool 32 commandes ; drop-oldest activé. Statistiques high-water disponibles.
+displayThread	drivers/drv_display.c	NORMALPRIO	2048 B (CCM)	SPI OLED ~30 FPS (drv_display_update).	Aucun verrou ; CPU-bound. Peut migrer en CCM sans impact DMA (SPI copie depuis SRAM classique).
+ButtonsThread	drivers/drv_buttons.c	NORMALPRIO	2048 B (CCM)	Scan 74HC165, poste événements en mailbox 16.	chMBPostTimeout sans vérification → pertes silencieuses lorsque la UI ne consomme pas assez vite.
+potReaderThread	drivers/drv_pots.c	NORMALPRIO	2048 B (CCM)	Lance ADC circulaire 4 voies, moyennage 8 échantillons toutes 20 ms.	Buffer ADC en SRAM DMA-safe, état moyen dans global. Stack probablement surdimensionnée.
+seq_player (jusqu’à 16)	core/seq/seq_engine.c	NORMALPRIO+1	4096 B (CCM)	Défileur d’événements : mutex scheduler_lock, sémaphore player_sem.	Multiplie la conso CCM (~64 KB si 16 pistes). Priorité > UI, attention à priorité inversion (mutex PI).
+Files / queues / sémaphores
+Ressource	Capacité & emplacement	Producteurs	Consommateurs	API / comportement	Risques
+midi_usb_mb (msg_t[256], CCM)	256 paquets (1 KB)	midi_send depuis UI, séquenceur, clock (thread +3)	thdMidiUsbTx	chMBPostTimeout(..., TIME_IMMEDIATE) + drop-oldest option ; midi_usb_queue_fill maintenu sous verrou global	Débordements comptés mais pas logués ; vérifier que buffers USB en SRAM DMA-safe (c’est le cas).
+tx_sem (USB)	Binaire	ISR ep2_in_cb	thdMidiUsbTx, send_usb opportuniste	chBSemWaitTimeout pour gating EP	Si host USB lent, lots abandonnés → statistique usb_not_ready_drops.
+clk_sem (clock)	Binaire	GPT3 ISR	thMidiClk	chBSemWait/SignalI	Aucun watchdog si GPT s’arrête → la clock se fige silencieusement.
+cart_port_t.mb (×4, SRAM)	32 entrées / port	UI (cart_set/get_param)	cart_tx_thread	TIME_IMMEDIATE + drop-oldest, suivi cart_stats.mb_high_water	Pool 32 commandes dans CCM ; monitorer saturation lors de rafales.
+evt_mb boutons (SRAM)	16 événements	ButtonsThread	UI (ui_input_poll)	TIME_IMMEDIATE, pas de gestion erreur	Perte d’événements lors de rafales (pas de compteur). Agrandir ou tracer drop.
+ui_led_backend queue (CCM)	64 événements circulaires	_on_clock_step (prio +3), backend mute, etc.	ui_led_backend_refresh (UI)	Ring locké via chSysLock; drop-oldest automatique	Si UI ralentie, les ticks récents remplacent les anciens → LED peut sauter des états.
+engine->player_sem	Binaire	Scheduler UI (_seq_engine_signal_player)	seq_player	chBSemWaitTimeout (∞ ou attente précise)	Attention à ne pas signaler depuis ISR (non utilisé actuellement).
+Mémoire
+Top symboles (≥1 KiB, estimation faute de .map)
+Symbole	Taille estimée	Section	Commentaire
+seq_project_t g_project	≈73 KB	SRAM principale (.bss)	16 banques × 16 patterns × 16 pistes, plus runtime. Sur-alloué pour un projet à 2 pistes.
+seq_model_pattern_t g_project_patterns[2]	≈24 KB	SRAM principale	Deux patterns complets (64 pas × 4 voix × 24 p-locks) dupliqués pour le bridge LED.
+seq_led_bridge_state_t g	≈30 KB	.ccmram	Runtime LED complet (snapshots, hold view, masques). Pas accessible DMA : OK.
+seq_led_bridge_hold_slot_t g_hold_slots[16]	≈3 KB	.ccmram	Copies complètes de seq_model_step_t pour le mode hold (dupliquer état).
+s_tracks[16] (seq_engine_runner)	≈32 KB	.ccmram	16 contextes seq_engine_t + pattern pointer, un par piste potentielle.
+waCartTx[4][2048], waMidiUsbTx, waMidiClk, waDisplay, waButtons, waPotReader, waUI	≈18 KB cumulés	.ccmram	Toutes les piles thread non DMA déplacées en CCM via CCM_DATA. Profilage nécessaire pour les réduire.
+s_ui_shadow[512]	≈1.5 KB	.ccmram	Cache key/value UI, purement CPU (non DMA).
+midi_usb_queue[256]	1 KB	.ccmram	File MIDI USB, accessible CPU seulement (OK).
+led_buffer[NUM_ADRESS_LEDS]	≈816 B	.ccmram	Buffer LED GRB, utilisé en bit-banging (pas DMA).
+
+Note : l’absence de sous-module ChibiOS (port.mk manquant) bloque la génération du fichier .map; les tailles ci-dessus proviennent d’une inspection structurale et doivent être confirmées une fois la construction restaurée.
+Duplications & constants
+
+    g_project conserve 16 banques/16 patterns alors que le bridge n’expose que SEQ_LED_BRIDGE_TRACK_CAPACITY (2). Externaliser la banque persistante en flash ou charger à la demande réduirait drastiquement la SRAM.
+
+    Le bridge LED maintient simultanément g_project_patterns (copie mutable) et le runtime g.rt; envisager une structure “vue” (index + masques) plutôt qu’une copie complète des steps.
+
+    Les pointeurs s_*_spec_banner sont désormais const (plus de duplication de ui_cart_spec_t), donc pas de gain supplémentaire à prévoir côté overlays.
+
+DMA / CCM
+
+    CCM_DATA place les symboles en section .ram4 (CCM, 64 KB, non DMA), conformément à brick_config.h et STM32F429xI.ld ; vérifier que seules les données purement CPU y résident (actuellement vrai pour piles threads, caches UI, bridge LED, séquenceur).
+
+    Les buffers nécessitant DMA/USART (OLED SPI, ADC, USB) restent en SRAM principale, ce qui évite les incompatibilités DMA.
+
+Piles de threads (à profiler)
+Thread	Pile déclarée	Statut recommandé
+UI	6144 B	Instrumenter (watermark) ; la logique UI est lourde mais 6 KB semblent généreux.
+MIDI USB TX	2048 B	Profilage ; thread simple, prob. réductible.
+MIDI clock	2048 B	Peut être réduit (<1 KB) après mesures.
+Cart TX (x4)	2048 B	Payload minimal (encapsulation + sdWrite), marge importante.
+Display / Buttons / PotReader	2048 B	Sur-provisionnés vs charge réelle ; réduction possible.
+seq_player (par piste)	4096 B	Code complexe (scheduler), commencer par instrumentation avant ajustement.
+Compatibilité ChibiOS 21.11
+
+    Le Makefile doit référencer os/common/ports/ARMCMx/compilers/GCC/mk/port.mk (nouvelle arborescence 21.11). Corriger cette inclusion débloquera la compilation et la génération du .map.
+
+ui_led_backend.c redéfinit chVTIsSystemLocked()/chSysIsInISR() si absents ; vérifier leur présence dans l’en-tête 21.11 pour éviter des doublons ou divergences.
+
+    CCM_DATA mappe vers .ram4 (aligné 4) ; confirmer que le script de lien hérite bien d’une section .ccmram via rules.ld (nécessite build effectif).
+
+    Penser à vérifier les options USE_FPU, USE_EXCEPTIONS_STACKSIZE, etc., lors de la mise à jour de la toolchain (actuellement USE_FPU=no).
+
+Flux LED & séquenceur
+
+GPT3 IRQ → (chBSemSignalI) → thread midi_clk (NORMALPRIO+3)
+   → clock_manager.handle_tick() → callback UI `_on_clock_step`
+      → ui_led_backend_post_event_i() (queue CCM, drop-oldest)
+         → ui_led_backend_refresh() (thread UI)
+            → drv_leds_addr_render() [clear + modes] → drv_leds_addr_update() (chSysLock, bit-banging WS2812)
+
+    Les événements step sont alignés sur l’index absolu du séquenceur (24 PPQN → step 1/16).
+
+ui_led_backend_refresh() balaie 16 pads pour chaque mode et réinitialise l’état LED logique avant de lancer drv_leds_addr_render(). Toute latence dans cette boucle retarde l’affichage et peut masquer les mutations rapides (hold/preview).
+
+drv_leds_addr_update() verrouille le noyau pendant l’envoi série (~50 µs/LED). Multiplier les LED ou augmenter la fréquence UI augmentera la pression sur les tâches hautes priorités ; envisager un buffer pré-compilé + envoi hors section critique.
+Qualité structurelle & points notables
+
+    seq_led_bridge duplique l’état complet des steps (pattern + hold slots) et conserve des masques 16 × uint16_t. L’usage pourrait être compacté (bitfields, deltas, indices) pour réduire la RAM et accélérer _hold_update().
+
+seq_engine_runner_plock_state_t conserve previous pour 24 p-locks actifs ; un simple cache par paramètre pourrait suffire si l’on restreint la profondeur (depth).
+
+seq_engine déclenche un tri insertion (note_event_count) à chaque pas ; l’allocation sur la pile (jusqu’à 8 événements) est légère mais le code est dans le thread UI (appelé depuis runner) → veillez à ne pas alourdir davantage la boucle principale.
+
+drv_buttons ignore les échecs de chMBPostTimeout : prévoir au minimum un compteur (comme pour MIDI/cart) pour diagnostiquer les pertes.
+
+main surveille le thread UI avec un timeout fixe (500 ms) ; si la boucle UI allonge volontairement ses sleeps (ex. lors d’un rendu long), le panic se déclenche malgré un comportement normal.
+Risques priorisés
+Risque	Gravité	Impact	Effort	Commentaire
+SRAM saturée par g_project / patterns dupliqués	Critique	Débordement .bss, impossibilité de lier / d’exécuter de nouvelles features	L	Repenser le stockage projet (sérialisation flash, allocation à la demande).
+Makefile obsolète (ARMv7-M)	Critique	Build impossible, pas de métriques ni tests	S	Mettre à jour l’inclusion vers ARMCMx; valider la toolchain 21.11.
+Bit-banging LED sous chSysLock	Majeur	Latences RTOS, jitter clock/MIDI	M	Réduire la zone critique (préparer buffer hors lock) ou migrer vers DMA timer.
+Mailbox boutons 16 entrées sans gestion overflow	Majeur	Perte d’entrées → “gel UI” perçu	S	Augmenter profondeur ou compter les drops; UI poll 2 ms ne suffit pas lors de rafales.
+Multiplication des threads seq_player (16×4 KB)	Majeur	Pression CCM, consommation CPU supplémentaire	M	Limiter les pistes actives simultanées ou mutualiser un seul thread avec files d’événements.
+midi_usb_mb et mailboxes cart en drop-oldest	Moyen	Messages perdus sous forte charge (MIDI Clock burst, automation)	S	Exploiter les compteurs high-water pour ajuster profondeurs et alerter.
+Absence de .map / mesures stack	Moyen	Difficulté à valider optimisations	M	Restaurer build & instrumentation au plus vite.
+Plan d’action multi-étapes
+Phase 1 — Rétablir la construction et les métriques
+
+    Objectif : disposer d’un binaire qui compile et d’un .map fiable.
+
+    Actions :
+
+        Mettre à jour le Makefile (ARMCMx) et rapatrier les sources ChibiOS 21.11 (submodule ou package).
+
+        Activer la génération du .map et de arm-none-eabi-size; collecter une baseline (text/data/bss).
+
+        Ajouter/instrumenter les compteurs existants (stack watermark, queue high-water) dans un build de debug.
+
+    Critère de succès : make produit build/ch.elf + .map; baseline size documentée, instrumentation active.
+
+    Risques & mitigations : divergence API ChibiOS (mitigation : compiler étape par étape, consulter release notes 21.11).
+
+Phase 2 — Réduction de la SRAM principale
+
+    Objectif : ramener data+bss < 130 KB (hors CCM) pour retrouver une marge de >30 %.
+
+    Actions :
+
+        Externaliser les banques seq_project_t (stockage flash / chargement lazy) et ne garder en SRAM que les patterns actifs.
+
+        Remplacer g_project_patterns / g_hold_slots par des vues compactes (index + flags) plutôt que des copies de seq_model_step_t.
+
+        Évaluer la migration de caches CPU (s_ui_shadow, stats) vers CCM ou taille réduite.
+
+    Critère de succès : nouvelle mesure .map montrant bss SRAM < 130 KB, tests fonctionnels identiques.
+
+    Risques : refactor profond du séquenceur, risque de régression sur la sauvegarde ; mitigation : tests de régression (seq_hold_runtime, UI) après chaque étape.
+
+Phase 3 — Fiabiliser le pipeline UI/LED & les drivers d’entrée
+
+    Objectif : éliminer les gels UI perçus en réduisant les sections critiques et en gérant les overflows.
+
+    Actions :
+
+        Mesurer la durée de drv_leds_addr_render() (timer instrumentation) ; pré-calculer les buffers hors chSysLock ou basculer sur DMA timer.
+
+        Étendre la queue boutons (p.ex. 32) ou ajouter un compteur de drops remonté à l’UI.
+
+        Étudier un coalescing d’événements LED pour réduire la pression lorsque des rafales (clock + hold) se produisent.
+
+    Critère de succès : aucun panic("UI stalled") après 30 min stress test, compteur de drop boutons = 0, jitter clock < ±1 tick.
+
+    Risques : modification du timing LED → effets visuels ; mitigation : comparer visuellement (capture vidéo / instrumentation tick).
+
+Phase 4 — Optimiser piles & files RTOS
+
+    Objectif : libérer de la CCM et documenter les marges réelles.
+
+    Actions :
+
+        Exploiter les watermarks (ou chThdGetSelfX()) pour réduire progressivement chaque THD_WORKING_AREA.
+
+        Ajuster MIDI_USB_QUEUE_LEN, CART_QUEUE_LEN à partir des high-water mesurés ; logguer les drops restants.
+
+        Vérifier que les pools/queues (cart, MIDI) restent dans CCM et que les buffers DMA (OLED, USB) restent en SRAM.
+
+    Critère de succès : gain cumulé ≥8 KB en CCM, aucun overflow observé en tests prolongés.
+
+    Risques : sous-dimensionnement des piles; mitigation : procéder par incréments (−25 %) avec watchdogs actifs.
+
+Phase 5 — Validation finale & documentation
+
+    Objectif : verrouiller la compatibilité 21.11 et documenter l’architecture mémoire.
+
+    Actions :
+
+        Exécuter la batterie de tests (unitaires + tests host) et capturer les tailles finales (size, .map annoté).
+
+        Mettre à jour la documentation (plan mémoire SRAM/CCM, priorités threads, files) pour refléter l’état optimisé.
+
+    Critère de succès : Tests OK, documentation synchronisée, rapport final partagé.
+
+    Risques : Décalage entre doc et code après refactors ; mitigation : automatiser extraction (script parse .map).
+
+Annexe — Schéma texte du flux LED
+
+GPT3 IRQ
+  └─> midi_clock thread (prio +3)
+       └─> clock_manager.handle_tick()
+            └─> UI callback _on_clock_step (via chMB)
+                 └─> ui_led_backend_post_event_i()
+                      └─> ui_led_backend_refresh() (thread UI)
+                           └─> drv_leds_addr_render()
+                                └─> drv_leds_addr_update() [bit-bang + chSysLock]
+
+Ce schéma met en évidence la dépendance forte sur le thread UI et la section critique du driver LED ; toute optimisation devra préserver cette chaîne tout en réduisant le temps passé en section critique.

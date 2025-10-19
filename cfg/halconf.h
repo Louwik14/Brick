@@ -1,5 +1,5 @@
 /*
-    ChibiOS - Copyright (C) 2006..2020 Giovanni Di Sirio
+    ChibiOS - Copyright (C) 2006..2025 Giovanni Di Sirio
     Licensed under the Apache License, Version 2.0 (the "License");
     ...
 */
@@ -18,11 +18,10 @@
 #define HAL_USE_PAL                         TRUE
 #endif
 
-/* >>> ADDED: enable EXTI driver <<< */
+/* Activé pour gérer les interruptions EXTI des GPIO (exemples Nucleo) */
 #if !defined(HAL_USE_EXT) || defined(__DOXYGEN__)
-#define HAL_USE_EXT                        TRUE
+#define HAL_USE_EXT                         TRUE
 #endif
-/* <<< END ADDED >>> */
 
 #if !defined(HAL_USE_ADC) || defined(__DOXYGEN__)
 #define HAL_USE_ADC                         TRUE
