@@ -87,20 +87,17 @@ typedef struct {
     seq_project_pattern_track_desc_t tracks[SEQ_PROJECT_MAX_TRACKS]; /**< Track descriptors. */
 } seq_project_pattern_desc_t;
 
-/** Metadata for a bank (collection of 16 patterns). */
-typedef struct {
-    seq_project_pattern_desc_t patterns[SEQ_PROJECT_PATTERNS_PER_BANK];
-} seq_project_bank_t;
-
 /** Sequencer project aggregating multiple banks and runtime tracks. */
 typedef struct {
-    seq_project_bank_t banks[SEQ_PROJECT_BANK_COUNT]; /**< Persistent metadata. */
     seq_project_track_t tracks[SEQ_PROJECT_MAX_TRACKS]; /**< Runtime track bindings. */
+    seq_project_pattern_desc_t bank_cache[SEQ_PROJECT_PATTERNS_PER_BANK]; /**< Lazy-loaded bank descriptors. */
     uint8_t track_count;       /**< Highest contiguous track index bound. */
     uint8_t active_track;      /**< Currently selected track index. */
     uint8_t active_bank;       /**< Currently selected bank. */
     uint8_t active_pattern;    /**< Currently selected pattern inside the bank. */
     uint8_t project_index;     /**< Active persistent project slot. */
+    uint8_t bank_cache_index;  /**< Bank index currently mirrored in cache. */
+    uint8_t bank_cache_valid;  /**< Non-zero when cache contains valid data. */
     seq_model_gen_t generation;/**< Generation bumped on topology changes. */
     uint32_t tempo;            /**< Project tempo snapshot. */
     char name[SEQ_PROJECT_NAME_MAX]; /**< Project label. */

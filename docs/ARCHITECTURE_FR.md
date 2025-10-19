@@ -26,7 +26,7 @@ Principes structurants :
 * `usb_device.c` : démarrage USB Device / MIDI.
 * `seq/seq_model.c` : modèle du pattern + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).
 * `seq/seq_engine.c` : moteur Reader/Scheduler/Player, callbacks `note_on`, `note_off`, `plock`.
-* `seq/seq_project.c` : conteneur multi-pistes `seq_project_t`, métadonnées banque/pattern, sérialisation vers la flash externe (16 Mo) et remapping automatique des cartouches via `cart_registry`.
+* `seq/seq_project.c` : conteneur multi-pistes `seq_project_t`, sérialisation vers la flash externe (16 Mo) et remapping automatique des cartouches via `cart_registry`. Depuis la phase 2, seul l'état runtime (`tracks[]`) et la banque active sont gardés en SRAM : les 16×16 descripteurs sont rechargés à la volée depuis l'annuaire flash dans un cache unique `bank_cache[]` lors d'un changement de banque.
 * `seq/seq_live_capture.c` : planifie les événements live (note on/off) en utilisant la clock et enregistre note, vélocité, longueur et micro sous forme de p-locks internes.
 * `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
