@@ -109,6 +109,28 @@ OBJS     += $(ASMXOBJS) $(ASMOBJS) $(COBJS) $(CPPOBJS) $(CCOBJS)
 IINCDIR   := $(sort $(patsubst %,-I%,$(INCDIR) $(DINCDIR) $(UINCDIR)))
 LLIBDIR   := $(sort $(patsubst %,-L%,$(DLIBDIR) $(ULIBDIR)))
 
+# Normalize paths for native Windows toolchains (no cygpath available).
+ifeq ($(OS),Windows_NT)
+define drive_path
+$(strip $(firstword $(subst /, ,$1)):$(if $(filter $(firstword $(subst /, ,$1)),$1),/,/$(patsubst $(firstword $(subst /, ,$1))/%,%,$1))))
+endef
+
+define native_path
+$(strip \
+  $(if $(filter /cygdrive/%,$1),\
+    $(call drive_path,$(patsubst /cygdrive/%,%,$1)),\
+    $(if $(filter /?/%,$1),\
+      $(call drive_path,$(patsubst /%,%,$1)),\
+      $1)))
+endef
+
+STARTUPLD_NATIVE := $(call native_path,$(STARTUPLD))
+LDSCRIPT_NATIVE  := $(call native_path,$(LDSCRIPT))
+else
+STARTUPLD_NATIVE := $(STARTUPLD)
+LDSCRIPT_NATIVE  := $(LDSCRIPT)
+endif
+
 # Macros
 DEFS      := $(DDEFS) $(UDEFS)
 ADEFS     := $(DADEFS) $(UADEFS)
@@ -128,7 +150,7 @@ else
   CFLAGS    = $(MCFLAGS) $(OPT) $(COPT) $(CWARN) $(DEFS)
   CPPFLAGS  = $(MCFLAGS) $(OPT) $(CPPOPT) $(CPPWARN) $(DEFS)
 endif
-LDFLAGS   = $(MCFLAGS) $(OPT) -nostartfiles $(LLIBDIR) -Wl,-Map=$(BUILDDIR)/$(PROJECT).map,--cref,--no-warn-mismatch,--library-path=$(STARTUPLD),--script=$(LDSCRIPT)$(LDOPT)
+LDFLAGS   = $(MCFLAGS) $(OPT) -nostartfiles $(LLIBDIR) -Wl,-Map=$(BUILDDIR)/$(PROJECT).map,--cref,--no-warn-mismatch,--library-path=$(STARTUPLD_NATIVE),--script=$(LDSCRIPT_NATIVE)$(LDOPT)
 
 # Generate dependency information
 ASFLAGS  += -MD -MP -MF $(DEPDIR)/$(@F).d
