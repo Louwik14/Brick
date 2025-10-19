@@ -60,6 +60,10 @@ typedef struct {
 } ui_led_backend_evt_t;
 
 static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
+#ifndef UI_LED_BACKEND_RENDER_MIN_INTERVAL_MS
+#define UI_LED_BACKEND_RENDER_MIN_INTERVAL_MS 4U
+#endif
+static systime_t s_last_render_stamp = 0;
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;
 
@@ -299,6 +303,7 @@ void ui_led_backend_init(void) {
     s_evt_drop_count = 0U;
 #endif
     s_track_focus = 0U;
+    s_last_render_stamp = 0U;
 
     drv_leds_addr_init();
     /* NE PAS toucher au buffer physique ici : render() s’en charge. */
@@ -397,21 +402,40 @@ void ui_led_backend_refresh(void) {
     _set_led(LED_REC, s_rec_active ? UI_LED_COL_REC_ACTIVE : UI_LED_COL_OFF, LED_MODE_ON);
 
     /* 3) Conversion state[] → buffer + envoi (unique point d’accès au buffer) */
+    const systime_t now = chVTGetSystemTimeX();
+    const bool should_render =
+        (s_last_render_stamp == 0U) ||
+        ((now - s_last_render_stamp) >= TIME_MS2I(UI_LED_BACKEND_RENDER_MIN_INTERVAL_MS));
+
+    if (should_render) {
+        s_last_render_stamp = now;
 #if defined(BRICK_ENABLE_INSTRUMENTATION)
-    const rtcnt_t render_start = chSysGetRealtimeCounterX();
+        const rtcnt_t render_start = chSysGetRealtimeCounterX();
+        drv_leds_addr_render();
+        const rtcnt_t refresh_end = chSysGetRealtimeCounterX();
+        const uint32_t refresh_ticks = (uint32_t)(refresh_end - refresh_start);
+        const uint32_t render_ticks = (uint32_t)(refresh_end - render_start);
+        s_refresh_last_ticks = refresh_ticks;
+        if (refresh_ticks > s_refresh_max_ticks) {
+            s_refresh_max_ticks = refresh_ticks;
+        }
+        s_render_last_ticks = render_ticks;
+        if (render_ticks > s_render_max_ticks) {
+            s_render_max_ticks = render_ticks;
+        }
+#else
+        drv_leds_addr_render();
 #endif
-    drv_leds_addr_render();
-#if defined(BRICK_ENABLE_INSTRUMENTATION)
-    const rtcnt_t refresh_end = chSysGetRealtimeCounterX();
-    const uint32_t refresh_ticks = (uint32_t)(refresh_end - refresh_start);
-    const uint32_t render_ticks = (uint32_t)(refresh_end - render_start);
-    s_refresh_last_ticks = refresh_ticks;
-    if (refresh_ticks > s_refresh_max_ticks) {
-        s_refresh_max_ticks = refresh_ticks;
     }
-    s_render_last_ticks = render_ticks;
-    if (render_ticks > s_render_max_ticks) {
-        s_render_max_ticks = render_ticks;
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    else {
+        const rtcnt_t refresh_end = chSysGetRealtimeCounterX();
+        const uint32_t refresh_ticks = (uint32_t)(refresh_end - refresh_start);
+        s_refresh_last_ticks = refresh_ticks;
+        if (refresh_ticks > s_refresh_max_ticks) {
+            s_refresh_max_ticks = refresh_ticks;
+        }
+        s_render_last_ticks = 0U;
     }
 #endif
 }
