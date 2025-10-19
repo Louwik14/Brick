@@ -251,6 +251,7 @@ HOST_SEQ_HOLD_TEST  := $(HOST_TEST_DIR)/seq_hold_runtime_tests
 HOST_UI_MODE_TEST   := $(HOST_TEST_DIR)/ui_mode_transition_tests
 HOST_UI_EDGE_TEST   := $(HOST_TEST_DIR)/ui_mode_edgecase_tests
 HOST_UI_TRACK_PMUTE_TEST := $(HOST_TEST_DIR)/ui_track_pmute_regression_tests
+HOST_SEQ_PATTERN_CODEC_TEST := $(HOST_TEST_DIR)/seq_pattern_codec_tests
 
 ifeq ($(OS),Windows_NT)
 HOST_CC_AVAILABLE := $(strip $(shell where $(HOST_CC) >NUL 2>NUL && echo yes))
@@ -262,7 +263,7 @@ endif
 
 .PHONY: check-host
 ifeq ($(HOST_CC_AVAILABLE),yes)
-check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST)
+check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_PATTERN_CODEC_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
@@ -273,6 +274,8 @@ check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(
 	$(HOST_UI_EDGE_TEST)
 	@echo "Running host UI track/pmute regression tests"
 	$(HOST_UI_TRACK_PMUTE_TEST)
+	@echo "Running pattern codec regression tests"
+	$(HOST_SEQ_PATTERN_CODEC_TEST)
 else
 check-host:
 	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
@@ -312,9 +315,14 @@ tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_mo
 tests/stubs/board_flash_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -Idrivers -I. \
-		tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
-		ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c \
-		apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c \
-		tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
-		tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
-		tests/stubs/board_flash_stub.c -o $@
+                tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
+                ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c \
+                apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_live_capture.c core/seq/seq_project.c \
+                tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
+                tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
+                tests/stubs/board_flash_stub.c -o $@
+
+$(HOST_SEQ_PATTERN_CODEC_TEST): tests/seq_pattern_codec_tests.c core/seq/seq_model.c core/seq/seq_project.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DBRICK_EXPERIMENTAL_PATTERN_CODEC_V2=1 -I. -Icore -Icart -Iboard \
+		tests/seq_pattern_codec_tests.c core/seq/seq_model.c core/seq/seq_project.c -o $@

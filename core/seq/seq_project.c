@@ -14,7 +14,6 @@
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
 #define SEQ_PROJECT_PATTERN_MAGIC   0x42504154U /* 'BPAT' */
 #define SEQ_PROJECT_DIRECTORY_VERSION 1U
-#define SEQ_PROJECT_PATTERN_VERSION   1U
 
 typedef struct __attribute__((packed)) {
     uint32_t offset;      /**< Relative offset inside the project slot. */
@@ -57,7 +56,7 @@ typedef struct __attribute__((packed)) {
     uint8_t flags;       /**< Step flags bitmask. */
     uint8_t voice_mask;  /**< Mask of enabled voices. */
     uint8_t plock_count; /**< Number of serialized parameter locks. */
-} pattern_step_header_t;
+} pattern_step_v1_header_t;
 
 typedef struct __attribute__((packed)) {
     uint8_t note;
@@ -65,7 +64,7 @@ typedef struct __attribute__((packed)) {
     uint8_t length;
     int8_t  micro;
     uint8_t state;
-} pattern_voice_payload_t;
+} pattern_voice_v1_payload_t;
 
 typedef struct __attribute__((packed)) {
     int16_t velocity;
@@ -80,7 +79,26 @@ typedef struct __attribute__((packed)) {
     uint8_t domain;
     uint8_t voice_index;
     uint8_t internal_param;
-} pattern_plock_payload_t;
+} pattern_plock_v1_payload_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t skip;        /**< Number of neutral steps before this entry. */
+    uint8_t flags;       /**< Step flags bitmask. */
+    uint8_t voice_mask;  /**< Mask of enabled voices. */
+    uint8_t plock_count; /**< Number of serialized parameter locks. */
+} pattern_step_v2_header_t;
+
+typedef struct __attribute__((packed)) {
+    uint8_t note;
+    uint8_t velocity;
+    uint8_t length;
+    int8_t  micro;
+} pattern_voice_v2_payload_t;
+
+typedef struct __attribute__((packed)) {
+    int16_t value;
+    uint8_t meta;
+} pattern_plock_v2_payload_t;
 
 enum {
     STEP_FLAG_ACTIVE     = 1U << 0,
@@ -161,6 +179,22 @@ static bool step_needs_persist(const seq_model_step_t *step) {
     return false;
 }
 
+#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+static uint8_t compute_voice_payload_mask(const seq_model_step_t *step) {
+    uint8_t mask = 0U;
+    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+        seq_model_voice_t ref;
+        seq_model_voice_init(&ref, v == 0U);
+        const seq_model_voice_t *voice = &step->voices[v];
+        if ((voice->note != ref.note) || (voice->velocity != ref.velocity) ||
+            (voice->length != ref.length) || (voice->micro_offset != ref.micro_offset)) {
+            mask |= (uint8_t)(1U << v);
+        }
+    }
+    return mask;
+}
+#endif
+
 static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, size_t len) {
     if (*remaining < len) {
         return false;
@@ -171,7 +205,8 @@ static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, s
     return true;
 }
 
-static bool encode_pattern_steps(const seq_model_pattern_t *pattern, uint8_t **cursor, size_t *remaining) {
+#if !BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+static bool encode_pattern_steps_v1(const seq_model_pattern_t *pattern, uint8_t **cursor, size_t *remaining) {
     uint16_t step_count = 0U;
     uint8_t *count_ptr = *cursor;
     if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
@@ -184,7 +219,7 @@ static bool encode_pattern_steps(const seq_model_pattern_t *pattern, uint8_t **c
             continue;
         }
 
-        pattern_step_header_t header;
+        pattern_step_v1_header_t header;
         header.step_index = i;
         header.flags = 0U;
         header.voice_mask = 0U;
@@ -210,7 +245,7 @@ static bool encode_pattern_steps(const seq_model_pattern_t *pattern, uint8_t **c
         }
 
         for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            pattern_voice_payload_t payload;
+            pattern_voice_v1_payload_t payload;
             const seq_model_voice_t *voice = &step->voices[v];
             payload.note = voice->note;
             payload.velocity = voice->velocity;
@@ -235,7 +270,7 @@ static bool encode_pattern_steps(const seq_model_pattern_t *pattern, uint8_t **c
 
         for (uint8_t p = 0U; p < step->plock_count; ++p) {
             const seq_model_plock_t *plock = &step->plocks[p];
-            pattern_plock_payload_t payload;
+            pattern_plock_v1_payload_t payload;
             payload.value = plock->value;
             payload.parameter_id = plock->parameter_id;
             payload.domain = plock->domain;
@@ -252,6 +287,108 @@ static bool encode_pattern_steps(const seq_model_pattern_t *pattern, uint8_t **c
     memcpy(count_ptr, &step_count, sizeof(step_count));
     return true;
 }
+#endif
+
+#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+static bool encode_pattern_steps_v2(const seq_model_pattern_t *pattern, uint8_t **cursor, size_t *remaining) {
+    uint16_t step_count = 0U;
+    uint8_t *count_ptr = *cursor;
+    if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
+        return false;
+    }
+
+    int16_t previous_index = -1;
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_STEPS_PER_PATTERN; ++i) {
+        const seq_model_step_t *step = &pattern->steps[i];
+        if (!step_needs_persist(step)) {
+            continue;
+        }
+
+        const uint8_t skip = (uint8_t)(i - (uint8_t)(previous_index + 1));
+        const uint8_t payload_mask = compute_voice_payload_mask(step);
+        pattern_step_v2_header_t header;
+        header.skip = skip;
+        header.flags = 0U;
+        header.voice_mask = 0U;
+        header.plock_count = step->plock_count;
+
+        if (step->flags.active) {
+            header.flags |= STEP_FLAG_ACTIVE;
+        }
+        if (step->flags.automation) {
+            header.flags |= STEP_FLAG_AUTOMATION;
+        }
+        if (!offsets_is_zero(&step->offsets)) {
+            header.flags |= STEP_FLAG_OFFSETS;
+        }
+        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+            if (step->voices[v].state == SEQ_MODEL_VOICE_ENABLED) {
+                header.voice_mask |= (uint8_t)(1U << v);
+            }
+        }
+
+        header.flags |= (uint8_t)((payload_mask & 0x0FU) << 3);
+
+        if (!buffer_write(cursor, remaining, &header, sizeof(header))) {
+            return false;
+        }
+
+        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+            if ((payload_mask & (uint8_t)(1U << v)) == 0U) {
+                continue;
+            }
+            pattern_voice_v2_payload_t payload;
+            const seq_model_voice_t *voice = &step->voices[v];
+            payload.note = voice->note;
+            payload.velocity = voice->velocity;
+            payload.length = voice->length;
+            payload.micro = voice->micro_offset;
+            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
+                return false;
+            }
+        }
+
+        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
+            pattern_offsets_payload_t offsets;
+            offsets.velocity = step->offsets.velocity;
+            offsets.transpose = step->offsets.transpose;
+            offsets.length = step->offsets.length;
+            offsets.micro = step->offsets.micro;
+            if (!buffer_write(cursor, remaining, &offsets, sizeof(offsets))) {
+                return false;
+            }
+        }
+
+        for (uint8_t p = 0U; p < step->plock_count; ++p) {
+            const seq_model_plock_t *plock = &step->plocks[p];
+            pattern_plock_v2_payload_t payload;
+            uint8_t meta = (uint8_t)(plock->voice_index & 0x03U);
+            if (plock->domain == SEQ_MODEL_PLOCK_CART) {
+                meta |= (1U << 2);
+            } else {
+                meta |= (uint8_t)((plock->internal_param & 0x07U) << 3);
+            }
+            payload.value = plock->value;
+            payload.meta = meta;
+            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
+                return false;
+            }
+            if (plock->domain == SEQ_MODEL_PLOCK_CART) {
+                if (!buffer_write(cursor, remaining, &plock->parameter_id, sizeof(plock->parameter_id))) {
+                    return false;
+                }
+            }
+        }
+
+        previous_index = (int16_t)i;
+        ++step_count;
+    }
+
+    memcpy(count_ptr, &step_count, sizeof(step_count));
+    return true;
+}
+#endif
 
 static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *saved, seq_project_cart_ref_t *resolved) {
     *resolved = *saved;
@@ -282,10 +419,10 @@ static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *sav
     return TRACK_LOAD_ABSENT;
 }
 
-static bool decode_pattern_steps(seq_model_pattern_t *pattern,
-                                 const uint8_t *payload,
-                                 uint32_t payload_size,
-                                 track_load_policy_t policy) {
+static bool decode_pattern_steps_v1(seq_model_pattern_t *pattern,
+                                    const uint8_t *payload,
+                                    uint32_t payload_size,
+                                    track_load_policy_t policy) {
     const uint8_t *cursor = payload;
     size_t remaining = payload_size;
 
@@ -300,10 +437,10 @@ static bool decode_pattern_steps(seq_model_pattern_t *pattern,
     seq_model_pattern_init(pattern);
 
     for (uint16_t s = 0U; s < step_count; ++s) {
-        if (remaining < sizeof(pattern_step_header_t)) {
+        if (remaining < sizeof(pattern_step_v1_header_t)) {
             return false;
         }
-        pattern_step_header_t header;
+        pattern_step_v1_header_t header;
         memcpy(&header, cursor, sizeof(header));
         cursor += sizeof(header);
         remaining -= sizeof(header);
@@ -315,10 +452,10 @@ static bool decode_pattern_steps(seq_model_pattern_t *pattern,
         seq_model_step_t *step = &pattern->steps[header.step_index];
 
         for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if (remaining < sizeof(pattern_voice_payload_t)) {
+            if (remaining < sizeof(pattern_voice_v1_payload_t)) {
                 return false;
             }
-            pattern_voice_payload_t voice_payload;
+            pattern_voice_v1_payload_t voice_payload;
             memcpy(&voice_payload, cursor, sizeof(voice_payload));
             cursor += sizeof(voice_payload);
             remaining -= sizeof(voice_payload);
@@ -353,10 +490,10 @@ static bool decode_pattern_steps(seq_model_pattern_t *pattern,
 
         uint8_t effective_plocks = 0U;
         for (uint8_t p = 0U; p < stored_plocks; ++p) {
-            if (remaining < sizeof(pattern_plock_payload_t)) {
+            if (remaining < sizeof(pattern_plock_v1_payload_t)) {
                 return false;
             }
-            pattern_plock_payload_t payload_plock;
+            pattern_plock_v1_payload_t payload_plock;
             memcpy(&payload_plock, cursor, sizeof(payload_plock));
             cursor += sizeof(payload_plock);
             remaining -= sizeof(payload_plock);
@@ -388,6 +525,226 @@ static bool decode_pattern_steps(seq_model_pattern_t *pattern,
     }
 
     return true;
+}
+
+static bool decode_pattern_steps_v2(seq_model_pattern_t *pattern,
+                                    const uint8_t *payload,
+                                    uint32_t payload_size,
+                                    track_load_policy_t policy) {
+    const uint8_t *cursor = payload;
+    size_t remaining = payload_size;
+
+    uint16_t step_count = 0U;
+    if (remaining < sizeof(step_count)) {
+        return false;
+    }
+    memcpy(&step_count, cursor, sizeof(step_count));
+    cursor += sizeof(step_count);
+    remaining -= sizeof(step_count);
+
+    seq_model_pattern_init(pattern);
+    int16_t current_index = -1;
+
+    for (uint16_t s = 0U; s < step_count; ++s) {
+        if (remaining < sizeof(pattern_step_v2_header_t)) {
+            return false;
+        }
+        pattern_step_v2_header_t header;
+        memcpy(&header, cursor, sizeof(header));
+        cursor += sizeof(header);
+        remaining -= sizeof(header);
+
+        current_index += (int16_t)header.skip + 1;
+        if ((current_index < 0) || (current_index >= (int16_t)SEQ_MODEL_STEPS_PER_PATTERN)) {
+            return false;
+        }
+
+        seq_model_step_t *step = &pattern->steps[current_index];
+        seq_model_step_init(step);
+
+        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+            seq_model_voice_t *voice = &step->voices[v];
+            if ((header.voice_mask & (uint8_t)(1U << v)) != 0U) {
+                voice->state = SEQ_MODEL_VOICE_ENABLED;
+            }
+        }
+
+        const uint8_t payload_mask = (uint8_t)((header.flags >> 3) & 0x0FU);
+
+        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+            if ((payload_mask & (uint8_t)(1U << v)) == 0U) {
+                continue;
+            }
+            if (remaining < sizeof(pattern_voice_v2_payload_t)) {
+                return false;
+            }
+            pattern_voice_v2_payload_t voice_payload;
+            memcpy(&voice_payload, cursor, sizeof(voice_payload));
+            cursor += sizeof(voice_payload);
+            remaining -= sizeof(voice_payload);
+
+            seq_model_voice_t *voice = &step->voices[v];
+            voice->note = voice_payload.note;
+            voice->velocity = voice_payload.velocity;
+            voice->length = voice_payload.length;
+            voice->micro_offset = voice_payload.micro;
+        }
+
+        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
+            if (remaining < sizeof(pattern_offsets_payload_t)) {
+                return false;
+            }
+            pattern_offsets_payload_t offsets;
+            memcpy(&offsets, cursor, sizeof(offsets));
+            cursor += sizeof(offsets);
+            remaining -= sizeof(offsets);
+
+            step->offsets.velocity = offsets.velocity;
+            step->offsets.transpose = offsets.transpose;
+            step->offsets.length = offsets.length;
+            step->offsets.micro = offsets.micro;
+        }
+
+        uint8_t stored_plocks = header.plock_count;
+        if (stored_plocks > SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+            return false;
+        }
+
+        uint8_t effective_plocks = 0U;
+        for (uint8_t p = 0U; p < stored_plocks; ++p) {
+            if (remaining < sizeof(pattern_plock_v2_payload_t)) {
+                return false;
+            }
+            pattern_plock_v2_payload_t payload_plock;
+            memcpy(&payload_plock, cursor, sizeof(payload_plock));
+            cursor += sizeof(payload_plock);
+            remaining -= sizeof(payload_plock);
+
+            const bool is_cart = ((payload_plock.meta & (1U << 2)) != 0U);
+            uint16_t parameter_id = 0U;
+            if (is_cart) {
+                if (remaining < sizeof(parameter_id)) {
+                    return false;
+                }
+                memcpy(&parameter_id, cursor, sizeof(parameter_id));
+                cursor += sizeof(parameter_id);
+                remaining -= sizeof(parameter_id);
+            }
+
+            if ((policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED) && is_cart) {
+                continue;
+            }
+
+            if (effective_plocks >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+                return false;
+            }
+
+            seq_model_plock_t *plock = &step->plocks[effective_plocks];
+            plock->value = payload_plock.value;
+            plock->voice_index = (uint8_t)(payload_plock.meta & 0x03U);
+            if (is_cart) {
+                plock->domain = SEQ_MODEL_PLOCK_CART;
+                plock->parameter_id = parameter_id;
+                plock->internal_param = 0U;
+            } else {
+                plock->domain = SEQ_MODEL_PLOCK_INTERNAL;
+                plock->parameter_id = 0U;
+                plock->internal_param = (uint8_t)((payload_plock.meta >> 3) & 0x07U);
+            }
+            ++effective_plocks;
+        }
+        step->plock_count = effective_plocks;
+
+        if (policy == TRACK_LOAD_ABSENT) {
+            for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+                seq_model_voice_t *voice = &step->voices[v];
+                voice->state = SEQ_MODEL_VOICE_DISABLED;
+                voice->velocity = 0U;
+            }
+        }
+
+        if ((header.flags & STEP_FLAG_ACTIVE) != 0U) {
+            step->flags.active = true;
+        }
+        if ((header.flags & STEP_FLAG_AUTOMATION) != 0U) {
+            step->flags.automation = true;
+        }
+
+        seq_model_step_recompute_flags(step);
+    }
+
+    return true;
+}
+
+bool seq_project_pattern_steps_encode(const seq_model_pattern_t *pattern,
+                                      uint8_t *buffer,
+                                      size_t buffer_size,
+                                      size_t *written) {
+    if ((buffer == NULL) || (written == NULL)) {
+        return false;
+    }
+
+    uint8_t *cursor = buffer;
+    size_t remaining = buffer_size;
+
+    if (pattern == NULL) {
+        if (buffer_size < sizeof(uint16_t)) {
+            return false;
+        }
+        uint16_t zero = 0U;
+        memcpy(cursor, &zero, sizeof(zero));
+        *written = sizeof(zero);
+        return true;
+    }
+
+    bool result;
+#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+    result = encode_pattern_steps_v2(pattern, &cursor, &remaining);
+#else
+    result = encode_pattern_steps_v1(pattern, &cursor, &remaining);
+#endif
+    if (!result) {
+        return false;
+    }
+
+    *written = buffer_size - remaining;
+    return true;
+}
+
+bool seq_project_pattern_steps_decode(seq_model_pattern_t *pattern,
+                                      const uint8_t *buffer,
+                                      size_t buffer_size,
+                                      uint8_t version,
+                                      seq_project_pattern_decode_policy_t policy_mode) {
+    if ((pattern == NULL) || (buffer == NULL)) {
+        return false;
+    }
+
+    track_load_policy_t policy = TRACK_LOAD_FULL;
+    switch (policy_mode) {
+    case SEQ_PROJECT_PATTERN_DECODE_FULL:
+        policy = TRACK_LOAD_FULL;
+        break;
+    case SEQ_PROJECT_PATTERN_DECODE_DROP_CART:
+        policy = TRACK_LOAD_DIFFERENT_CART;
+        break;
+    case SEQ_PROJECT_PATTERN_DECODE_ABSENT:
+        policy = TRACK_LOAD_ABSENT;
+        break;
+    default:
+        return false;
+    }
+
+    switch (version) {
+    case 1U:
+        return decode_pattern_steps_v1(pattern, buffer, (uint32_t)buffer_size, policy);
+    case 2U:
+        return decode_pattern_steps_v2(pattern, buffer, (uint32_t)buffer_size, policy);
+    default:
+        break;
+    }
+
+    return false;
 }
 
 void seq_project_init(seq_project_t *project) {
@@ -721,8 +1078,13 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
         }
         const size_t payload_start = (size_t)(cursor - s_pattern_buffer);
 
-        if ((pattern_ptr != NULL) && !encode_pattern_steps(pattern_ptr, &cursor, &remaining)) {
-            return false;
+        if (pattern_ptr != NULL) {
+            size_t written = 0U;
+            if (!seq_project_pattern_steps_encode(pattern_ptr, cursor, remaining, &written)) {
+                return false;
+            }
+            cursor += written;
+            remaining -= written;
         }
 
         const size_t payload_size = (size_t)(cursor - s_pattern_buffer) - payload_start;
@@ -803,7 +1165,10 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
     cursor += sizeof(header);
     remaining -= sizeof(header);
 
-    if ((header.magic != SEQ_PROJECT_PATTERN_MAGIC) || (header.version != SEQ_PROJECT_PATTERN_VERSION)) {
+    if (header.magic != SEQ_PROJECT_PATTERN_MAGIC) {
+        return false;
+    }
+    if ((header.version != 1U) && (header.version != 2U)) {
         return false;
     }
 
@@ -831,10 +1196,24 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
 
         seq_project_cart_ref_t resolved_cart;
         track_load_policy_t policy = resolve_cart_policy(&saved_cart, &resolved_cart);
+        seq_project_pattern_decode_policy_t decode_policy = SEQ_PROJECT_PATTERN_DECODE_FULL;
+        switch (policy) {
+        case TRACK_LOAD_FULL:
+        case TRACK_LOAD_REMAPPED:
+            decode_policy = SEQ_PROJECT_PATTERN_DECODE_FULL;
+            break;
+        case TRACK_LOAD_DIFFERENT_CART:
+            decode_policy = SEQ_PROJECT_PATTERN_DECODE_DROP_CART;
+            break;
+        case TRACK_LOAD_ABSENT:
+            decode_policy = SEQ_PROJECT_PATTERN_DECODE_ABSENT;
+            break;
+        }
 
         if (track < project->track_count) {
             seq_model_pattern_t *pat = project->tracks[track].pattern;
-            if ((pat != NULL) && !decode_pattern_steps(pat, cursor, track_header.payload_size, policy)) {
+            if ((pat != NULL) &&
+                !seq_project_pattern_steps_decode(pat, cursor, track_header.payload_size, header.version, decode_policy)) {
                 return false;
             }
             project->tracks[track].cart = resolved_cart;

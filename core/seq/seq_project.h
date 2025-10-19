@@ -29,6 +29,13 @@ extern "C" {
 /** Maximum number of bytes reserved per pattern in flash. */
 #define SEQ_PROJECT_PATTERN_STORAGE_MAX 3968U
 
+/** Serialized pattern version emitted by the firmware. */
+#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+#define SEQ_PROJECT_PATTERN_VERSION   2U
+#else
+#define SEQ_PROJECT_PATTERN_VERSION   1U
+#endif
+
 /** Size of a project slot in external flash. */
 #define SEQ_PROJECT_FLASH_SLOT_SIZE (1024U * 1024U)
 
@@ -40,6 +47,13 @@ extern "C" {
 
 /** Maximum length for pattern names. */
 #define SEQ_PROJECT_PATTERN_NAME_MAX 16U
+
+/** Decode policy for standalone pattern payloads. */
+typedef enum {
+    SEQ_PROJECT_PATTERN_DECODE_FULL = 0,
+    SEQ_PROJECT_PATTERN_DECODE_DROP_CART,
+    SEQ_PROJECT_PATTERN_DECODE_ABSENT
+} seq_project_pattern_decode_policy_t;
 
 /** Flags attached to a cart reference. */
 typedef uint8_t seq_project_cart_flags_t;
@@ -129,6 +143,17 @@ bool seq_project_save(uint8_t project_index);
 bool seq_project_load(uint8_t project_index);
 bool seq_pattern_save(uint8_t bank, uint8_t pattern);
 bool seq_pattern_load(uint8_t bank, uint8_t pattern);
+
+bool seq_project_pattern_steps_encode(const seq_model_pattern_t *pattern,
+                                      uint8_t *buffer,
+                                      size_t buffer_size,
+                                      size_t *written);
+
+bool seq_project_pattern_steps_decode(seq_model_pattern_t *pattern,
+                                      const uint8_t *buffer,
+                                      size_t buffer_size,
+                                      uint8_t version,
+                                      seq_project_pattern_decode_policy_t policy);
 
 #ifdef __cplusplus
 }
