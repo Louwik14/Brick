@@ -130,3 +130,21 @@ void brick_metrics_reset_queue_counters(void) {
   ui_led_backend_queue_reset_stats();
 #endif
 }
+
+bool brick_metrics_get_led_backend_timing(brick_led_timing_metric_t *out) {
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+  if (out == NULL) {
+    return false;
+  }
+
+  out->refresh_last_ticks = ui_led_backend_last_refresh_ticks();
+  out->refresh_max_ticks = ui_led_backend_max_refresh_ticks();
+  out->render_last_ticks = ui_led_backend_last_render_ticks();
+  out->render_max_ticks = ui_led_backend_max_render_ticks();
+  out->tick_frequency_hz = chSysGetRealtimeCounterFrequency();
+  return true;
+#else
+  (void)out;
+  return false;
+#endif
+}

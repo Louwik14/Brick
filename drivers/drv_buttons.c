@@ -87,25 +87,25 @@ static void sr_read_buttons(void) {
 
             // Encodage compact : 8 bits d’ID + 8 bits de type
 #if defined(BRICK_ENABLE_INSTRUMENTATION)
-            const msg_t post_res = chMBPostTimeout(&evt_mb,
-                                                  (msg_t)(evt.id | (evt.type << 8)),
-                                                  TIME_IMMEDIATE);
-            if (post_res == MSG_OK) {
-                osalSysLock();
-                if (s_evt_fill < DRV_BUTTONS_QUEUE_LEN) {
-                    s_evt_fill++;
-                    if (s_evt_fill > s_evt_high_water) {
-                        s_evt_high_water = s_evt_fill;
-                    }
-                }
-                osalSysUnlock();
-            } else {
-                osalSysLock();
-                s_evt_drop_count++;
-                osalSysUnlock();
-            }
+              const msg_t post_res = chMBPostTimeout(&evt_mb,
+                                                    (msg_t)(evt.id | (evt.type << 8)),
+                                                    TIME_IMMEDIATE);
+              if (post_res == MSG_OK) {
+                  osalSysLock();
+                  const uint16_t fill = (uint16_t)(DRV_BUTTONS_QUEUE_LEN -
+                      chMBGetFreeCountI(&evt_mb));
+                  s_evt_fill = fill;
+                  if (fill > s_evt_high_water) {
+                      s_evt_high_water = fill;
+                  }
+                  osalSysUnlock();
+              } else {
+                  osalSysLock();
+                  s_evt_drop_count++;
+                  osalSysUnlock();
+              }
 #else
-            (void)chMBPostTimeout(&evt_mb, (msg_t)(evt.id | (evt.type << 8)), TIME_IMMEDIATE);
+              (void)chMBPostTimeout(&evt_mb, (msg_t)(evt.id | (evt.type << 8)), TIME_IMMEDIATE);
 #endif
         }
 
@@ -188,11 +188,9 @@ bool drv_buttons_poll(button_event_t *evt, systime_t timeout) {
     msg_t msg;
     if (chMBFetchTimeout(&evt_mb, &msg, timeout) == MSG_OK) {
 #if defined(BRICK_ENABLE_INSTRUMENTATION)
-        osalSysLock();
-        if (s_evt_fill > 0U) {
-            s_evt_fill--;
-        }
-        osalSysUnlock();
+          osalSysLock();
+          s_evt_fill = (uint16_t)(DRV_BUTTONS_QUEUE_LEN - chMBGetFreeCountI(&evt_mb));
+          osalSysUnlock();
 #endif
         evt->id   = msg & 0xFF;
         evt->type = (msg >> 8) & 0xFF;

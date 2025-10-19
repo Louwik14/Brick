@@ -22,7 +22,7 @@
 #include "hal.h"
 
 #ifndef DRV_BUTTONS_QUEUE_LEN
-#define DRV_BUTTONS_QUEUE_LEN 16U
+#define DRV_BUTTONS_QUEUE_LEN 32U
 #endif
 
 /* ====================================================================== */
