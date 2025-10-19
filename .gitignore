@@ -25,3 +25,12 @@ docs/latex/
 # === OS files ===
 .DS_Store
 Thumbs.db
+
+# === Artefacts Windows réservés ===
+# Empêche Git d'essayer d'ajouter des fichiers spéciaux Windows
+NUL
+CON
+PRN
+AUX
+COM1
+LPT1
