@@ -23,6 +23,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#ifndef MIDI_USB_QUEUE_LEN
+#define MIDI_USB_QUEUE_LEN   256U
+#endif
+
 /* ====================================================================== */
 /*                        CONFIGURATION GLOBALE                           */
 /* ====================================================================== */
@@ -183,5 +187,9 @@ void midi_stats_reset(void);
 
 /** @brief Retourne le plus haut niveau de remplissage observé sur la mailbox USB. */
 uint16_t midi_usb_queue_high_watermark(void);
+/** @brief Retourne le niveau de remplissage courant de la mailbox USB. */
+uint16_t midi_usb_queue_fill_level(void);
+/** @brief Réinitialise le watermark et les compteurs liés à la mailbox USB. */
+void midi_usb_queue_reset_stats(void);
 
 #endif /* MIDI_H */

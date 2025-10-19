@@ -720,6 +720,19 @@ lorsque **KEY** est le contexte actif (overlay visible ou non) ; mise à jour du
 
 Les vérifications rapides à lancer avant une PR :
 
-- `make` — compilation firmware complète (nécessite le dépôt ChibiOS `../../chibios2111`).
+- `make` — compilation firmware complète (ChibiOS 21.11 est fourni dans `./ChibiOS`).
 - `make lint-cppcheck` — analyse statique (`cppcheck`) des dossiers `core/` et `ui/`.
 - `make check-host` — exécute les tests hôtes (modèle SEQ, bridge hold/runtime, transitions UI, edge-cases), la régression `ui_track_pmute_regression_tests` (overlay Track + QUICK/PMute) via stubs LED/flash **et** les garde-fous quick-step / live capture (note fantôme) dans `seq_hold_runtime_tests`.
+
+### Instrumentation & métriques
+
+- L’instrumentation RTOS/queues est activée par défaut (`BRICK_ENABLE_INSTRUMENTATION=1`).
+  - Définir `make BRICK_ENABLE_INSTRUMENTATION=0` pour un build sans watermarks.
+- `core/brick_metrics.h` expose `brick_metrics_collect_stacks()` et `brick_metrics_collect_queues()`
+  pour extraire les marges de pile et le niveau des files (MIDI/cart/boutons/backend LED).
+- Les compteurs unitaires restent disponibles :
+  - MIDI : `midi_usb_queue_high_watermark()`, `midi_usb_queue_fill_level()`, `midi_tx_stats.*`.
+  - Cart bus : `cart_bus_get_mailbox_high_water()`, `cart_bus_get_mailbox_fill()`, `cart_stats[id].mb_full`.
+  - Boutons : `drv_buttons_queue_high_water()`, `drv_buttons_queue_fill()`, `drv_buttons_queue_drop_count()`.
+  - Backend LED : `ui_led_backend_queue_high_water()`, `ui_led_backend_queue_fill()`, `ui_led_backend_queue_drop_count()`.
+- Réinitialisation des compteurs : `brick_metrics_reset_queue_counters()` synchronise MIDI/cart/boutons/LED.

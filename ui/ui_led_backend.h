@@ -84,6 +84,13 @@ void ui_led_backend_set_track_present(uint8_t track_index, bool present);
 /** @brief Active/valide le layout Omnichord (Keyboard). */
 void ui_led_backend_set_keyboard_omnichord(bool enabled);
 
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+uint16_t ui_led_backend_queue_high_water(void);
+uint32_t ui_led_backend_queue_drop_count(void);
+uint16_t ui_led_backend_queue_fill(void);
+void ui_led_backend_queue_reset_stats(void);
+#endif
+
 #ifdef UI_LED_BACKEND_TESTING
 uint32_t ui_led_backend_debug_queue_drops(void);
 ui_led_mode_t ui_led_backend_debug_get_mode(void);

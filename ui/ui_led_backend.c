@@ -63,6 +63,33 @@ static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;
 
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+static uint16_t s_evt_fill = 0U;
+static uint16_t s_evt_high_water = 0U;
+static uint32_t s_evt_drop_count = 0U;
+
+static inline void _update_queue_stats_after_push(void) {
+    uint16_t fill;
+    if (s_evt_tail >= s_evt_head) {
+        fill = (uint16_t)(s_evt_tail - s_evt_head);
+    } else {
+        fill = (uint16_t)((UI_LED_BACKEND_QUEUE_CAPACITY - s_evt_head) + s_evt_tail);
+    }
+    s_evt_fill = fill;
+    if (fill > s_evt_high_water) {
+        s_evt_high_water = fill;
+    }
+}
+
+static inline void _update_queue_fill(void) {
+    if (s_evt_tail >= s_evt_head) {
+        s_evt_fill = (uint16_t)(s_evt_tail - s_evt_head);
+    } else {
+        s_evt_fill = (uint16_t)((UI_LED_BACKEND_QUEUE_CAPACITY - s_evt_head) + s_evt_tail);
+    }
+}
+#endif
+
 #ifdef UI_LED_BACKEND_TESTING
 static uint32_t s_queue_drop_count = 0U;
 #endif
@@ -76,12 +103,18 @@ static void _queue_push_locked(const ui_led_backend_evt_t *evt) {
     if (next_tail == s_evt_head) {
         /* Saturation : drop le plus ancien pour éviter de bloquer. */
         s_evt_head = _queue_next(s_evt_head);
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+        s_evt_drop_count++;
+#endif
 #ifdef UI_LED_BACKEND_TESTING
         s_queue_drop_count++;
 #endif
     }
     s_evt_queue[s_evt_tail] = *evt;
     s_evt_tail = next_tail;
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    _update_queue_stats_after_push();
+#endif
 }
 
 static bool _queue_pop_locked(ui_led_backend_evt_t *evt) {
@@ -92,6 +125,9 @@ static bool _queue_pop_locked(ui_led_backend_evt_t *evt) {
         *evt = s_evt_queue[s_evt_head];
     }
     s_evt_head = _queue_next(s_evt_head);
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    _update_queue_fill();
+#endif
     return true;
 }
 
@@ -253,6 +289,11 @@ void ui_led_backend_init(void) {
     s_mode = UI_LED_MODE_NONE;
     s_kbd_omni = false;
     s_evt_head = s_evt_tail = 0U;
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+    s_evt_fill = 0U;
+    s_evt_high_water = 0U;
+    s_evt_drop_count = 0U;
+#endif
     s_track_focus = 0U;
 
     drv_leds_addr_init();
@@ -354,4 +395,24 @@ bool ui_led_backend_debug_track_muted(uint8_t track) {
     return (track < NUM_STEPS) ? s_track_muted[track] : false;
 }
 const led_state_t *ui_led_backend_debug_led_state(void) { return drv_leds_addr_state; }
+#endif
+
+#if defined(BRICK_ENABLE_INSTRUMENTATION)
+uint16_t ui_led_backend_queue_high_water(void) {
+    return s_evt_high_water;
+}
+
+uint32_t ui_led_backend_queue_drop_count(void) {
+    return s_evt_drop_count;
+}
+
+uint16_t ui_led_backend_queue_fill(void) {
+    return s_evt_fill;
+}
+
+void ui_led_backend_queue_reset_stats(void) {
+    s_evt_fill = 0U;
+    s_evt_high_water = 0U;
+    s_evt_drop_count = 0U;
+}
 #endif

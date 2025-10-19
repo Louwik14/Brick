@@ -225,6 +225,26 @@ uint16_t cart_bus_get_mailbox_high_water(cart_id_t id) {
     return s_cart_mb_high_water[id];
 }
 
+uint16_t cart_bus_get_mailbox_fill(cart_id_t id) {
+    if (id >= CART_COUNT) {
+        return 0;
+    }
+    osalSysLock();
+    const uint16_t fill = s_cart_mb_fill[id];
+    osalSysUnlock();
+    return fill;
+}
+
+void cart_bus_reset_mailbox_stats(void) {
+    osalSysLock();
+    for (cart_id_t id = CART1; id < CART_COUNT; ++id) {
+        s_cart_mb_high_water[id] = s_cart_mb_fill[id];
+        cart_stats[id].mb_high_water = s_cart_mb_high_water[id];
+        cart_stats[id].mb_full = 0;
+    }
+    osalSysUnlock();
+}
+
 /* ===========================================================
  * API publique
  * =========================================================== */
