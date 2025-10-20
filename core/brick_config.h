@@ -21,9 +21,10 @@
 #define BRICK_EXPERIMENTAL_PATTERN_CODEC_V2 0
 #endif
 
-#ifndef CCM_DATA
-#define CCM_DATA __attribute__((section(".ram4")))
+#ifdef CCM_DATA
+#undef CCM_DATA
 #endif
+#define CCM_DATA
 
 /* =======================================================================
  *  Informations générales

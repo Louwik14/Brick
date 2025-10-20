@@ -142,3 +142,11 @@ Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de 
 - `CCM_DATA` pointe désormais vers la section `.ram4` (NOLOAD @ `0x1000_0000`). Les buffers LED/UI (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident en CCRAM pour un total de ~18 kio. `g_seq_runtime` est relocalisé en SRAM principale (`.bss`, 101 448 o) afin de respecter le budget CCRAM 64 kio.
 - Un audit automatique est ajouté (`tools/check_ccmram.py`) et branché dans le build (`POST_MAKE_ALL_RULE_HOOK`) pour échouer si `.ram4` dépasse 64 kio, n’est pas `NOLOAD` ou n’est pas alignée sur `0x1000_0000`.
 - Les rapports générés (`audit_sections.txt`, `audit_headers.txt`, `audit_ram_top.txt`) fournissent l’empreinte exacte et la ventilation des symboles majeurs (ordonnés par taille via `arm-none-eabi-nm`).
+
+### Phase Hotfix CCRAM — Reset total (2025-11)
+
+- Constat : régression UI après migration massive vers CCRAM. Les symboles `CCM_DATA` dépendaient d'une initialisation non-zéro ou de périphériques DMA.
+- Action : neutralisation complète de l’attribut `CCM_DATA` (désormais no-op). Tous les buffers/piles précédemment tagués retombent en `.bss`/`.data` SRAM système.
+- Linker : la section `.ram4` reste déclarée `NOLOAD` @ `0x1000_0000` mais ne reçoit plus aucun objet tant que la reprise opt-in n'est pas décidée.
+- Audit : `tools/check_ccmram.py` reste branché pour garantir taille=0, VMA `0x1000_0000`, flags `NOLOAD`. Les extraits existants (`audit_*`) sont conservés comme point de comparaison pré-hotfix.
+- Build : tentative `make` en environnement CI échouée (dépendance `chibios2111/os/.../port.mk` manquante). Une reconstruction release sera relancée une fois la toolchain restaurée afin de capturer le nouveau snapshot (`.ram4 = 0 o`).
