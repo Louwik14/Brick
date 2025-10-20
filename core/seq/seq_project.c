@@ -115,7 +115,7 @@ typedef enum {
 } track_load_policy_t;
 
 static seq_project_t *s_active_project;
-static CCM_DATA uint8_t s_pattern_buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
+CCMRAM_ATTR static uint8_t s_pattern_buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
 UI_RAM_AUDIT(s_pattern_buffer);
 
 static void pattern_desc_reset(seq_project_pattern_desc_t *desc) {

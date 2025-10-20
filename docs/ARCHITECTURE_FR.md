@@ -23,8 +23,8 @@ Principes structurants :
 
 ### État CCRAM
 
-* Région `.ccmram` : VMA attendue `0x1000_0000`, capacité 64 KiB. Les symboles `g_seq_runtime`, `s_pattern_buffer`, `s_track_*` et files LED y résident toujours et restent marqués `NOLOAD`.
-* Aucun buffer DMA n'est déplacé en CCRAM durant ce lot ; les contraintes STM32F429 (DMA uniquement sur SRAM principale) sont respectées.
+* Région `.ccmram` : VMA fixée à `0x1000_0000` (64 KiB, NOLOAD). Phase « reset » : aucun symbole n'y est chargé ; `g_seq_runtime`, `s_pattern_buffer`, files LED et piles threads sont revenus dans la SRAM système (`.bss/.data`).
+* L'assertion de link (`ASSERT(SIZEOF(.ccmram) <= LENGTH(CCM_RAM))`) et le script `tools/check_ccmram.sh` bloquent toute régression : mauvaise adresse, flag `LOAD/CONTENTS`, symboles DMA/const ou dépassement >64 KiB.
 
 ## 2. Arborescence commentée
 

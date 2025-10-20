@@ -14,15 +14,13 @@
 #ifndef BRICK_CONFIG_H
 #define BRICK_CONFIG_H
 
+#include "ccmattr.h"
+
 /* -----------------------------------------------------------------------
  * Experimental feature toggles
  * ----------------------------------------------------------------------- */
 #ifndef BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
 #define BRICK_EXPERIMENTAL_PATTERN_CODEC_V2 0
-#endif
-
-#ifndef CCM_DATA
-#define CCM_DATA __attribute__((section(".ccmram")))
 #endif
 
 /* =======================================================================

@@ -57,7 +57,7 @@
 /* Runtime UI mode context + helpers                                          */
 /* -------------------------------------------------------------------------- */
 
-static CCM_DATA ui_mode_context_t s_mode_ctx;
+CCMRAM_ATTR static ui_mode_context_t s_mode_ctx;
 static seq_mode_t s_active_seq_mode = SEQ_MODE_DEFAULT;
 static char s_mode_label[8] = "SEQ";
 
@@ -750,7 +750,7 @@ typedef struct { uint16_t id; uint8_t val; } ui_local_kv_t;
 #define UI_BACKEND_UI_SHADOW_MAX  512u // --- FIX: étendre le cache UI pour isoler les modes custom ---
 #endif
 
-static CCM_DATA ui_local_kv_t s_ui_shadow[UI_BACKEND_UI_SHADOW_MAX];
+CCMRAM_ATTR static ui_local_kv_t s_ui_shadow[UI_BACKEND_UI_SHADOW_MAX];
 static uint16_t      s_ui_shadow_count = 0;      // --- FIX: suivre la nouvelle capacité étendue ---
 static uint16_t      s_ui_shadow_next_evict = 0; // --- FIX: pointeur de remplacement circulaire ---
 

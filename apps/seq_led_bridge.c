@@ -67,7 +67,7 @@ typedef struct {
     seq_led_bridge_hold_view_t hold;    /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
-static CCM_DATA seq_led_bridge_state_t g;
+CCMRAM_ATTR static seq_led_bridge_state_t g;
 UI_RAM_AUDIT(g);
 
 static inline seq_project_t *_seq_led_bridge_project(void) {
@@ -96,7 +96,7 @@ typedef struct {
     bool mutated;
 } seq_led_bridge_hold_slot_t;
 
-static CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+CCMRAM_ATTR static seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
 UI_RAM_AUDIT(g_hold_slots);
 
 #ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
@@ -110,7 +110,7 @@ typedef struct {
     uint8_t match_count;
 } seq_led_bridge_hold_cart_entry_t;
 
-static CCM_DATA seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
+CCMRAM_ATTR static seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
 UI_RAM_AUDIT(g_hold_cart_params);
 static uint8_t g_hold_cart_param_count;
 

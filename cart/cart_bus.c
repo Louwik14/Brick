@@ -70,7 +70,7 @@ typedef struct {
 /* ===========================================================
  * Variables globales
  * =========================================================== */
-static CCM_DATA cart_port_t s_port[CART_COUNT];
+CCMRAM_ATTR static cart_port_t s_port[CART_COUNT];
 static uint16_t s_cart_mb_fill[CART_COUNT];
 static uint16_t s_cart_mb_high_water[CART_COUNT];
 cart_tx_stats_t    cart_stats[CART_COUNT];
@@ -117,7 +117,7 @@ static SerialDriver* map_uart(cart_id_t id) {
 /* ===========================================================
  * Thread d’émission
  * =========================================================== */
-static CCM_DATA THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
+CCMRAM_ATTR static THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
 
 /* Configuration UART commune à toutes les cartouches (Flash). */
 static const SerialConfig k_cart_serial_cfg = { CART_UART_BAUD, 0, 0, 0 };

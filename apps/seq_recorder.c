@@ -13,13 +13,13 @@
 #include "seq_led_bridge.h"
 #include "core/seq/seq_model.h"
 
-static CCM_DATA seq_live_capture_t s_capture;
+CCMRAM_ATTR static seq_live_capture_t s_capture;
 typedef struct {
     bool    active;
     uint8_t note;
 } seq_recorder_active_voice_t;
 
-static CCM_DATA seq_recorder_active_voice_t s_active_voices[SEQ_MODEL_VOICES_PER_STEP];
+CCMRAM_ATTR static seq_recorder_active_voice_t s_active_voices[SEQ_MODEL_VOICES_PER_STEP];
 
 static void _seq_recorder_reset_active_voices(void) {
     for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {

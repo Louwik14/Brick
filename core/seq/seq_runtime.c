@@ -9,7 +9,7 @@
 #include "core/seq/seq_runtime.h"
 #include "core/ram_audit.h"
 
-CCM_DATA seq_runtime_t g_seq_runtime;
+CCMRAM_ATTR seq_runtime_t g_seq_runtime;
 UI_RAM_AUDIT(g_seq_runtime);
 
 void seq_runtime_init(void) {

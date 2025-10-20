@@ -53,7 +53,7 @@
 #define UI_TASK_POLL_MS (2)
 #endif
 
-static CCM_DATA THD_WORKING_AREA(waUI, UI_TASK_STACK);
+CCMRAM_ATTR static THD_WORKING_AREA(waUI, UI_TASK_STACK);
 static thread_t* s_ui_thread = NULL;
 
 /* ============================================================================

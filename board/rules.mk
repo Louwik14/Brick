@@ -221,6 +221,7 @@ else
 	@echo Linking $@
 	@$(LD) $(OBJS) $(LDFLAGS) $(LIBS) -o $@
 endif
+	@tools/check_ccmram.sh $@
 
 %.hex: %.elf
 ifeq ($(USE_VERBOSE_COMPILE),yes)

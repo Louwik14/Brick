@@ -125,3 +125,10 @@ Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de 
 | `names[12]` (renderer) | `static const char*` local recréé à chaque appel | `k_note_name_table` (Flash, 12×3) | −48 o pile transitoire | ui/ui_renderer.o |
 
 > À re-mesurer dès que le build release ARM est rétabli ; ces tables sont prêtes pour les audits CCRAM/Flash attendus en Lot 5.
+
+## Phase CCRAM Reset — opt-out total
+
+- Linker `STM32F429xI.ld` : `.ccmram` pointe désormais sur la vraie CCRAM (`0x1000_0000`, 64 KiB) en `NOLOAD`, avec une assertion `ASSERT(SIZEOF(.ccmram) <= LENGTH(CCM_RAM))` qui casse le link au-delà du budget. 【F:board/STM32F429xI.ld†L29-L40】【F:board/rules_memory.ld†L176-L189】
+- Nouveau header `core/ccmattr.h` : la macro `CCMRAM_ATTR` est vide par défaut, tous les anciens placements `CCM_DATA` (runtime, stacks, files LED/UI/MIDI) retombent dans `.bss/.data` SRAM. Opt-in futur via `-DCCM_ENABLE` possible en redéfinissant la macro. 【F:core/ccmattr.h†L1-L17】【F:core/brick_config.h†L17-L23】
+- Check post-link `tools/check_ccmram.sh` exécuté depuis `board/rules.mk` : vérifie VMA, absence de `LOAD/CONTENTS`, bannit symboles `dma/_rx/_tx` et les symboles `R`. 【F:tools/check_ccmram.sh†L1-L68】【F:board/rules.mk†L216-L224】
+- Build complet ARM indisponible sur l’environnement fourni (`make` échoue faute de `chibios2111/os/common/.../port.mk`). Le premier build outillé produira un log `ccmram ok: size=0x00000000 vma=0x10000000` et `.ccmram = 0 o` (`arm-none-eabi-size -A`). 【11d489†L1-L3】

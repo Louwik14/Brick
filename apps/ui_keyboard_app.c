@@ -44,7 +44,7 @@ typedef struct {
   ui_keyboard_chord_cb_t    observer;
 } kbd_state_t;
 
-static CCM_DATA kbd_state_t g;
+CCMRAM_ATTR static kbd_state_t g;
 
 /* ============================== Note sink ================================ */
 

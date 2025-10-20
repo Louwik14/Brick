@@ -41,7 +41,7 @@
 #define SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS 24U
 #endif
 
-static CCM_DATA seq_engine_t s_engine;
+CCMRAM_ATTR static seq_engine_t s_engine;
 
 typedef struct {
     bool active;
@@ -51,7 +51,7 @@ typedef struct {
     uint8_t previous;
 } seq_engine_runner_plock_state_t;
 
-static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
+CCMRAM_ATTR static seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
 
 static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time);
 static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time);

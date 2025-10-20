@@ -36,13 +36,13 @@
 #endif
 
 /* ===== ÉTAT ===== */
-static CCM_DATA bool     s_track_muted[NUM_STEPS];
+CCMRAM_ATTR static bool     s_track_muted[NUM_STEPS];
 UI_RAM_AUDIT(s_track_muted);
-static CCM_DATA bool     s_track_pmutes[NUM_STEPS];
+CCMRAM_ATTR static bool     s_track_pmutes[NUM_STEPS];
 UI_RAM_AUDIT(s_track_pmutes);
-static CCM_DATA bool     s_track_present[NUM_STEPS];
+CCMRAM_ATTR static bool     s_track_present[NUM_STEPS];
 UI_RAM_AUDIT(s_track_present);
-static CCM_DATA uint8_t  s_cart_tracks[4] = {4,4,4,4};
+CCMRAM_ATTR static uint8_t  s_cart_tracks[4] = {4,4,4,4};
 UI_RAM_AUDIT(s_cart_tracks);
 static uint8_t           s_track_focus = 0U;
 static bool     s_rec_active = false;
@@ -68,7 +68,7 @@ typedef struct {
 #define UI_LED_BACKEND_QUEUE_CAPACITY 64U
 #endif
 
-static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
+CCMRAM_ATTR static ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
 UI_RAM_AUDIT(s_evt_queue);
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;

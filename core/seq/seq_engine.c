@@ -30,7 +30,7 @@
 #define SEQ_ENGINE_MICRO_MAX           12
 #define SEQ_ENGINE_MICRO_DIVISOR       24
 
-static CCM_DATA THD_WORKING_AREA(s_seq_engine_player_wa, SEQ_ENGINE_PLAYER_STACK_SIZE);
+CCMRAM_ATTR static THD_WORKING_AREA(s_seq_engine_player_wa, SEQ_ENGINE_PLAYER_STACK_SIZE);
 
 static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_pattern_t *pattern);
 static void _seq_engine_reader_refresh_flags(seq_engine_reader_t *reader);

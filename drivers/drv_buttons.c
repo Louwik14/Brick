@@ -51,7 +51,7 @@ static bool last_states[NUM_BUTTONS];
 /** @brief Mailbox utilisée pour poster les événements boutons. */
 static mailbox_t evt_mb;
 /** @brief File de messages associée à la mailbox. */
-static CCM_DATA msg_t evt_queue[16];
+CCMRAM_ATTR static msg_t evt_queue[16];
 
 /* ====================================================================== */
 /*                     LECTURE DES REGISTRES À DÉCALAGE                   */
@@ -97,7 +97,7 @@ static void sr_read_buttons(void) {
 /* ====================================================================== */
 
 /** @brief Thread responsable du scan périodique des boutons (~200 Hz). */
-static CCM_DATA THD_WORKING_AREA(waButtons, 512);
+CCMRAM_ATTR static THD_WORKING_AREA(waButtons, 512);
 static THD_FUNCTION(ButtonsThread, arg) {
     (void)arg;
     chRegSetThreadName("Buttons");

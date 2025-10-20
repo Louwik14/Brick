@@ -176,14 +176,17 @@ SECTIONS
         __ram4_free__ = .;
     } > ram4
 
-    .ccmram (NOLOAD) : ALIGN(4)
+    .ccmram (NOLOAD) : ALIGN(32)
     {
         __ccmram_start__ = .;
         *(.ccmram)
         *(.ccmram.*)
-        . = ALIGN(4);
+        . = ALIGN(32);
         __ccmram_end__ = .;
-    } > ram4
+    } > CCM_RAM
+
+    ASSERT(SIZEOF(.ccmram) <= LENGTH(CCM_RAM),
+           "CCMRAM overflow: reduce .ccmram or move data to SRAM")
 
     .ram5_init : ALIGN(4)
     {

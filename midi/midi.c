@@ -70,9 +70,9 @@ extern volatile bool usb_midi_tx_ready;
 #define MIDI_USB_QUEUE_LEN   256
 
 /** @brief Mailbox de transmission USB-MIDI (producteur/consommateur). */
-static CCM_DATA mailbox_t midi_usb_mb;
+CCMRAM_ATTR static mailbox_t midi_usb_mb;
 /** @brief Buffer circulaire pour la mailbox USB-MIDI. */
-static CCM_DATA msg_t     midi_usb_queue[MIDI_USB_QUEUE_LEN];
+CCMRAM_ATTR static msg_t     midi_usb_queue[MIDI_USB_QUEUE_LEN];
 static uint16_t  midi_usb_queue_fill = 0;
 static uint16_t  midi_usb_queue_high_water = 0;
 
@@ -125,7 +125,7 @@ midi_tx_stats_t midi_tx_stats = {0};
 /**
  * @brief Zone de travail du thread de transmission USB-MIDI.
  */
-static CCM_DATA THD_WORKING_AREA(waMidiUsbTx, 512);
+CCMRAM_ATTR static THD_WORKING_AREA(waMidiUsbTx, 512);
 
 /**
  * @brief Thread d’agrégation et d’envoi USB-MIDI.
