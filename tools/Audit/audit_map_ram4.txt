@@ -1,0 +1,9 @@
+.ram4_init      0x10000000        0x0 load address 0x080296b4
+                0x080296b4                __ram4_init_text__ = LOADADDR (.ram4_init)
+ *(.ram4_init)
+ *(.ram4_init.*)
+.ram4           0x10000000        0x0 load address 0x080296b4
+ *(.ram4_clear)
+ *(.ram4_clear.*)
+ *(.ram4)
+ *(.ram4.*)
