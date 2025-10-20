@@ -21,10 +21,14 @@ Principes structurants :
 * Les masques d'échelle utilisés par le moteur (`k_seq_engine_scale_masks`) sont définis une seule fois en Flash (`core/seq/seq_engine_tables.c`) et consommés par `_seq_engine_apply_scale()`.
 * Le dictionnaire clavier agrège ses triades/extensions et offsets de gammes dans des tables uniques (`k_chord_bases`, `k_chord_exts`, `k_kbd_scale_offsets`) stockées en Flash (`apps/kbd_chords_dict.c`). Les libellés de notes côté renderer (`k_note_name_table`) sont également partagés pour éviter toute duplication en pile (`ui/ui_renderer.c`).
 
+* Build release 2025-10 (profil `-Os`) : `.text` 83 616 o, `.rodata` 66 904 o, `.data` 1 788 o, `.bss` 110 864 o, `.ram4` (CCRAM) 18 784 o (`arm-none-eabi-size -A build/ch.elf`).
+* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Les buffers temps réel (LED/UI/ARP) annotés `CCM_DATA` sont regroupés dans `.ram4` (NOLOAD @ `0x1000_0000`).
+
 ### État CCRAM
 
-* Région `.ccmram` : VMA attendue `0x1000_0000`, capacité 64 KiB. Les symboles `g_seq_runtime`, `s_pattern_buffer`, `s_track_*` et files LED y résident toujours et restent marqués `NOLOAD`.
-* Aucun buffer DMA n'est déplacé en CCRAM durant ce lot ; les contraintes STM32F429 (DMA uniquement sur SRAM principale) sont respectées.
+* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, 18 784 o alloués (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, `midi_usb_queue`, caches LED). Section `NOLOAD`, aucun symbole `const`, aucun buffer DMA.
+* `g_seq_runtime` et `s_pattern_buffer` sont désormais en SRAM (0x2000_xxxx) pour rester sous le budget CCRAM 64 KiB tout en conservant les performances d’accès.
+* Un audit automatique (`tools/check_ccmram.py`, déclenché via `POST_MAKE_ALL_RULE_HOOK`) valide systématiquement l’adresse, la taille (<64 KiB) et l’absence de drapeaux `LOAD/CONTENTS` sur `.ram4` lors des builds.
 
 ## 2. Arborescence commentée
 

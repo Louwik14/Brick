@@ -22,7 +22,7 @@
 #endif
 
 #ifndef CCM_DATA
-#define CCM_DATA __attribute__((section(".ccmram")))
+#define CCM_DATA __attribute__((section(".ram4")))
 #endif
 
 /* =======================================================================

@@ -139,7 +139,6 @@ LDSCRIPT= board/STM32F429xI.ld
 # C sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
 CSRC = $(ALLCSRC) \
-       $(TESTSRC) \
        main.c \
        $(CHIBIOS)/os/hal/lib/streams/chprintf.c \
        $(CHIBIOS)/os/hal/lib/streams/memstreams.c \
@@ -173,7 +172,7 @@ ASMSRC = $(ALLASMSRC)
 ASMXSRC = $(ALLXASMSRC)
 
 # Inclusion directories.
-INCDIR = $(CONFDIR) $(ALLINC) $(TESTINC) $(CHIBIOS)/os/hal/lib/streams
+INCDIR = $(CONFDIR) $(ALLINC) $(CHIBIOS)/os/hal/lib/streams
 
 
 # Define C warning options here.
@@ -205,6 +204,7 @@ ULIBDIR =
 # List all user libraries here
 ULIBS = -lm
 
+USE_CCM = yes
 #
 # End of user section
 ##############################################################################
@@ -212,6 +212,7 @@ ULIBS = -lm
 ##############################################################################
 # Common rules
 #
+LDFLAGS += -Wl,-Map=$(BUILD)/ch.map,--print-memory-usage
 
 RULESPATH = board
 

@@ -176,6 +176,7 @@ SECTIONS
         __ram4_free__ = .;
     } > ram4
 
+    /* ===== CHANGEMENT ICI : on cible l'alias CCM_RAM (pas ram4 en dur) ===== */
     .ccmram (NOLOAD) : ALIGN(4)
     {
         __ccmram_start__ = .;
@@ -183,7 +184,7 @@ SECTIONS
         *(.ccmram.*)
         . = ALIGN(4);
         __ccmram_end__ = .;
-    } > ram4
+    } > CCM_RAM
 
     .ram5_init : ALIGN(4)
     {

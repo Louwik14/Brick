@@ -1,0 +1,35 @@
+ .ram4          0x00000000      0x320 ./build/obj/drv_display.o
+ .ram4          0x00000000      0xf80 ./build/obj/seq_project.o
+                0x10000000                __ram4_base__ = ORIGIN (ram4)
+                0x00010000                __ram4_size__ = LENGTH (ram4)
+                0x10010000                __ram4_end__ = (__ram4_base__ + __ram4_size__)
+.ram4_init      0x10000000        0x0 load address 0x08029724
+                0x08029724                __ram4_init_text__ = LOADADDR (.ram4_init)
+                0x10000000                __ram4_init__ = .
+ *(.ram4_init)
+ *(.ram4_init.*)
+.ram4           0x10000000     0x4b60 load address 0x08029724
+                0x10000000                __ram4_clear__ = .
+ *(.ram4_clear)
+ *(.ram4_clear.*)
+                0x10000000                __ram4_noinit__ = .
+ *(.ram4)
+ .ram4          0x10000000      0x760 ./build/obj/midi.o
+ .ram4          0x10000760      0x360 ./build/obj/drv_buttons.o
+ .ram4          0x10000ac0      0x220 ./build/obj/drv_pots.o
+ .ram4          0x10000ce0      0x86c ./build/obj/ui_backend.o
+ .ram4          0x1000154c       0xf4 ./build/obj/ui_led_backend.o
+ .ram4          0x10001640      0x520 ./build/obj/ui_task.o
+ .ram4          0x10001b60      0x5ec ./build/obj/seq_engine_runner.o
+ .ram4          0x1000214c     0x1180 ./build/obj/seq_led_bridge.o
+ .ram4          0x100032cc       0x88 ./build/obj/seq_recorder.o
+ .ram4          0x10003354       0x40 ./build/obj/ui_keyboard_app.o
+ .ram4          0x100033a0     0x1180 ./build/obj/cart_bus.o
+ .ram4          0x10004520      0x220 ./build/obj/midi_clock.o
+ .ram4          0x10004740      0x420 ./build/obj/seq_engine.o
+ *(.ram4.*)
+                0x10004b60                __ram4_free__ = .
+__ram4_clear__                                    ./build/obj/crt1.o
+__ram4_init__                                     ./build/obj/crt1.o
+__ram4_init_text__                                ./build/obj/crt1.o
+__ram4_noinit__                                   ./build/obj/crt1.o

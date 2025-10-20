@@ -125,3 +125,20 @@ Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de 
 | `names[12]` (renderer) | `static const char*` local recréé à chaque appel | `k_note_name_table` (Flash, 12×3) | −48 o pile transitoire | ui/ui_renderer.o |
 
 > À re-mesurer dès que le build release ARM est rétabli ; ces tables sont prêtes pour les audits CCRAM/Flash attendus en Lot 5.
+
+### Phase C — Lot 5 (Mesures release & audit CCRAM)
+
+- Toolchain ARM (gcc 13.2 + ChibiOS 21.11) restauré pour un build `release` (`USE_OPT=-Os -fomit-frame-pointer -falign-functions=16`, `USE_COPT=-DNDEBUG`).
+- Les sections mesurées sur `build/ch.elf` :
+
+| Section | Taille (octets) |
+| --- | ---: |
+| `.text` | 83 616 |
+| `.rodata` | 66 904 |
+| `.data` | 1 788 |
+| `.bss` | 110 864 |
+| `.ram4` (CCRAM) | 18 784 |
+
+- `CCM_DATA` pointe désormais vers la section `.ram4` (NOLOAD @ `0x1000_0000`). Les buffers LED/UI (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident en CCRAM pour un total de ~18 kio. `g_seq_runtime` est relocalisé en SRAM principale (`.bss`, 101 448 o) afin de respecter le budget CCRAM 64 kio.
+- Un audit automatique est ajouté (`tools/check_ccmram.py`) et branché dans le build (`POST_MAKE_ALL_RULE_HOOK`) pour échouer si `.ram4` dépasse 64 kio, n’est pas `NOLOAD` ou n’est pas alignée sur `0x1000_0000`.
+- Les rapports générés (`audit_sections.txt`, `audit_headers.txt`, `audit_ram_top.txt`) fournissent l’empreinte exacte et la ventilation des symboles majeurs (ordonnés par taille via `arm-none-eabi-nm`).
