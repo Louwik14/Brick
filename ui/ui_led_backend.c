@@ -18,6 +18,7 @@
 #include "ui_led_backend.h"
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
+#include "ui_led_layout.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
 #include "core/ram_audit.h"
 
@@ -158,13 +159,10 @@ static void _drain_event_queue(void) {
 
 /* ===== MAP step→LED physique ===== */
 static inline int _led_index_for_step(uint8_t step) {
-    static const uint8_t idx[NUM_STEPS] = {
-        LED_SEQ1, LED_SEQ2, LED_SEQ3, LED_SEQ4,
-        LED_SEQ5, LED_SEQ6, LED_SEQ7, LED_SEQ8,
-        LED_SEQ9, LED_SEQ10, LED_SEQ11, LED_SEQ12,
-        LED_SEQ13, LED_SEQ14, LED_SEQ15, LED_SEQ16
-    };
-    return (step < NUM_STEPS) ? idx[step] : LED_SEQ1;
+    if (step >= UI_LED_SEQ_STEP_COUNT) {
+        return k_ui_led_seq_step_to_index[0];
+    }
+    return k_ui_led_seq_step_to_index[step];
 }
 static inline void _set_led(int idx, led_color_t col, led_mode_t mode) {
     drv_leds_addr_set(idx, col, mode);

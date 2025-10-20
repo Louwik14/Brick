@@ -95,3 +95,19 @@ Total estimé : ~76 o migrés vers `.rodata` (pointeurs + configuration GPT). 
 | `k_arp_callbacks` | Objet pile (~8 o) | `.rodata` | −8 o pile / +8 o Flash | ui_keyboard_bridge.o |
 
 Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de copies transitoires supprimées en pile. Confirmation chiffrée à effectuer dès que le profil release pourra être recompilé.
+
+### Phase C — Lots 2→3 (Constantes SEQ/UI supplémentaires)
+
+- Mapping SEQ→LED mutualisé (`k_ui_led_seq_step_to_index` dans `ui/ui_led_layout.c`) consommé par `ui_led_backend` et `ui_led_seq` (une seule table en Flash au lieu de deux copies locales).
+- Modèle séquenceur : gabarit de step neutre (`k_seq_model_step_default`) et configuration de pattern (`k_seq_model_pattern_config_default`) externalisés en Flash (`core/seq/seq_model_consts.c`), copiés lors de l'initialisation plutôt que reconstruits champ à champ.
+- Moteur : masques d’échelle (`k_seq_engine_scale_masks`) déplacés dans `core/seq/seq_engine_tables.c` pour éviter les duplications futures et documenter la table en Flash.
+- Toujours pas de build release disponible dans l’environnement courant (dépendances ChibiOS manquantes) — les gains ci-dessous restent des estimations.
+
+| Symbole | Avant | Après | Δ estimé | Fichier |
+| --- | --- | --- | --- | --- |
+| `idx[16]` locaux (`ui_led_backend`, `ui_led_seq`) | 2 copies × 16 o | `k_ui_led_seq_step_to_index` unique (16 o) | ≈ −16 o `.rodata` | ui_led_backend.o / ui_led_seq.o → ui_led_layout.o |
+| Initialisation `seq_model_step_init` | Boucle + memset | Assignation depuis `k_seq_model_step_default` | CPU réduit, `g_seq_runtime` inchangé, +Struct en Flash (~>256 o) | seq_model.o / seq_model_consts.o |
+| `seq_model_pattern_reset_config` | Mutations successives | Assignation depuis `k_seq_model_pattern_config_default` | CPU réduit, +struct Flash (~48 o) | seq_model.o / seq_model_consts.o |
+| `masks[]` internes `_seq_engine_apply_scale` | Table locale (80 o) | `k_seq_engine_scale_masks` partagée (80 o) | Δ≈0 mais table désormais mutualisable | seq_engine.o / seq_engine_tables.o |
+
+> Remarque : les tailles exactes seront confirmées dès que le profil release pourra être recompilé (`arm-none-eabi-size` indisponible actuellement).

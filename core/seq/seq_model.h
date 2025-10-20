@@ -205,6 +205,12 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step);
 /** Recompute cached flags after mutating voices or parameter locks. */
 void seq_model_step_recompute_flags(seq_model_step_t *step);
 
+/** Flash-resident template used to initialise neutral sequencer steps. */
+extern const seq_model_step_t k_seq_model_step_default;
+
+/** Flash-resident default pattern configuration (quantize/transpose/scale). */
+extern const seq_model_pattern_config_t k_seq_model_pattern_config_default;
+
 /** Update the quantize configuration of a pattern. */
 void seq_model_pattern_set_quantize(seq_model_pattern_t *pattern, const seq_model_quantize_config_t *config);
 /** Update the transpose configuration of a pattern. */

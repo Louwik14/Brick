@@ -19,6 +19,10 @@
 extern "C" {
 #endif
 
+enum { SEQ_ENGINE_SCALE_MASK_COUNT = SEQ_MODEL_SCALE_MIXOLYDIAN + 1 }; /**< Number of scale mask entries. */
+
+extern const uint16_t k_seq_engine_scale_masks[SEQ_ENGINE_SCALE_MASK_COUNT];
+
 /** Maximum number of scheduled events retained by the scheduler. */
 #define SEQ_ENGINE_SCHEDULER_CAPACITY 64U
 

@@ -47,20 +47,12 @@ void seq_model_voice_init(seq_model_voice_t *voice, bool primary) {
 }
 
 void seq_model_step_init(seq_model_step_t *step) {
-    size_t i;
-
     if (step == NULL) {
         return;
     }
 
-    for (i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
-        seq_model_voice_init(&step->voices[i], i == 0U);
-    }
-
-    seq_model_step_clear_plocks(step);
-    seq_model_step_reset_offsets(&step->offsets);
-    step->flags.active = false;
-    step->flags.automation = false;
+    *step = k_seq_model_step_default;
+    seq_model_step_recompute_flags(step);
 }
 
 void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
@@ -314,24 +306,11 @@ static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets) {
 }
 
 static void seq_model_pattern_reset_config(seq_model_pattern_config_t *config) {
-    size_t i;
-
     if (config == NULL) {
         return;
     }
 
-    config->quantize.enabled = false;
-    config->quantize.grid = SEQ_MODEL_QUANTIZE_1_16;
-    config->quantize.strength = 100U;
-
-    config->transpose.global = 0;
-    for (i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
-        config->transpose.per_voice[i] = 0;
-    }
-
-    config->scale.enabled = false;
-    config->scale.root = 0U;
-    config->scale.mode = SEQ_MODEL_SCALE_CHROMATIC;
+    *config = k_seq_model_pattern_config_default;
 }
 
 void seq_model_step_recompute_flags(seq_model_step_t *step) {
