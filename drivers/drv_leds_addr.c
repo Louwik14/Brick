@@ -17,11 +17,13 @@
  */
 
 #include "drv_leds_addr.h"
+#include "core/ram_audit.h"
 
 #define LED_PORT GPIOD
 #define LED_PIN  3
 
 static led_color_t led_buffer[NUM_ADRESS_LEDS];
+UI_RAM_AUDIT(led_buffer);
 
 /* === Transmission bit à bit (ASM calibré 168 MHz) === */
 static inline void send_bit_asm(uint32_t mask_set, uint32_t mask_reset, int bit) {
@@ -121,6 +123,7 @@ void drv_leds_addr_set_color(int index, led_color_t color) {
  * ======================================================================= */
 
 led_state_t drv_leds_addr_state[NUM_ADRESS_LEDS];
+UI_RAM_AUDIT(drv_leds_addr_state);
 
 void drv_leds_addr_set(int index, led_color_t color, led_mode_t mode) {
     if (index < 0 || index >= NUM_ADRESS_LEDS) return;

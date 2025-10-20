@@ -217,6 +217,21 @@ void seq_recorder_attach_pattern(seq_model_pattern_t *pattern)
 systime_t chVTGetSystemTimeX(void) { return 0; }
 systime_t chVTGetSystemTime(void) { return 0; }
 void chThdSleepMilliseconds(uint32_t ms) { (void)ms; }
+void chThdSleepMicroseconds(uint32_t us) { (void)us; }
+void chRegSetThreadName(const char *name) { (void)name; }
+void chThdCreateStatic(void *wa, size_t size, int prio, void (*func)(void *), void *arg) {
+    (void)wa;
+    (void)size;
+    (void)prio;
+    (void)func;
+    (void)arg;
+}
+int chsnprintf(char *buf, size_t size, const char *fmt, ...) {
+    (void)buf;
+    (void)size;
+    (void)fmt;
+    return 0;
+}
 void chSysLock(void) {}
 void chSysUnlock(void) {}
 void chSysLockFromISR(void) {}
