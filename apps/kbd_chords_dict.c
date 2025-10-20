@@ -8,16 +8,37 @@
 #include <stddef.h>
 #include <string.h>
 
+typedef struct {
+  uint8_t mask;
+  const uint8_t *intervals;
+  uint8_t count;
+} kbd_chord_component_t;
+
 /* Triades */
 static const uint8_t TRIAD_MAJOR[] = {0, 4, 7};
 static const uint8_t TRIAD_MINOR[] = {0, 3, 7};
 static const uint8_t TRIAD_SUS4[]  = {0, 5, 7};
 static const uint8_t TRIAD_DIM[]   = {0, 3, 6};
+
+static const kbd_chord_component_t k_chord_bases[] = {
+  { KBD_CH_BASE_MAJOR, TRIAD_MAJOR, (uint8_t)(sizeof(TRIAD_MAJOR) / sizeof(TRIAD_MAJOR[0])) },
+  { KBD_CH_BASE_MINOR, TRIAD_MINOR, (uint8_t)(sizeof(TRIAD_MINOR) / sizeof(TRIAD_MINOR[0])) },
+  { KBD_CH_BASE_SUS4,  TRIAD_SUS4,  (uint8_t)(sizeof(TRIAD_SUS4)  / sizeof(TRIAD_SUS4[0]))  },
+  { KBD_CH_BASE_DIM,   TRIAD_DIM,   (uint8_t)(sizeof(TRIAD_DIM)   / sizeof(TRIAD_DIM[0]))   },
+};
+
 /* Extensions */
 static const uint8_t EXT_7TH[]   = {10};
 static const uint8_t EXT_MAJ7[]  = {11};
 static const uint8_t EXT_6TH[]   = {9};
 static const uint8_t EXT_9TH[]   = {14};
+
+static const kbd_chord_component_t k_chord_exts[] = {
+  { KBD_CH_EXT_7,    EXT_7TH,  (uint8_t)(sizeof(EXT_7TH)  / sizeof(EXT_7TH[0]))  },
+  { KBD_CH_EXT_MAJ7, EXT_MAJ7, (uint8_t)(sizeof(EXT_MAJ7) / sizeof(EXT_MAJ7[0])) },
+  { KBD_CH_EXT_6,    EXT_6TH,  (uint8_t)(sizeof(EXT_6TH)  / sizeof(EXT_6TH[0]))  },
+  { KBD_CH_EXT_9,    EXT_9TH,  (uint8_t)(sizeof(EXT_9TH)  / sizeof(EXT_9TH[0]))  },
+};
 
 /* Utils set/tri */
 static inline void add_unique(uint8_t *buf, uint8_t *n, uint8_t v, uint8_t maxn){
@@ -32,6 +53,19 @@ static void isort_u8(uint8_t *a, uint8_t n){
   for(uint8_t i=1;i<n;++i){ uint8_t k=a[i],j=i; while(j>0 && a[j-1]>k){a[j]=a[j-1];--j;} a[j]=k; }
 }
 
+static void add_components(uint8_t chord_mask,
+                           const kbd_chord_component_t *components,
+                           size_t component_count,
+                           uint8_t *intervals,
+                           uint8_t *count){
+  for (size_t i = 0; i < component_count; ++i) {
+    const kbd_chord_component_t *comp = &components[i];
+    if ((chord_mask & comp->mask) != 0u) {
+      add_all(comp->intervals, comp->count, intervals, count, 12);
+    }
+  }
+}
+
 /* API accords */
 bool kbd_chords_dict_build(uint8_t chord_mask, uint8_t *intervals, uint8_t *count){
   if (!intervals || !count) return false;
@@ -42,41 +76,33 @@ bool kbd_chords_dict_build(uint8_t chord_mask, uint8_t *intervals, uint8_t *coun
 
   if (bases == 0) return false; /* extensions seules → invalide */
 
-  if (bases & KBD_CH_BASE_MAJOR) add_all(TRIAD_MAJOR, sizeof(TRIAD_MAJOR), intervals, count, 12);
-  if (bases & KBD_CH_BASE_MINOR) add_all(TRIAD_MINOR, sizeof(TRIAD_MINOR), intervals, count, 12);
-  if (bases & KBD_CH_BASE_SUS4)  add_all(TRIAD_SUS4,  sizeof(TRIAD_SUS4),  intervals, count, 12);
-  if (bases & KBD_CH_BASE_DIM)   add_all(TRIAD_DIM,   sizeof(TRIAD_DIM),   intervals, count, 12);
+  add_components(bases, k_chord_bases,
+                 sizeof(k_chord_bases) / sizeof(k_chord_bases[0]),
+                 intervals, count);
 
-  if (exts & KBD_CH_EXT_7)    add_all(EXT_7TH,  sizeof(EXT_7TH),  intervals, count, 12);
-  if (exts & KBD_CH_EXT_MAJ7) add_all(EXT_MAJ7, sizeof(EXT_MAJ7), intervals, count, 12);
-  if (exts & KBD_CH_EXT_6)    add_all(EXT_6TH,  sizeof(EXT_6TH),  intervals, count, 12);
-  if (exts & KBD_CH_EXT_9)    add_all(EXT_9TH,  sizeof(EXT_9TH),  intervals, count, 12);
+  add_components(exts, k_chord_exts,
+                 sizeof(k_chord_exts) / sizeof(k_chord_exts[0]),
+                 intervals, count);
 
   isort_u8(intervals, *count);
   return true;
 }
 
 /* API gammes (Note Zone 8 slots) */
-int8_t kbd_scale_slot_semitone_offset(uint8_t scale_id, uint8_t slot){
-  static const int8_t MAJOR[8]     = {0,2,4,5,7,9,11,12};
-  static const int8_t NAT_MIN[8]   = {0,2,3,5,7,8,10,12};
-  static const int8_t DORIAN[8]    = {0,2,3,5,7,9,10,12};
-  static const int8_t MIXO[8]      = {0,2,4,5,7,9,10,12};
-  static const int8_t PENT_MAJ[8]  = {0,2,4,7,9,12,14,16};
-  static const int8_t PENT_MIN[8]  = {0,3,5,7,10,12,15,17};
-  static const int8_t CHROMA[8]    = {0,1,2,3,4,5,6,12};
+static const int8_t k_kbd_scale_offsets[KBD_SCALE_COUNT][KBD_SCALE_SLOT_COUNT] = {
+  [KBD_SCALE_ID_MAJOR]      = {0, 2, 4, 5, 7, 9, 11, 12},
+  [KBD_SCALE_ID_NAT_MINOR]  = {0, 2, 3, 5, 7, 8, 10, 12},
+  [KBD_SCALE_ID_DORIAN]     = {0, 2, 3, 5, 7, 9, 10, 12},
+  [KBD_SCALE_ID_MIXOLYDIAN] = {0, 2, 4, 5, 7, 9, 10, 12},
+  [KBD_SCALE_ID_PENT_MAJOR] = {0, 2, 4, 7, 9, 12, 14, 16},
+  [KBD_SCALE_ID_PENT_MINOR] = {0, 3, 5, 7, 10, 12, 15, 17},
+  [KBD_SCALE_ID_CHROMATIC]  = {0, 1, 2, 3, 4, 5, 6, 12},
+};
 
-  const uint8_t s = (uint8_t)(slot & 7u);
-  switch (scale_id){
-    case KBD_SCALE_ID_MAJOR:      return MAJOR[s];
-    case KBD_SCALE_ID_NAT_MINOR:  return NAT_MIN[s];
-    case KBD_SCALE_ID_DORIAN:     return DORIAN[s];
-    case KBD_SCALE_ID_MIXOLYDIAN: return MIXO[s];
-    case KBD_SCALE_ID_PENT_MAJOR: return PENT_MAJ[s];
-    case KBD_SCALE_ID_PENT_MINOR: return PENT_MIN[s];
-    case KBD_SCALE_ID_CHROMATIC:  return CHROMA[s];
-    default:                      return MAJOR[s];
-  }
+int8_t kbd_scale_slot_semitone_offset(uint8_t scale_id, uint8_t slot){
+  const uint8_t safe_scale = (scale_id < KBD_SCALE_COUNT) ? scale_id : KBD_SCALE_ID_MAJOR;
+  const uint8_t safe_slot = (uint8_t)(slot % KBD_SCALE_SLOT_COUNT);
+  return k_kbd_scale_offsets[safe_scale][safe_slot];
 }
 
 #ifdef TEST

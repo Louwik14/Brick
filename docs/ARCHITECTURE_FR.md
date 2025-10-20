@@ -19,6 +19,7 @@ Principes structurants :
 * Le mapping 4×4 des pads SEQ → LEDs physiques est centralisé dans `ui/ui_led_layout.c` et partagé par `ui_led_backend` / `ui_led_seq`, supprimant deux copies locales dans `.rodata`.
 * Les gabarits neutres du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) vivent désormais en Flash (`core/seq/seq_model_consts.c`) et sont copiés lors de l'initialisation au lieu de rester encodés dans du code mutable.
 * Les masques d'échelle utilisés par le moteur (`k_seq_engine_scale_masks`) sont définis une seule fois en Flash (`core/seq/seq_engine_tables.c`) et consommés par `_seq_engine_apply_scale()`.
+* Le dictionnaire clavier agrège ses triades/extensions et offsets de gammes dans des tables uniques (`k_chord_bases`, `k_chord_exts`, `k_kbd_scale_offsets`) stockées en Flash (`apps/kbd_chords_dict.c`). Les libellés de notes côté renderer (`k_note_name_table`) sont également partagés pour éviter toute duplication en pile (`ui/ui_renderer.c`).
 
 ### État CCRAM
 
