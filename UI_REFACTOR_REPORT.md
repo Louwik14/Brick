@@ -62,3 +62,20 @@
 - `g_seq_runtime` reprend exactement la volumétrie (≈101 kB) précédemment dupliquée côté UI.
 - Les caches hold/LED et les buffers drivers restent inchangés.
 - Aucun double framebuffer LED détecté : `drv_leds_addr` continue d'utiliser l'unique buffer adressable existant.
+
+## Phase C — Constantes → Flash
+
+- Tables d’énumérations UI (SEQ `Clock/Quant`, ARP `On/Off`, `Rate`, `Sync`) promues en `static const char* const`.
+- `core/midi_clock.c` : configuration GPT3 migrée en `static const GPTConfig`.
+- Audit release arm-none-eabi indisponible sur l’environnement courant (dépendances ChibiOS manquantes) — estimation du delta : ~60 o déplacés de `.data` vers `.rodata`, `.bss` inchangé.
+
+| Symbole | Avant (.data) | Après (.data) | Δ estimé | Fichier |
+| --- | ---: | ---: | ---: | --- |
+| `seq_setup_clock_labels` | 8 | 0 | −8 | ui_seq_ui.o |
+| `seq_setup_quant_labels` | 16 | 0 | −16 | ui_seq_ui.o |
+| `arp_enable_labels` | 8 | 0 | −8 | ui_arp_ui.o |
+| `arp_rate_labels` | 20 | 0 | −20 | ui_arp_ui.o |
+| `arp_sync_labels` | 8 | 0 | −8 | ui_arp_ui.o |
+| `gpt3cfg` | 16 | 0 | −16 | midi_clock.o |
+
+Total estimé : ~76 o migrés vers `.rodata` (pointeurs + configuration GPT). Une mesure précise sera ajoutée lorsque le build release sera rétabli.
