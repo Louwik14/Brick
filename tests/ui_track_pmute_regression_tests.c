@@ -9,6 +9,7 @@
 #include "ui/ui_led_backend.h"
 #include "ui/ui_mute_backend.h"
 #include "apps/seq_led_bridge.h"
+#include "core/seq/seq_runtime.h"
 #include "ui/ui_led_palette.h"
 
 static bool g_shift_pressed;
@@ -38,6 +39,7 @@ static void setup_runtime(void)
     g_shift_pressed = false;
     ui_led_backend_init();
     ui_mute_backend_init();
+    seq_runtime_init();
     seq_led_bridge_init();
     ui_backend_init_runtime();
     seq_led_bridge_publish();

@@ -28,10 +28,10 @@ typedef struct {
     uint8_t  steps_per_page;       /* 16 pads visibles */
     uint16_t plock_selected_mask;  /* bits 0..15 pour la page visible */
     seq_step_state_t steps[16];
-} seq_runtime_t;
+} seq_led_runtime_t;
 
 /* Publication snapshot (copie locale) */
-void ui_led_seq_update_from_app(const seq_runtime_t *rt);
+void ui_led_seq_update_from_app(const seq_led_runtime_t *rt);
 
 /* Tick d’horloge : **index absolu** recommandé (0..pages*16-1), sinon relatif 0..15. */
 void ui_led_seq_on_clock_tick(uint8_t step_index);

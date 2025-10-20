@@ -39,6 +39,9 @@
 #include "ui_controller.h"
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 
+/* --- Sequencer runtime --- */
+#include "core/seq/seq_runtime.h"
+
 /* --- I/O Temps Réel --- */
 #include "usb_device.h"
 #include "midi.h"
@@ -109,6 +112,8 @@ static void ui_init_all(void) {
  */
 int main(void) {
   system_init();
+
+  seq_runtime_init();
 
   /* I/O temps réel d’abord (USB/MIDI/Clock), puis drivers/cart, puis UI */
   io_realtime_init();

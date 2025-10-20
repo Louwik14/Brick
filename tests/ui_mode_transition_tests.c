@@ -6,6 +6,7 @@
 
 #include "ui/ui_shortcuts.h"
 #include "apps/seq_led_bridge.h"
+#include "core/seq/seq_runtime.h"
 #include "ui/ui_led_backend.h"
 #include "ui/ui_input.h"
 #include "tests/stubs/ch.h"
@@ -83,6 +84,7 @@ static void reset_led_state(void)
 static void test_track_metadata_initialisation(void)
 {
     reset_led_state();
+    seq_runtime_init();
     seq_led_bridge_init();
 
     /* After init the first tracks (capacity) are available, others off. */
@@ -107,6 +109,7 @@ static void test_track_metadata_initialisation(void)
 static void test_track_select_focus_updates(void)
 {
     reset_led_state();
+    seq_runtime_init();
     seq_led_bridge_init();
     g_stub_track_focus = 0xFFU;
 
