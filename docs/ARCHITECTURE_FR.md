@@ -236,3 +236,14 @@ Impact sections :
 - `.rodata` : +~60 o | `.data` : −~60 o | `.bss` : 0 o *(estimation, build release indisponible : dépendances ChibiOS manquantes sur l'environnement CI local)*
 CCRAM : inchangé vs Phase B (`g_seq_runtime`, `s_pattern_buffer`, caches LED`), VMA `0x1000_0000`, section `NOLOAD`, 0 buffer DMA (audit détaillé à confirmer lorsque le build release sera rétabli).
 Prochain lot : cart specs (labels XVA1), tables MIDI communes (`midi_note_labels`, mappings cart) → Flash.
+
+### [2024-06-13] – Constantes → Flash (Lot 2)
+Modules : `ui/ui_led_backend.c`, `ui/ui_renderer.c`, `cart/cart_bus.c`, `apps/ui_keyboard_bridge.c`
+Changements majeurs :
+- Palette Omnichord (8 couleurs `led_color_t`) déplacée en `static const` pour éviter une reconstruction en RAM à chaque rafraîchissement LED.
+- Facteurs géométriques des cadres paramètres UI mutualisés en constantes Flash (`k_param_frame_*`).
+- Configuration UART du bus cartouche (`SerialConfig`) et callbacks ARP UI (`arp_callbacks_t`) promus en `static const` (suppression d'objets pile).
+Impact sections :
+- `.rodata` : +~80 o | `.data` : 0 o | `.bss` : 0 o *(estimation, compilation release toujours bloquée par les dépendances ChibiOS manquantes ; les gains portent essentiellement sur la pile et les copies runtime)*
+CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA).
+Prochain lot : isoler les tables MIDI (notes, mappings) et les assets cart `XVA1` vers Flash dédiée.

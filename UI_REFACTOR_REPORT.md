@@ -79,3 +79,19 @@
 | `gpt3cfg` | 16 | 0 | −16 | midi_clock.o |
 
 Total estimé : ~76 o migrés vers `.rodata` (pointeurs + configuration GPT). Une mesure précise sera ajoutée lorsque le build release sera rétabli.
+
+### Phase C — Lot 1b (UI assets & bus configs)
+
+- Palette Omnichord (8 couleurs) extraite en `static const` pour éviter une copie sur pile à chaque rendu (`ui_led_backend.c`).
+- Géométrie des cadres paramètres UI (`ui_renderer.c`) factorisée en constantes partagées et stockées en Flash.
+- Configuration UART du bus cartouche et callbacks ARP UI (`cart_bus.c`, `ui_keyboard_bridge.c`) promus en `static const`.
+- Toujours pas de build release disponible sur l’environnement courant (dépendances ChibiOS manquantes) — estimations basées sur la taille des structures.
+
+| Symbole | Avant | Après | Δ estimé | Fichier |
+| --- | --- | --- | --- | --- |
+| `k_omni_chord_colors` | Copie auto (~24 o pile) | `.rodata` | −24 o pile / +24 o Flash | ui_led_backend.o |
+| `k_param_frame_*` | Constantes locales (~28 o pile) | `.rodata` partagée | −28 o pile / +28 o Flash | ui_renderer.o |
+| `k_cart_serial_cfg` | Objet pile (~16 o) | `.rodata` | −16 o pile / +16 o Flash | cart_bus.o |
+| `k_arp_callbacks` | Objet pile (~8 o) | `.rodata` | −8 o pile / +8 o Flash | ui_keyboard_bridge.o |
+
+Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de copies transitoires supprimées en pile. Confirmation chiffrée à effectuer dès que le profil release pourra être recompilé.

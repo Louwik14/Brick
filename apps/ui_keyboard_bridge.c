@@ -53,6 +53,14 @@ static arp_config_t s_arp_config;                 // --- ARP: configuration cour
 static systime_t    s_last_group_stamp;           // --- ARP FIX: timestamp commun accords ---
 static systime_t    s_last_group_seen;            // --- ARP FIX: détection burst ---
 
+static void _arp_callback_note_on(uint8_t note, uint8_t vel, systime_t when);
+static void _arp_callback_note_off(uint8_t note);
+
+static const arp_callbacks_t k_arp_callbacks = {
+  .note_on = _arp_callback_note_on,
+  .note_off = _arp_callback_note_off
+};
+
 static inline uint8_t _resolve_velocity(uint8_t vel) {
   return (vel != 0u) ? vel : DEFAULT_VELOCITY;
 }
@@ -226,11 +234,7 @@ void ui_keyboard_bridge_init(void) {
 
   memset(&s_arp_config, 0, sizeof(s_arp_config));
   arp_init(&s_arp_engine, &s_arp_config);
-  const arp_callbacks_t callbacks = {
-    .note_on = _arp_callback_note_on,
-    .note_off = _arp_callback_note_off
-  };
-  arp_set_callbacks(&s_arp_engine, &callbacks);
+  arp_set_callbacks(&s_arp_engine, &k_arp_callbacks);
 
   _sync_arp_config_from_ui();
   ui_backend_shadow_set(KBD_UI_ID(KBD_UI_LOCAL_ARP), (uint8_t)(s_arp_config.enabled ? 1u : 0u)); // --- ARP: miroir legacy ---
