@@ -111,3 +111,17 @@ Total estimé : ~76 o supplémentaires déplacés vers `.rodata` et autant de 
 | `masks[]` internes `_seq_engine_apply_scale` | Table locale (80 o) | `k_seq_engine_scale_masks` partagée (80 o) | Δ≈0 mais table désormais mutualisable | seq_engine.o / seq_engine_tables.o |
 
 > Remarque : les tailles exactes seront confirmées dès que le profil release pourra être recompilé (`arm-none-eabi-size` indisponible actuellement).
+
+### Phase C — Lot 4 (Dictionnaires clavier & specs → Flash)
+
+- Le dictionnaire d’accords (`apps/kbd_chords_dict.c`) regroupe désormais les triades et extensions dans deux tables immuables (`k_chord_bases`, `k_chord_exts`) ; la fonction de construction itère sur ces tables sans jamais recopier les masques. Les offsets de gammes sont centralisés dans `k_kbd_scale_offsets` (Flash), accessibles via `KBD_SCALE_SLOT_COUNT`.
+- Les noms de notes utilisés par le renderer OLED sont exposés via `k_note_name_table` (Flash) au lieu d’un tableau statique local ré-instancié à chaque appel (`ui/ui_renderer.c`).
+- Toujours aucune mesure `arm-none-eabi-size` disponible sur l’environnement actuel ; delta estimé sur la base des nouvelles tables partagées (une vingtaine d’octets déplacés en pile → `.rodata`).
+
+| Symbole | Avant | Après | Δ estimé | Fichier |
+| --- | --- | --- | ---: | --- |
+| Triades/extensions (`TRIAD_*`, `EXT_*` + branchements) | Appels conditionnels indépendants | Tables `k_chord_bases`/`k_chord_exts` (Flash) | ≈0 `.data`, factorisation logique | apps/kbd_chords_dict.o |
+| Offsets gammes (`MAJOR`, `NAT_MIN`, …) | `static const` locaux dans la fonction | `k_kbd_scale_offsets` mutualisé (Flash) | Δ≈0 `.data`, +lisibilité | apps/kbd_chords_dict.o |
+| `names[12]` (renderer) | `static const char*` local recréé à chaque appel | `k_note_name_table` (Flash, 12×3) | −48 o pile transitoire | ui/ui_renderer.o |
+
+> À re-mesurer dès que le build release ARM est rétabli ; ces tables sont prêtes pour les audits CCRAM/Flash attendus en Lot 5.

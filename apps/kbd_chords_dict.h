@@ -25,6 +25,12 @@ enum {
   KBD_SCALE_ID_CHROMATIC
 };
 
+enum {
+  KBD_SCALE_COUNT = KBD_SCALE_ID_CHROMATIC + 1
+};
+
+#define KBD_SCALE_SLOT_COUNT 8u
+
 /* Masque chord-buttons (8 bits) */
 #define KBD_CH_BASE_MAJOR   (1u << 0) /* [0,4,7]  */
 #define KBD_CH_BASE_MINOR   (1u << 1) /* [0,3,7]  */

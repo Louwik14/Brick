@@ -114,6 +114,9 @@ static void draw_filled_rect(int x, int y, int w, int h) {
 static const int k_param_frame_width  = 31;
 static const int k_param_frame_height = 37;
 static const int k_param_frame_x_offsets[4] = {0, 32, 65, 97};
+static const char k_note_name_table[12][3] = {
+    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
+};
 static const int k_param_frame_y = 16;
 
 /* Largeur d’un texte en pixels */
@@ -251,7 +254,6 @@ static void display_draw_text_inverted_box(const font_t *font, uint8_t x, uint8_
 }
 
 static void format_note_label(int value, char *buf, size_t len) {
-    static const char *names[12] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
     if (buf == NULL || len == 0) {
         return;
     }
@@ -262,7 +264,7 @@ static void format_note_label(int value, char *buf, size_t len) {
     }
     int octave = (value / 12) - 1;
     int pc = value % 12;
-    (void)snprintf(buf, len, "%s%d", names[pc], octave);
+    (void)snprintf(buf, len, "%s%d", k_note_name_table[pc], octave);
 }
 
 static int hold_param_index_for_render(const ui_menu_spec_t *menu, uint8_t page, uint8_t param_idx) {
