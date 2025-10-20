@@ -62,7 +62,7 @@ static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint1
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
 
-void seq_engine_runner_init(seq_model_pattern_t *pattern) {
+void seq_engine_runner_init(seq_model_track_t *track) {
     seq_engine_callbacks_t callbacks = {
         .note_on = _runner_note_on_cb,
         .note_off = _runner_note_off_cb,
@@ -70,7 +70,7 @@ void seq_engine_runner_init(seq_model_pattern_t *pattern) {
     };
 
     seq_engine_config_t config = {
-        .pattern = pattern,
+        .track = track,
         .callbacks = callbacks,
         .is_track_muted = _runner_track_muted
     };
@@ -79,8 +79,8 @@ void seq_engine_runner_init(seq_model_pattern_t *pattern) {
     memset(s_plock_state, 0, sizeof(s_plock_state));
 }
 
-void seq_engine_runner_attach_pattern(seq_model_pattern_t *pattern) {
-    seq_engine_attach_pattern(&s_engine, pattern);
+void seq_engine_runner_attach_track(seq_model_track_t *track) {
+    seq_engine_attach_track(&s_engine, track);
 }
 
 void seq_engine_runner_on_transport_play(void) {

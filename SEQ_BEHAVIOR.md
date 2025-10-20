@@ -298,7 +298,7 @@ bool seq_model_plock_get(const seq_model_step_t *s, seq_plock_dest_t dest, int32
 void seq_model_steps_apply_abs_value(seq_model_step_t **steps, size_t n, seq_plock_dest_t dest, int32_t value);
 
 // Live capture
-void seq_live_capture_commit_step(seq_model_pattern_t *p, const live_note_t *ev, const capture_ctx_t *ctx);
+void seq_live_capture_commit_step(seq_model_track_t *p, const live_note_t *ev, const capture_ctx_t *ctx);
 ```
 
 ---

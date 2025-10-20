@@ -172,9 +172,9 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
 
         for (int row = 0; row < 4; ++row) {
             uint8_t track_idx = (uint8_t)(slot * 4 + row);
-            const seq_model_pattern_t *pattern =
+            const seq_model_track_t *track_model =
                 (project != NULL) ? seq_project_get_track_const(project, track_idx) : NULL;
-            const bool present = (pattern != NULL);
+            const bool present = (track_model != NULL);
             const bool active = present && ctx && (track_idx == ctx->seq.track_index);
 
             char line[12];

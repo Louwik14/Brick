@@ -1,9 +1,11 @@
 # Phase "Efficience & Design" — Rapport d'étape
 
+> **Note terminologique (2025-10)** : les occurrences de `seq_model_pattern_t`/`seq_pattern_*` décrivent l'ancienne nomenclature. Après la passe de renommage, remplacez `pattern` par `track` lorsqu'il est question d'une piste 64 steps.【F:core/seq/seq_model.h†L17-L174】
+
 ## 1. Baseline
 
 ### 1.1 Empreinte mémoire runtime
-- Deux patterns temps réel (`seq_model_pattern_t`) en cache UI/engine occupent 2 × 14 224 B = 28 448 B en CCM, auxquels s'ajoute le tampon de sérialisation `s_pattern_buffer[3968]` alloué en permanence. 【F:PHASE_AUDIT_SEQ.md†L10-L31】【F:core/seq/seq_project.c†L102-L131】
+- Deux patterns temps réel (`seq_model_pattern_t`, renommé `seq_model_track_t`) en cache UI/engine occupent 2 × 14 224 B = 28 448 B en CCM, auxquels s'ajoute le tampon de sérialisation `s_pattern_buffer[3968]` alloué en permanence.【F:PHASE_AUDIT_SEQ.md†L8-L26】【F:core/seq/seq_project.c†L102-L131】
 - Les métadonnées projet (`seq_project_t`) résident aussi en CCM et consomment 73 128 B, ce qui laisse peu de marge pour des caches supplémentaires sans optimisation. 【F:PHASE_AUDIT_SEQ.md†L10-L31】
 
 ### 1.2 Codec pattern v1 (référence)

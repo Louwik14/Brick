@@ -206,9 +206,9 @@ void seq_recorder_set_recording(bool recording)
     (void)recording;
 }
 
-void seq_recorder_attach_pattern(seq_model_pattern_t *pattern)
+void seq_recorder_attach_track(seq_model_track_t *track)
 {
-    (void)pattern;
+    (void)track;
 }
 
 /* -------------------------------------------------------------------------- */

@@ -68,11 +68,11 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out) {
     return false;
 }
 
-static void populate_pattern(seq_model_pattern_t *pattern) {
-    seq_model_pattern_init(pattern);
+static void populate_track(seq_model_track_t *track) {
+    seq_model_track_init(track);
 
-    for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_PATTERN; step += 4U) {
-        seq_model_step_t *s = &pattern->steps[step];
+    for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_TRACK; step += 4U) {
+        seq_model_step_t *s = &track->steps[step];
         seq_model_step_init_default(s, (uint8_t)(48U + step));
         for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
             seq_model_voice_t voice = s->voices[v];
@@ -104,13 +104,13 @@ static void populate_pattern(seq_model_pattern_t *pattern) {
     }
 }
 
-static bool pattern_equals(const seq_model_pattern_t *lhs, const seq_model_pattern_t *rhs) {
+static bool track_equals(const seq_model_track_t *lhs, const seq_model_track_t *rhs) {
     return memcmp(lhs, rhs, sizeof(*lhs)) == 0;
 }
 
-static bool pattern_has_cart_plocks(const seq_model_pattern_t *pattern) {
-    for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_PATTERN; ++s) {
-        const seq_model_step_t *step = &pattern->steps[s];
+static bool track_has_cart_plocks(const seq_model_track_t *track) {
+    for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_TRACK; ++s) {
+        const seq_model_step_t *step = &track->steps[s];
         for (uint8_t p = 0U; p < step->plock_count; ++p) {
             if (step->plocks[p].domain == SEQ_MODEL_PLOCK_CART) {
                 return true;
@@ -120,9 +120,9 @@ static bool pattern_has_cart_plocks(const seq_model_pattern_t *pattern) {
     return false;
 }
 
-static bool pattern_has_enabled_voice(const seq_model_pattern_t *pattern) {
-    for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_PATTERN; ++s) {
-        const seq_model_step_t *step = &pattern->steps[s];
+static bool track_has_enabled_voice(const seq_model_track_t *track) {
+    for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_TRACK; ++s) {
+        const seq_model_step_t *step = &track->steps[s];
         for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
             if (step->voices[v].state == SEQ_MODEL_VOICE_ENABLED) {
                 return true;
@@ -133,32 +133,32 @@ static bool pattern_has_enabled_voice(const seq_model_pattern_t *pattern) {
 }
 
 int main(void) {
-    seq_model_pattern_t original;
-    seq_model_pattern_t decoded_full;
-    seq_model_pattern_t decoded_drop;
-    seq_model_pattern_t decoded_absent;
+    seq_model_track_t original;
+    seq_model_track_t decoded_full;
+    seq_model_track_t decoded_drop;
+    seq_model_track_t decoded_absent;
     uint8_t buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
     size_t written = 0U;
 
-    populate_pattern(&original);
+    populate_track(&original);
 
-    assert(seq_project_pattern_steps_encode(&original, buffer, sizeof(buffer), &written));
+    assert(seq_project_track_steps_encode(&original, buffer, sizeof(buffer), &written));
     assert(written > sizeof(uint16_t));
 
-    assert(seq_project_pattern_steps_decode(&decoded_full, buffer, written,
+    assert(seq_project_track_steps_decode(&decoded_full, buffer, written,
                                             SEQ_PROJECT_PATTERN_VERSION,
-                                            SEQ_PROJECT_PATTERN_DECODE_FULL));
-    assert(pattern_equals(&original, &decoded_full));
+                                            SEQ_PROJECT_TRACK_DECODE_FULL));
+    assert(track_equals(&original, &decoded_full));
 
-    assert(seq_project_pattern_steps_decode(&decoded_drop, buffer, written,
+    assert(seq_project_track_steps_decode(&decoded_drop, buffer, written,
                                             SEQ_PROJECT_PATTERN_VERSION,
-                                            SEQ_PROJECT_PATTERN_DECODE_DROP_CART));
-    assert(!pattern_has_cart_plocks(&decoded_drop));
+                                            SEQ_PROJECT_TRACK_DECODE_DROP_CART));
+    assert(!track_has_cart_plocks(&decoded_drop));
 
-    assert(seq_project_pattern_steps_decode(&decoded_absent, buffer, written,
+    assert(seq_project_track_steps_decode(&decoded_absent, buffer, written,
                                             SEQ_PROJECT_PATTERN_VERSION,
-                                            SEQ_PROJECT_PATTERN_DECODE_ABSENT));
-    assert(!pattern_has_enabled_voice(&decoded_absent));
+                                            SEQ_PROJECT_TRACK_DECODE_ABSENT));
+    assert(!track_has_enabled_voice(&decoded_absent));
 
     return 0;
 }

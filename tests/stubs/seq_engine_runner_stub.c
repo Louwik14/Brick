@@ -1,11 +1,11 @@
 #include "core/seq/seq_model.h"
 #include "core/clock_manager.h"
 
-void seq_engine_runner_attach_pattern(seq_model_pattern_t *pattern) {
-    (void)pattern;
+void seq_engine_runner_attach_track(seq_model_track_t *track) {
+    (void)track;
 }
 
-void seq_engine_runner_init(seq_model_pattern_t *pattern) {
+void seq_engine_runner_init(seq_model_track_t *pattern) {
     (void)pattern;
 }
 

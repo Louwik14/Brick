@@ -17,8 +17,8 @@
 extern "C" {
 #endif
 
-void seq_recorder_init(seq_model_pattern_t *pattern);
-void seq_recorder_attach_pattern(seq_model_pattern_t *pattern);
+void seq_recorder_init(seq_model_track_t *track);
+void seq_recorder_attach_track(seq_model_track_t *track);
 void seq_recorder_on_clock_step(const clock_step_info_t *info);
 void seq_recorder_set_recording(bool enabled);
 void seq_recorder_handle_note_on(uint8_t note, uint8_t velocity);

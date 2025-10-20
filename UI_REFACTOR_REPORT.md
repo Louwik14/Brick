@@ -1,5 +1,7 @@
 # UI Refactor Report — Phase « UI/Moteur »
 
+> **Note terminologique (2025-10)** : ce rapport documente l'état antérieur au renommage `pattern` → `track`. Lorsqu'une piste unique de 64 steps est évoquée (`seq_model_pattern_t`, `seq_led_bridge_access_pattern()`…), lire désormais `seq_model_track_t` et `seq_led_bridge_access_track()`.【F:core/seq/seq_model.h†L17-L174】【F:apps/seq_led_bridge.h†L24-L96】
+
 ## Phase A — Instrumentation & Audit mémoire
 
 - Instrumentation `UI_RAM_AUDIT(sym)` ajoutée sur les buffers clés (`seq_led_bridge`, `ui_led_backend`, `drv_leds_addr`, `drv_display`, `seq_project`).

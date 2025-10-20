@@ -76,9 +76,9 @@ typedef struct {
     size_t count;   /**< Number of events currently queued. */
 } seq_engine_scheduler_t;
 
-/** Reader state tracking the current pattern and dirty generation. */
+/** Reader state tracking the current track and dirty generation. */
 typedef struct {
-    const seq_model_pattern_t *pattern; /**< Active pattern. */
+    const seq_model_track_t *track; /**< Active track. */
     size_t step_index;                  /**< Step index currently processed. */
     seq_model_gen_t last_generation;    /**< Snapshot for detecting edits. */
     bool step_has_playable_voice;       /**< True when the current step has at least one active voice. */
@@ -113,14 +113,14 @@ typedef bool (*seq_engine_track_muted_cb_t)(uint8_t track);
 
 /** Configuration provided when initialising the engine. */
 typedef struct {
-    seq_model_pattern_t *pattern; /**< Initial pattern handled by the engine. */
+    seq_model_track_t *track; /**< Initial track handled by the engine. */
     seq_engine_callbacks_t callbacks; /**< Dispatch callbacks. */
     seq_engine_track_muted_cb_t is_track_muted; /**< Optional track mute query. */
 } seq_engine_config_t;
 
 /** Aggregated engine context exposing reader, scheduler and player. */
 typedef struct {
-    seq_engine_reader_t reader;     /**< Pattern reader context. */
+    seq_engine_reader_t reader;     /**< Track reader context. */
     seq_engine_scheduler_t scheduler; /**< Event scheduler queue. */
     seq_engine_player_t player;     /**< Player execution stub. */
     seq_engine_config_t config;     /**< Mutable configuration. */
@@ -133,7 +133,7 @@ typedef struct {
 
 void seq_engine_init(seq_engine_t *engine, const seq_engine_config_t *config);
 void seq_engine_set_callbacks(seq_engine_t *engine, const seq_engine_callbacks_t *callbacks);
-void seq_engine_attach_pattern(seq_engine_t *engine, seq_model_pattern_t *pattern);
+void seq_engine_attach_track(seq_engine_t *engine, seq_model_track_t *track);
 msg_t seq_engine_start(seq_engine_t *engine);
 void seq_engine_stop(seq_engine_t *engine);
 void seq_engine_reset(seq_engine_t *engine);

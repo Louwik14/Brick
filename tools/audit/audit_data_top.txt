@@ -1,0 +1,7 @@
+536873256 00001032 D __malloc_av_
+536874308 00000364 D __global_locale
+536872968 00000288 D _impure_data
+536874296 00000012 D __sglue
+536872960 00000004 D _impure_ptr
+536874288 00000004 D __malloc_sbrk_base
+536874292 00000004 D __malloc_trim_threshold

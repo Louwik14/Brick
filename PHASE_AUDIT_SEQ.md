@@ -1,9 +1,11 @@
 # Phase Audit — Sous-système Séquenceur
 
+> **Note terminologique (2025-10)** : ce rapport conserve la nomenclature historique (`seq_model_pattern_t`, `seq_led_bridge_access_pattern()`, etc.). Depuis la passe actuelle, ces symboles ont été renommés en `*track*` (64 steps). Les conclusions chiffrées restent valables ; mappez `pattern` → `track` lorsqu'il s'agit d'une piste unique.【F:core/seq/seq_model.h†L17-L174】
+
 ## 1. Cartographie des structures de données
 
 ### 1.1 Couche temps réel (RAM)
-- `seq_model_pattern_t` regroupe 64 steps, chacun portant 4 voix, un pool de 24 p-locks et des offsets globaux ; il est partagé par l'engine, la capture live et l'UI via des pointeurs. 【F:core/seq/seq_model.h†L17-L154】
+- `seq_model_pattern_t` (aujourd'hui `seq_model_track_t`) regroupe 64 steps, chacun portant 4 voix, un pool de 24 p-locks et des offsets globaux ; il est partagé par l'engine, la capture live et l'UI via des pointeurs.【F:core/seq/seq_model.h†L17-L174】
 - `seq_engine_t` consomme le pattern actif en lecture seule, alimente un scheduler de 64 événements et publie les callbacks temps réel. 【F:core/seq/seq_engine.h†L22-L128】
 - `seq_live_capture_t` maintient un cache de timing/quantize et écrit directement dans le pattern attaché lors des enregistrements live. 【F:core/seq/seq_live_capture.h†L22-L107】
 
@@ -13,7 +15,7 @@
 - `seq_led_bridge` (UI) instancie aujourd'hui un `seq_project_t` global en CCM ainsi qu'un tableau de 2 patterns `g_project_patterns[]` utilisés comme cache actif et exposés à l'engine/recorder. 【F:apps/seq_led_bridge.c†L53-L117】
 
 ### 1.3 Flux d'accès
-1. L'UI manipule le pattern courant via `seq_led_bridge_access_pattern()` et publie l'état vers les LEDs.
+1. L'UI manipule le pattern courant via `seq_led_bridge_access_track()` (ancien `*_pattern`) et publie l'état vers les LEDs.【F:apps/seq_led_bridge.h†L24-L96】
 2. Le moteur (`seq_engine_runner`) attache le même pattern pour la lecture temps réel.
 3. `seq_project_assign_track()` lie chaque piste active à un `seq_model_pattern_t` ; les changements de banque/pattern reposent sur la mise à jour des pointeurs par l'UI avant lecture. 【F:core/seq/seq_project.c†L400-L545】
 

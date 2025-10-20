@@ -1,5 +1,5 @@
 # === Fichiers de build ===
-build/
+/build/
 .dep/
 *.o
 *.d
@@ -8,6 +8,9 @@ build/
 *.hex
 *.map
 *.lst
+*.list
+*.dmp
+*.srec
 *.zip
 
 # === Doxygen généré ===

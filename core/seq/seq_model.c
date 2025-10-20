@@ -8,7 +8,7 @@
 #include <string.h>
 
 static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets);
-static void seq_model_pattern_reset_config(seq_model_pattern_config_t *config);
+static void seq_model_track_reset_config(seq_model_track_config_t *config);
 
 void seq_model_gen_reset(seq_model_gen_t *gen) {
     if (gen == NULL) {
@@ -75,19 +75,19 @@ void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
     seq_model_step_recompute_flags(step);
 }
 
-void seq_model_pattern_init(seq_model_pattern_t *pattern) {
+void seq_model_track_init(seq_model_track_t *track) {
     size_t i;
 
-    if (pattern == NULL) {
+    if (track == NULL) {
         return;
     }
 
-    for (i = 0U; i < SEQ_MODEL_STEPS_PER_PATTERN; ++i) {
-        seq_model_step_init(&pattern->steps[i]);
+    for (i = 0U; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {
+        seq_model_step_init(&track->steps[i]);
     }
 
-    seq_model_gen_reset(&pattern->generation);
-    seq_model_pattern_reset_config(&pattern->config);
+    seq_model_gen_reset(&track->generation);
+    seq_model_track_reset_config(&track->config);
 }
 
 const seq_model_voice_t *seq_model_step_get_voice(const seq_model_step_t *step, size_t voice_index) {
@@ -270,28 +270,28 @@ void seq_model_step_make_neutral(seq_model_step_t *step) {
     seq_model_step_recompute_flags(step);
 }
 
-void seq_model_pattern_set_quantize(seq_model_pattern_t *pattern, const seq_model_quantize_config_t *config) {
-    if ((pattern == NULL) || (config == NULL)) {
+void seq_model_track_set_quantize(seq_model_track_t *track, const seq_model_quantize_config_t *config) {
+    if ((track == NULL) || (config == NULL)) {
         return;
     }
 
-    pattern->config.quantize = *config;
+    track->config.quantize = *config;
 }
 
-void seq_model_pattern_set_transpose(seq_model_pattern_t *pattern, const seq_model_transpose_config_t *config) {
-    if ((pattern == NULL) || (config == NULL)) {
+void seq_model_track_set_transpose(seq_model_track_t *track, const seq_model_transpose_config_t *config) {
+    if ((track == NULL) || (config == NULL)) {
         return;
     }
 
-    pattern->config.transpose = *config;
+    track->config.transpose = *config;
 }
 
-void seq_model_pattern_set_scale(seq_model_pattern_t *pattern, const seq_model_scale_config_t *config) {
-    if ((pattern == NULL) || (config == NULL)) {
+void seq_model_track_set_scale(seq_model_track_t *track, const seq_model_scale_config_t *config) {
+    if ((track == NULL) || (config == NULL)) {
         return;
     }
 
-    pattern->config.scale = *config;
+    track->config.scale = *config;
 }
 
 static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets) {
@@ -305,12 +305,12 @@ static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets) {
     offsets->micro = 0;
 }
 
-static void seq_model_pattern_reset_config(seq_model_pattern_config_t *config) {
+static void seq_model_track_reset_config(seq_model_track_config_t *config) {
     if (config == NULL) {
         return;
     }
 
-    *config = k_seq_model_pattern_config_default;
+    *config = k_seq_model_track_config_default;
 }
 
 void seq_model_step_recompute_flags(seq_model_step_t *step) {

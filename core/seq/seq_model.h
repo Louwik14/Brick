@@ -14,8 +14,8 @@
 extern "C" {
 #endif
 
-/** Maximum number of steps per pattern. */
-#define SEQ_MODEL_STEPS_PER_PATTERN   64U
+/** Maximum number of steps per track. */
+#define SEQ_MODEL_STEPS_PER_TRACK   64U
 /** Maximum number of voices per step. */
 #define SEQ_MODEL_VOICES_PER_STEP     4U
 /** Maximum number of parameter locks attached to a step. */
@@ -139,19 +139,19 @@ typedef struct {
     seq_model_scale_mode_t mode;   /**< Selected scale. */
 } seq_model_scale_config_t;
 
-/** Global pattern-wide configuration. */
+/** Global track-wide configuration. */
 typedef struct {
     seq_model_quantize_config_t quantize; /**< Quantize configuration. */
     seq_model_transpose_config_t transpose; /**< Transpose configuration. */
     seq_model_scale_config_t scale; /**< Scale configuration. */
-} seq_model_pattern_config_t;
+} seq_model_track_config_t;
 
-/** Pattern container used by the sequencer. */
+/** Track container used by the sequencer. */
 typedef struct {
-    seq_model_step_t steps[SEQ_MODEL_STEPS_PER_PATTERN]; /**< Step list. */
-    seq_model_pattern_config_t config; /**< Pattern-level configuration. */
+    seq_model_step_t steps[SEQ_MODEL_STEPS_PER_TRACK]; /**< Step list. */
+    seq_model_track_config_t config; /**< Track-level configuration. */
     seq_model_gen_t generation; /**< Dirty tracking counter. */
-} seq_model_pattern_t;
+} seq_model_track_t;
 
 /** Reset the generation counter to its initial value. */
 void seq_model_gen_reset(seq_model_gen_t *gen);
@@ -170,8 +170,8 @@ void seq_model_step_init_default(seq_model_step_t *step, uint8_t note);
 void seq_model_step_make_neutral(seq_model_step_t *step);
 /** Convert a step into an automation-only placeholder (all voices muted). */
 void seq_model_step_make_automation_only(seq_model_step_t *step);
-/** Reset a full pattern to defaults. */
-void seq_model_pattern_init(seq_model_pattern_t *pattern);
+/** Reset a full track to defaults. */
+void seq_model_track_init(seq_model_track_t *track);
 
 /** Retrieve a voice descriptor by index. */
 const seq_model_voice_t *seq_model_step_get_voice(const seq_model_step_t *step, size_t voice_index);
@@ -208,15 +208,15 @@ void seq_model_step_recompute_flags(seq_model_step_t *step);
 /** Flash-resident template used to initialise neutral sequencer steps. */
 extern const seq_model_step_t k_seq_model_step_default;
 
-/** Flash-resident default pattern configuration (quantize/transpose/scale). */
-extern const seq_model_pattern_config_t k_seq_model_pattern_config_default;
+/** Flash-resident default track configuration (quantize/transpose/scale). */
+extern const seq_model_track_config_t k_seq_model_track_config_default;
 
-/** Update the quantize configuration of a pattern. */
-void seq_model_pattern_set_quantize(seq_model_pattern_t *pattern, const seq_model_quantize_config_t *config);
-/** Update the transpose configuration of a pattern. */
-void seq_model_pattern_set_transpose(seq_model_pattern_t *pattern, const seq_model_transpose_config_t *config);
-/** Update the scale configuration of a pattern. */
-void seq_model_pattern_set_scale(seq_model_pattern_t *pattern, const seq_model_scale_config_t *config);
+/** Update the quantize configuration of a track. */
+void seq_model_track_set_quantize(seq_model_track_t *track, const seq_model_quantize_config_t *config);
+/** Update the transpose configuration of a track. */
+void seq_model_track_set_transpose(seq_model_track_t *track, const seq_model_transpose_config_t *config);
+/** Update the scale configuration of a track. */
+void seq_model_track_set_scale(seq_model_track_t *track, const seq_model_scale_config_t *config);
 
 #ifdef __cplusplus
 }
