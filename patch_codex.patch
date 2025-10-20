@@ -1,0 +1,144 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/RUNTIME_MULTICART_REPORT.md b/RUNTIME_MULTICART_REPORT.md
+index 9872e10d8813b3a84c2fb7f845a8f4396e7be197..76cd5fad3d0926e4570adfa7b37d3c9126c2fb94 100644
+--- a/RUNTIME_MULTICART_REPORT.md
++++ b/RUNTIME_MULTICART_REPORT.md
+@@ -1,73 +1,94 @@
+ # RUNTIME_MULTICART_REPORT
+ 
+ ## 0) Références utilisées
+-- `docs/ARCHITECTURE_FR.md` — Vue d'ensemble Model / Engine / UI / Cart / MIDI, organisation mémoire actuelle et statut CCRAM.【F:docs/ARCHITECTURE_FR.md†L3-L118】
+-- `SEQ_BEHAVIOR.md` — Spécification fonctionnelle du séquenceur (pattern = 16 tracks, Reader/Scheduler/Player, UI Track & Mute, mapping MIDI 1↔16).【F:SEQ_BEHAVIOR.md†L10-L109】
++- `docs/ARCHITECTURE_FR.md` — Vue d'ensemble, snapshot mémoire baseline et prochain jalon 16 tracks.【F:docs/ARCHITECTURE_FR.md†L1-L118】【F:docs/ARCHITECTURE_FR.md†L120-L170】
++- `SEQ_BEHAVIOR.md` — Spécification séquenceur : pipeline Reader → Scheduler → Player, 16 tracks en parallèle, mapping MIDI CH1..CH16, UI Track & Mute.【F:SEQ_BEHAVIOR.md†L10-L133】【F:SEQ_BEHAVIOR.md†L167-L259】
+ 
+ ### 0.1 Clarification terminologique (track vs pattern)
+ 
+-Le code existant nomme `seq_model_pattern_t` l'unité sérialisée de 64 steps, alors que la spécification rappelle qu'un **pattern agrège 16 tracks synchronisées**.【F:SEQ_BEHAVIOR.md†L10-L43】 Pour lever l'ambiguïté, on adopte la convention suivante dans tout le rapport :
++Le code historique conserve `seq_model_pattern_t` pour désigner l'unité sérialisée de 64 steps. La spec impose qu'un **pattern complet agrège 16 tracks synchronisées**. La convention utilisée dans ce rapport est donc :
+ 
+ ```
+-Pattern (spec) ─┬─ Track #1  ─▶ 64 steps (seq_model_pattern_t / track courante)
++Pattern (spec) ─┬─ Track #1  ─▶ 64 steps (seq_model_pattern_t)
+                 ├─ Track #2  ─▶ 64 steps
+                 ├─ ...
+                 └─ Track #16 ─▶ 64 steps
+ ```
+ 
+-Chaque `seq_model_pattern_t` porte donc **une track** du point de vue de la spec, et un pattern complet doit composer seize instances (CH1→CH16). Cette clarification est également alignée avec l'organisation mémoire décrite dans l'architecture (runtime `g_seq_runtime` + snapshots UI) qui n'héberge qu'une seule piste active à la fois.【F:docs/ARCHITECTURE_FR.md†L33-L118】
++Chaque `seq_model_pattern_t` incarne **une track** de 64 steps. Le renommage attendu (`seq_model_track_t`) reste un TODO explicitement planifié afin d'éviter toute ambiguïté future sans casser l'API publique dans cette passe.【F:SEQ_BEHAVIOR.md†L10-L43】
+ 
+-> **TODO** : renommer `seq_model_pattern_t` en `seq_model_track_t` (ou équivalent) afin d'éviter les confusions futures ; ce travail est à planifier dans une passe dédiée, car il impacte l'API Model/UI/Runner.
++---
+ 
+-## 1) Constat sur le code existant
++## 1) État du dépôt & build baseline
+ 
+-### 1.1 Exécution effective
+-- Le moteur (`seq_engine_process_step`) n'accède qu'à un unique `seq_model_pattern_t` et ne parcourt que ses 64 steps/4 voix ; aucune itération multi-track n'est prévue, et la fonction de mute reçoit l'indice de voix comme identifiant de track.【F:core/seq/seq_engine.c†L234-L245】【F:core/seq/seq_engine.c†L572-L635】
+-- Le runner initialisé par l'UI attache ce seul pattern actif au démarrage et lors des changements de piste ; les NOTE_ON/OFF sortent sur un canal MIDI constant (`SEQ_ENGINE_RUNNER_MIDI_CHANNEL`).【F:apps/seq_engine_runner.c†L36-L136】【F:apps/seq_led_bridge.c†L1325-L1351】
+-- Le bridge LED ne maintient que deux motifs (`SEQ_LED_BRIDGE_TRACK_CAPACITY = 2`) en mémoire SRAM (CCRAM neutralisée) et rebondit entre eux lorsque l'utilisateur change de piste, ce qui confirme l'absence d'exécution simultanée des 16 tracks.【F:apps/seq_led_bridge.c†L68-L103】【F:docs/ARCHITECTURE_FR.md†L77-L118】
++### 1.1 Vendorisation ChibiOS (repo autosuffisant)
++- Aucun sous-module : `.gitmodules` supprimé et `git submodule status` renvoie vide (preuve d'autosuffisance du vendor tree).【a6bcfd†L1-L2】
++- `Makefile` pointe vers le ChibiOS local (`CHIBIOS := ./chibios2111`) et inclut les règles GCC/RT nécessaires (`hal.mk`, `rt.mk`, `port.mk`).【F:Makefile†L105-L129】
++- Les chemins critiques du port 21.11 sont présents dans le dépôt (`os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk`, `os/hal/hal.mk`, `os/rt/rt.mk`).【F:chibios2111/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk†L1-L118】【F:chibios2111/os/hal/hal.mk†L1-L120】【F:chibios2111/os/rt/rt.mk†L1-L120】
+ 
+-### 1.2 Cartouches virtuelles XVA1
+-- `seq_project_t` expose bien 16 emplacements potentiels, mais seules deux patterns sont instanciées et aucune API ne mappe les voix vers quatre instances XVA1 distinctes ; le runner continue d'interroger `cart_registry_get_active_id()` unique et ne sait pas router vers 4 slots virtuels.【F:apps/seq_engine_runner.c†L90-L155】【F:apps/seq_led_bridge.c†L68-L103】
+-- En l'état, la sélection de piste via l'UI ne fait qu'échanger le pattern unique alimentant moteur/recorder, sans lancer d'exécution parallèle comme requis par `SEQ_BEHAVIOR.md` (§5 et §6).【F:apps/seq_led_bridge.c†L1325-L1351】【F:SEQ_BEHAVIOR.md†L88-L133】
++### 1.2 Build release & audits mémoire (baseline 2025-10-20)
++- Compilation effectuée via `make -j8 all` (GNU Arm Embedded 13.2.1 dans le container ; alignement 10.3-2021.10 requis sur l'environnement Windows final).【556150†L1-L9】【2b76ba†L1-L6】
++- Post-link, les commandes de l'outil `tools\audit_all.bat` ont été rejouées sous Linux pour générer `tools/audit/*.txt` (size/nm triées, snapshots .ram4) à partir de `build/ch.elf`.【3fff42†L1-L23】【a6b7db†L1-L3】
++- Résultat sections (`tools/audit/audit_sections.txt`) : `.data` **1 792 o**, `.bss` **130 220 o** ⇒ **~129,0 KiB** de RAM statique. Marge SRAM restante ≈ **63 KiB** avant piles (budget ≥35 KiB respecté).【F:tools/audit/audit_sections.txt†L1-L28】
++- `.ram4` neutralisée : taille 0 o, VMA `0x1000_0000`, attribut `NOLOAD` et aucun symbole applicatif (`audit_map_ram4.txt`, `audit_ram4_symbols.txt`).【F:tools/audit/audit_map_ram4.txt†L1-L19】【F:tools/audit/audit_ram4_symbols.txt†L1-L8】
++- BSS dominée par `g_seq_runtime` (**101 448 o**), suivie des buffers UI/cart (`g_hold_slots` 3 648 o, `waCartTx` 3 200 o, `g_shadow_params`/`s_ui_shadow` 2 048 o chacun) et des work areas RTOS (`waUI`, `s_seq_engine_player_wa`).【F:tools/audit/audit_bss_top.txt†L1-L10】【F:tools/audit/audit_ram_top.txt†L1-L30】
++- `.data` quasiment limitée aux structures Newlib (`__malloc_av_`, `_impure_data`, locale) — aucune constante SEQ/UI ne retombe en RAM initialisée.【F:tools/audit/audit_data_top.txt†L1-L7】
+ 
+-**Conclusion étape 1** : le firmware joue uniquement la piste active (4 voix) sur un canal MIDI fixe. Les 16 tracks définies par la spécification ne sont ni lues ni multiplexées vers quatre cartouches virtuelles.
++### 1.3 Artéfacts joints
++- `build/ch.elf`, `build/ch.map`
++- `tools/audit/audit_sections.txt`
++- `tools/audit/audit_ram_top.txt`
++- `tools/audit/audit_bss_top.txt`
++- `tools/audit/audit_data_top.txt`
++- `tools/audit/audit_map_ram4.txt`
++- `tools/audit/audit_ram4_symbols.txt`
+ 
+-## 2) Estimation RAM runtime (1 pattern complète)
++Ces fichiers constituent la baseline mémoire de cette passe et sont produits à partir du build décrit ci-dessus.
+ 
+-### 2.1 Taille des structures
+-Un audit précédent (profil debug `arm-none-eabi-size`) donnait :
++---
+ 
+-| Structure | Taille |
+-|-----------|--------|
+-| `seq_model_step_t` | 222 octets |
+-| `seq_model_pattern_t` | 14 224 octets |
++## 2) Constat runtime actuel (avant 16 tracks)
+ 
+-【315c7c†L1-L6】
++- `g_seq_runtime` occupe 101 448 o en `.bss`. Il embarque le projet courant (`seq_project_t`), les deux patterns actifs du bridge LED, le scheduler et l'état live capture. Cette masse unique doit être re-segmentée pour tenir un hot runtime ≤64 KiB.【F:tools/audit/audit_bss_top.txt†L1-L10】
++- Les buffers UI (`s_ui_shadow` 2 048 o, `g_hold_slots` 3 648 o) restent en SRAM principale tant que la CCRAM est neutralisée, conformément à l'architecture actuelle.【F:tools/audit/audit_ram_top.txt†L1-L26】【F:docs/ARCHITECTURE_FR.md†L33-L118】
++- Aucun I/O externe (SPI/SD/QSPI) n'est requis pour la prochaine étape : tout le pipeline reste en exécution locale (Reader/Scheduler/Player + MIDI).【F:SEQ_BEHAVIOR.md†L60-L133】
+ 
+-Avec 16 tracks × 64 steps × 20 p-locks/step (limite spec), la mémoire requise pour les seules tracks atteindrait :
++---
+ 
+-- `16 × 14 224 = 227 584` octets ≈ **222,3 KiB**.
++## 3) Gate « Go 16 tracks » (CCRAM off, sans I/O externes)
+ 
+-Cette valeur excède la SRAM principale STM32F429 (192 KiB utiles) et dépasse la CCM (64 KiB) alors que la `.bss` actuelle oscille autour de 130 184 o (audit `tools/Audit/audit_sections.txt`).【F:tools/Audit/audit_sections.txt†L1-L33】
++Les audits étant au vert (RAM statique <150 KiB, marge >35 KiB, CCRAM vide), la mise en œuvre 1 pattern / 16 tracks peut être engagée. Le plan suivant sera exécuté dans la passe dédiée :
+ 
+-### 2.2 Autres postes à considérer
+-- L'état UI (`seq_led_bridge_state_t`, caches hold, overlays) reste volumineux et doit cohabiter avec `g_seq_runtime` dans la SRAM principale tant que la CCM est neutralisée, conformément à l'architecture en vigueur.【F:docs/ARCHITECTURE_FR.md†L33-L118】
+-- Les threads ChibiOS et buffers MIDI/cart consomment la marge restant après `.bss + .data`, ce qui laisse ~60 KiB de marge théorique (192 KiB - 130 184 o - 1 788 o) à partager entre piles et allocations statiques supplémentaires.【F:tools/Audit/audit_sections.txt†L1-L33】
++### 3.1 Split `seq_runtime_hot_t` / `seq_runtime_cold_t`
+ 
+-### 2.3 Conclusion d'estimation
+-L'empreinte d'un pattern complet 16 tracks dépasse ~115 % de la SRAM disponible et consommerait aussi la CCM si elle était réactivée. Sans refonte structurelle (split hot/cold, compaction p-locks), l'implémentation brute est **non viable**.
++| Bloc | Contenu | Taille actuelle (approx.) | Objectif |
++|------|---------|----------------------------|----------|
++| `seq_runtime_hot_t` | Reader/Scheduler/Player, curseurs de tick, queues d'événements ordonnées, work areas `s_seq_engine_player_wa`, watchers clocks, caches temps réel (status voices, pending NOTE_OFF) | ~48–52 KiB (à extraire de `g_seq_runtime` + WA associées) | ≤64 KiB (SRAM principale) |
++| `seq_runtime_cold_t` | Patterns sérialisés (16×`seq_model_pattern_t`), snapshots UI/LED, caches hold, métadonnées projet/cart, structures rarement mutées | ~50 KiB (`g_seq_runtime` restant + buffers UI/cart) | Reste en SRAM principale, accès amorti hors tick |
+ 
+-### 2.4 Audit mémoire — état actuel (blocage build)
+-L'exécution de `make -j8 all` échoue car la dépendance `chibios2111` n'est pas fournie dans le dépôt (`.gitmodules` sans URL).【da5dc4†L1-L4】【3b42f1†L1-L2】 Faute de `build/ch.elf`, il est impossible de régénérer `tools/audit/*.txt` ni `build/ch.map`. Les valeurs citées ci-dessus proviennent donc du dernier audit disponible sous `tools/Audit/`. Une action de remise en place des sous-modules est requise avant toute validation sur cible.
++- Les deux blocs seront alignés sur la spécification Reader → Scheduler → Player (`SEQ_BEHAVIOR.md` §3-5). Aucun accès cold ne doit s'exécuter dans le chemin Player (<20 µs) ; si une lecture cold est nécessaire (ex. chargement de track), elle sera mise en file via le thread UI/manager.【F:SEQ_BEHAVIOR.md†L167-L259】
++- Les work areas ChibiOS (`waUI`, `s_seq_engine_player_wa`, `waCartTx`) sont gardées hors `.ram4` ; on s'interdit toute allocation dynamique à l'exécution (pool statique uniquement).【F:tools/audit/audit_ram_top.txt†L1-L30】
+ 
+-## 3) Décision & pistes recommandées
++### 3.2 Fusion Reader/Scheduler/Player sur 16 tracks
+ 
+-### 3) Plan d'attaque (préparation split hot/cold)
++- Le Reader balayera les 16 tracks (pattern agrégé) en suivant l'ordre spec : P-locks → NOTE_ON → NOTE_OFF.【F:SEQ_BEHAVIOR.md†L13-L109】
++- Chaque track est pré-affectée à un canal MIDI : CH1..CH16, groupées par cartouche virtuelle XVA1 (4×4). Les callbacks `seq_engine_runner_note_on/off` routeront vers quatre slots logiques en respectant l'ordre spec (`Reader` non bloquant, `Scheduler` ordonné, `Player` sans attente >20 µs).【F:SEQ_BEHAVIOR.md†L80-L133】
++- Le mute UI (commis) coupe l'émission des événements dès le Reader (skip NOTE_ON/OFF + P-locks) afin d'éviter tout NOTE_OFF tardif, conformément à `SEQ_BEHAVIOR.md` (§6).【F:SEQ_BEHAVIOR.md†L222-L247】
+ 
+-1. **Remise en état de build** : restaurer le sous-module `chibios2111` ou introduire un mirroir interne permettant de compiler `build/ch.elf`. Sans cette étape, aucune mesure ni validation ne peut être exécutée.
+-2. **Split `seq_runtime` hot/cold** : isoler `seq_runtime_hot_t` (≤64 KiB) contenant curseurs Reader/Scheduler/Player, queues en cours et buffers d'émission immédiats, et `seq_runtime_cold_t` hébergeant patterns, caches UI, paramètres rarement touchés. Les structures doivent respecter l'ordre d'exécution décrit dans `SEQ_BEHAVIOR` (P-locks → NOTE_ON → NOTE_OFF) pour préserver la sémantique lors du routage multi-track.【F:SEQ_BEHAVIOR.md†L60-L109】
+-3. **Pooling p-locks** : remplacer l'allocation dense (20 slots/step) par un pool compacté indexé par track+step, afin de ramener la taille d'une track <8 KiB. Cette étape conditionne la possibilité de tenir 16 tracks simultanées dans la SRAM + marge piles.
+-4. **Router 4×XVA1 virtuels** : une fois la mémoire dégagée, étendre `seq_engine_runner` pour publier 4 slots XVA1 (CH1-4, CH5-8, CH9-12, CH13-16) tout en conservant l'API existante (`seq_engine_runner_note_on/off_cb`). Le mute devra court-circuiter la génération d'événements au niveau Reader pour éviter tout NOTE_OFF perdu.
+-5. **Validation worst-case** : après compilation, rejouer le pattern 16×64×20 p-locks, collecter jitter Reader/Scheduler/Player (<500 µs), vérifier NOTE_OFF = NOTE_ON et fournir la capture MIDI (CH1..CH16). Cette phase dépend de la disponibilité de la cible STM32F429.
++### 3.3 Contraintes temps réel
+ 
+-> **Statut** : bloqué sur dépendance `chibios2111`. Aucun changement fonctionnel n'a été appliqué dans le firmware. Une passe d'implémentation sera replanifiée une fois le build rétabli et le split hot/cold chiffré.
++- Aucune allocation dynamique ni `malloc` pendant le tick ; les pools nécessaires (ex. scheduler entries) seront pré-initialisés dans `seq_runtime_hot_t`.
++- Aucun blocage >20 µs sur le chemin Player ; les interactions cart/MIDI utilisent les work areas existantes (`waCartTx`, `waUI`). Les opérations plus lourdes (recompression pattern, sauvegarde) restent sur le thread UI.
++- Instrumentation prévue : traces `chVTGetSystemTime()` dans Reader/Scheduler/Player pour vérifier la dette temporelle, plus audit MIDI (NOTE_ON/OFF pairs) en CH1..CH16.
++
++---
++
++## 4) TODOs suivis
++- Renommer `seq_model_pattern_t` → `seq_model_track_t` (et dérivés) dans une passe dédiée, en alignant la terminologie avec la spec sans casser l'API existante pour l'instant.【F:SEQ_BEHAVIOR.md†L10-L43】
++- Finaliser l'installation de la toolchain GNU Arm Embedded 10.3-2021.10 sur l'environnement Windows (ChibiStudio) pour reproduire cette baseline byte-for-byte.
++
++---
++
++## 5) Conclusion
++
++Le dépôt est désormais autosuffisant (ChibiOS vendorisé), le build release compile et fournit une baseline mémoire <150 KiB avec CCRAM neutralisée. Le gate « Go 16 tracks » est **ouvert** : le split `seq_runtime_hot/cold`, le routage 4×XVA1 et la consolidation Reader/Scheduler/Player pourront être implémentés dans la prochaine passe sans dépasser le budget SRAM ni lever l'opt-in CCRAM.
+ 
+EOF
+)

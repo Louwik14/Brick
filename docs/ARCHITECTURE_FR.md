@@ -13,30 +13,38 @@ Principes structurants :
 
 ### Organisation mémoire (Flash/SRAM/CCM)
 
-#### Empreinte mémoire — snapshot (build courant indisponible)
+#### Empreinte mémoire — snapshot (baseline 2025‑10‑20)
 
-* Dernier audit disponible (`tools/Audit/audit_sections.txt`) : `.data` **1 788 o**, `.bss` **130 184 o**, soit **~128,9 KiB** de RAM statique. Avec 192 KiB de SRAM utiles, la marge restante avant piles ≈ **63 KiB**, conforme au garde-fou (>35 KiB).【F:tools/Audit/audit_sections.txt†L1-L33】
-* `.ram4` (CCRAM) reste **vide (0 o)** et mappée en `NOLOAD` à `0x1000_0000`, conformément à la politique de neutralisation temporaire.【F:tools/Audit/audit_sections.txt†L1-L33】
-* L'exécution de `make -j8 all` échoue actuellement faute de sous-module `chibios2111`, empêchant la régénération de `build/ch.elf` et des audits associés ; la réintégration du port ChibiOS est un prérequis avant toute validation supplémentaire.【da5dc4†L1-L4】【3b42f1†L1-L2】
+* Build `make -j8 all` régénéré avec la toolchain GNU Arm Embedded `arm-none-eabi-gcc 13.2.1` (container CI) ; la distribution Windows (ChibiStudio) doit rester alignée sur 10.3‑2021.10 pour refléter la cible officielle.【2b76ba†L1-L6】
+* Audit sections (`tools/audit/audit_sections.txt`) : `.data` **1 792 o**, `.bss` **130 220 o**, soit **~129,0 KiB** de RAM statique. Sur les 192 KiB de SRAM F429, il reste ~**63 KiB** de marge avant les piles système, satisfaisant le garde‑fou ≥35 KiB.【F:tools/audit/audit_sections.txt†L1-L28】
+* La section `.ram4` (CCRAM) reste neutralisée : taille **0 o**, VMA `0x1000_0000`, et attribut `NOLOAD` confirmé dans le map post‑link.【F:build/ch.map†L4995-L5009】【F:tools/audit/audit_map_ram4.txt†L1-L19】
+* Répartition BSS : `g_seq_runtime` occupe **101 448 o** (≈99,1 KiB), suivi par les buffers UI/cart (`g_hold_slots` 3 648 o, `waCartTx` 3 200 o, `g_shadow_params` 2 048 o, `s_ui_shadow` 2 048 o). Le reste de la BSS est dominé par les work areas RTOS (`waUI`, `s_seq_engine_player_wa`) et les objets ChibiOS (`SDx`, `USBD1`).【F:tools/audit/audit_bss_top.txt†L1-L10】【F:tools/audit/audit_ram_top.txt†L1-L30】
+* `.data` est quasi exclusivement occupée par la glibc embarquée (`__malloc_av_`, `_impure_data`, locale) ; aucune constante SEQ/UI ne retombe en RAM initialisée depuis la dernière passe.【F:tools/audit/audit_data_top.txt†L1-L7】
 
-> **Note terminologique** : dans tout le code, `seq_model_pattern_t` désigne une **track de 64 steps**. Un pattern complet (sens spec) agrège 16 instances (`CH1..CH16`), ce qui sera clarifié lors du renommage planifié (`seq_model_track_t`).【F:SEQ_BEHAVIOR.md†L10-L43】
+> **Terminologie** (inchangée) : `seq_model_pattern_t` représente une **track de 64 steps**, et un pattern complet agrège 16 tracks synchronisées, conformément à `SEQ_BEHAVIOR.md` (§1). Le renommage planifié (`seq_model_track_t`) reste à l'ordre du jour.【F:SEQ_BEHAVIOR.md†L10-L43】
 
-* Les tables d'énumération SEQ/ARP (libellés de paramètres UI) sont désormais stockées en Flash (`static const char* const`), éliminant ~60 o de pointeurs initialement placés en `.data` (`ui/ui_seq_ui.c`, `ui/ui_arp_ui.c`).
-* La configuration GPT3 (`core/midi_clock.c`) est promue en `static const GPTConfig`, ce qui la rend éligible à `.rodata` tout en restant référencée par `gptStart()`.
-* Les buffers dynamiques (patterns, snapshots LED, files d'événements) demeurent en SRAM système. L'attribut `CCM_DATA` est temporairement neutralisé (no-op) le temps de l'audit UI, aucun objet n'est envoyé en CCRAM sans opt-in explicite.
-* Le mapping 4×4 des pads SEQ → LEDs physiques est centralisé dans `ui/ui_led_layout.c` et partagé par `ui_led_backend` / `ui_led_seq`, supprimant deux copies locales dans `.rodata`.
-* Les gabarits neutres du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) vivent désormais en Flash (`core/seq/seq_model_consts.c`) et sont copiés lors de l'initialisation au lieu de rester encodés dans du code mutable.
-* Les masques d'échelle utilisés par le moteur (`k_seq_engine_scale_masks`) sont définis une seule fois en Flash (`core/seq/seq_engine_tables.c`) et consommés par `_seq_engine_apply_scale()`.
-* Le dictionnaire clavier agrège ses triades/extensions et offsets de gammes dans des tables uniques (`k_chord_bases`, `k_chord_exts`, `k_kbd_scale_offsets`) stockées en Flash (`apps/kbd_chords_dict.c`). Les libellés de notes côté renderer (`k_note_name_table`) sont également partagés pour éviter toute duplication en pile (`ui/ui_renderer.c`).
+### Environnement build courant
 
-* Build release 2025-10 (profil `-Os`) : `.text` 83 616 o, `.rodata` 66 904 o, `.data` 1 788 o, `.bss` 110 864 o, `.ram4` (CCRAM) 18 784 o (`arm-none-eabi-size -A build/ch.elf`).
-* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Depuis le hotfix CCRAM (2025-11), `CCM_DATA` n'injecte plus automatiquement les buffers en `.ram4` : ils retombent en `.bss`/`.data` tant que la reprise contrôlée n'est pas déclenchée. Le split envisagé `seq_runtime_hot_t` / `seq_runtime_cold_t` devra maintenir l'ordre Reader → Scheduler → Player décrit dans `SEQ_BEHAVIOR.md` (§3-5) tout en ramenant la zone hot ≤64 KiB.【F:SEQ_BEHAVIOR.md†L60-L109】
+* Le dépôt est autosuffisant : plus aucun sous-module, `git submodule status` renvoie vide et `.gitmodules` est absent.【a6bcfd†L1-L2】
+* `Makefile` référence ChibiOS via `CHIBIOS := ./chibios2111` et inclut les règles locales (`hal.mk`, `rt.mk`, `port.mk`).【F:Makefile†L105-L129】
+* Les fichiers clés du port ChibiOS 21.11 sont présents dans le vendor tree (`os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk`, `os/hal/hal.mk`, `os/rt/rt.mk`).【F:chibios2111/os/common/ports/ARMv7-M/compilers/GCC/mk/port.mk†L1-L118】【F:chibios2111/os/hal/hal.mk†L1-L120】【F:chibios2111/os/rt/rt.mk†L1-L120】
+
+*Les points ci-dessous (tables SEQ/ARP, GPT3 const, mapping 4×4, etc.) restent inchangés depuis la passe précédente et garantissent que les constantes UI/SEQ résident en Flash.*
+
+* `g_seq_runtime` (101 448 o) réside intégralement en SRAM principale (`.bss`). Le futur split `seq_runtime_hot_t` / `seq_runtime_cold_t` devra préserver l'ordre Reader → Scheduler → Player décrit dans `SEQ_BEHAVIOR.md` (§3-5) tout en ramenant la zone hot ≤64 KiB.【F:SEQ_BEHAVIOR.md†L60-L109】
 
 ### État CCRAM
 
-* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique ; seuls les symboles de section (`__ram4_*`) subsistent dans `tools/Audit/audit_ram4_symbols.txt` (aucune donnée réelle chargée).【F:tools/Audit/audit_ram4_symbols.txt†L1-L8】
+* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique ; seuls les symboles de section (`__ram4_*`) subsistent dans `tools/audit/audit_ram4_symbols.txt` (aucune donnée réelle chargée).【F:tools/audit/audit_ram4_symbols.txt†L1-L8】
 * `g_seq_runtime` et `s_pattern_buffer` restent en SRAM (0x2000_xxxx). Toute donnée nécessitant un contenu initial non nul reste explicitement hors CCRAM.
 * L'audit automatique (`tools/check_ccmram.py`, déclenché via `POST_MAKE_ALL_RULE_HOOK`) reste actif. Il doit signaler immédiatement toute régression (`.ram4` non vide, adresse ≠ `0x1000_0000`, drapeau `LOAD/CONTENTS`).
+
+### Prochain jalon — 1 pattern / 16 tracks (4×4 XVA1)
+
+* Les audits baseline confirment un budget **GO** : `.data + .bss` ≈ 129,0 KiB, marge SRAM ~63 KiB et CCRAM neutralisée (`NOLOAD`).【F:tools/audit/audit_sections.txt†L1-L28】【F:tools/audit/audit_map_ram4.txt†L1-L19】
+* Objectif mémoire : isoler `seq_runtime_hot_t` (Reader/Scheduler/Player + file temps réel) ≤64 KiB, reléguer patterns/caches UI dans `seq_runtime_cold_t`, et partager les 16 tracks via le pipeline Reader → Scheduler → Player décrit dans `SEQ_BEHAVIOR.md` (§3-5).【F:SEQ_BEHAVIOR.md†L60-L109】
+* Routage attendu : 4 groupes XVA1 virtuels (tracks 1‑4, 5‑8, 9‑12, 13‑16) vers les canaux MIDI CH1..CH16, mute appliqué côté Reader pour éviter toute émission événementielle lors d'une désactivation de piste.【F:SEQ_BEHAVIOR.md†L80-L109】
+* Les détails d'implémentation (split hot/cold, organisation des buffers, absence d'allocation dynamique et blocages <20 µs) sont tracés dans `RUNTIME_MULTICART_REPORT.md` et serviront de guide pour la passe suivante.
 
 ## 2. Arborescence commentée
 
