@@ -19,6 +19,7 @@
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
+#include "core/ram_audit.h"
 
 #ifdef UI_DEBUG_TRACE_LED_BACKEND
 #include <stdio.h>
@@ -35,9 +36,13 @@
 
 /* ===== ÉTAT ===== */
 static CCM_DATA bool     s_track_muted[NUM_STEPS];
+UI_RAM_AUDIT(s_track_muted);
 static CCM_DATA bool     s_track_pmutes[NUM_STEPS];
+UI_RAM_AUDIT(s_track_pmutes);
 static CCM_DATA bool     s_track_present[NUM_STEPS];
+UI_RAM_AUDIT(s_track_present);
 static CCM_DATA uint8_t  s_cart_tracks[4] = {4,4,4,4};
+UI_RAM_AUDIT(s_cart_tracks);
 static uint8_t           s_track_focus = 0U;
 static bool     s_rec_active = false;
 static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
@@ -57,6 +62,7 @@ typedef struct {
 #endif
 
 static CCM_DATA ui_led_backend_evt_t s_evt_queue[UI_LED_BACKEND_QUEUE_CAPACITY];
+UI_RAM_AUDIT(s_evt_queue);
 static uint8_t s_evt_head = 0U;
 static uint8_t s_evt_tail = 0U;
 

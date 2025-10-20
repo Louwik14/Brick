@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,6 +18,14 @@ typedef void BaseSequentialStream;
 systime_t chVTGetSystemTimeX(void);
 systime_t chVTGetSystemTime(void);
 void chThdSleepMilliseconds(uint32_t ms);
+void chThdSleepMicroseconds(uint32_t us);
+void chRegSetThreadName(const char *name);
+void chThdCreateStatic(void *wa, size_t size, int prio, void (*func)(void *), void *arg);
+int chsnprintf(char *buf, size_t size, const char *fmt, ...);
+
+#define NORMALPRIO 0
+#define THD_WORKING_AREA(name, size) uint8_t name[(size)]
+#define THD_FUNCTION(name, arg) void name(void *arg)
 void chSysLock(void);
 void chSysUnlock(void);
 void chSysLockFromISR(void);

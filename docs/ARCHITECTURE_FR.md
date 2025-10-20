@@ -175,3 +175,25 @@ SEQ
 * Le playhead LED utilise l'index absolu (`ui_led_seq_on_clock_tick`) pour rester aligné avec le moteur, sans réinitialisation lors du changement de page.
 
 Cette documentation reflète l'état réel du dépôt actuel et sert de base à toute refactorisation progressive.
+
+## 10. Chronologie refactor UI/Moteur (Phase Efficience Mémoire)
+
+| Étape | Statut | Détails |
+| --- | --- | --- |
+| Phase A — Audit RAM UI | ✅ | Instrumentation `UI_RAM_AUDIT(sym)` sur les buffers UI/LED/OLED (`seq_led_bridge`, `ui_led_backend`, drivers) et script `tools/ui_ram_audit.py` pour extraire les symboles depuis un build `arm-none-eabi`. |
+
+### Snapshot mémoire (avant refactor)
+
+| Symbole | Taille | Module |
+| --- | ---: | --- |
+| `g_project` | 73 000 B | `seq_led_bridge.o` |
+| `g_project_patterns` | 28 448 B | `seq_led_bridge.o` |
+| `s_pattern_buffer` | 3 968 B | `seq_project.o` |
+| `g_hold_slots` | 3 648 B | `seq_led_bridge.o` |
+| `buffer` (OLED) | 1 024 B | `drv_display.o` |
+| `g_hold_cart_params` | 512 B | `seq_led_bridge.o` |
+| `s_evt_queue` | 192 B | `ui_led_backend.o` |
+| `drv_leds_addr_state` | 68 B | `drv_leds_addr.o` |
+| `led_buffer` | 51 B | `drv_leds_addr.o` |
+
+Ces mesures constituent la référence minimale à améliorer lors des phases suivantes (mutualisation buffers, pool de patterns). Les extractions proviennent de `tools/ui_ram_audit.py` (voir `UI_REFACTOR_REPORT.md`).

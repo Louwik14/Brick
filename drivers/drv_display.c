@@ -20,6 +20,7 @@
  */
 
 #include "drv_display.h"
+#include "core/ram_audit.h"
 #include "ch.h"
 #include "hal.h"
 #include "brick_config.h"
@@ -44,6 +45,7 @@ static const SPIConfig spicfg = {
 
 /** @brief Framebuffer local (1 bit/pixel). */
 static uint8_t buffer[OLED_WIDTH * OLED_HEIGHT / 8];
+UI_RAM_AUDIT(buffer);
 
 /** @brief Police de caractères actuellement utilisée. */
 static const font_t *current_font = NULL;

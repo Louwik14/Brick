@@ -17,6 +17,7 @@
 #include "seq_recorder.h"
 #include "ui_mute_backend.h"
 #include "ui_led_backend.h"
+#include "core/ram_audit.h"
 
 #ifdef BRICK_DEBUG_PLOCK
 #include "chprintf.h"
@@ -66,13 +67,16 @@ typedef struct {
 } seq_led_bridge_state_t;
 
 static CCM_DATA seq_project_t g_project;
+UI_RAM_AUDIT(g_project);
 
 #ifndef SEQ_LED_BRIDGE_TRACK_CAPACITY
 #define SEQ_LED_BRIDGE_TRACK_CAPACITY 2U
 #endif
 
 static CCM_DATA seq_model_pattern_t g_project_patterns[SEQ_LED_BRIDGE_TRACK_CAPACITY];
+UI_RAM_AUDIT(g_project_patterns);
 static CCM_DATA seq_led_bridge_state_t g;
+UI_RAM_AUDIT(g);
 
 static inline seq_project_t *_seq_led_bridge_project(void) {
     return g.project;
@@ -101,6 +105,7 @@ typedef struct {
 } seq_led_bridge_hold_slot_t;
 
 static CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+UI_RAM_AUDIT(g_hold_slots);
 
 #ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
 #define SEQ_LED_BRIDGE_MAX_CART_PARAMS 32U
@@ -114,6 +119,7 @@ typedef struct {
 } seq_led_bridge_hold_cart_entry_t;
 
 static CCM_DATA seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
+UI_RAM_AUDIT(g_hold_cart_params);
 static uint8_t g_hold_cart_param_count;
 
 /* ===== Helpers ============================================================ */

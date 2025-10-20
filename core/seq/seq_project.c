@@ -10,6 +10,7 @@
 #include "brick_config.h"
 #include "board/board_flash.h"
 #include "cart/cart_registry.h"
+#include "core/ram_audit.h"
 
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
 #define SEQ_PROJECT_PATTERN_MAGIC   0x42504154U /* 'BPAT' */
@@ -115,6 +116,7 @@ typedef enum {
 
 static seq_project_t *s_active_project;
 static CCM_DATA uint8_t s_pattern_buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
+UI_RAM_AUDIT(s_pattern_buffer);
 
 static void pattern_desc_reset(seq_project_pattern_desc_t *desc) {
     if (desc == NULL) {
