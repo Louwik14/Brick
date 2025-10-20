@@ -50,6 +50,9 @@ static const char* const midi_note_labels[128] = {
     "C8","C#8","D8","D#8","E8","F8","F#8","G8"
 };
 
+static const char* const seq_setup_clock_labels[] = { "Int", "Ext" };
+static const char* const seq_setup_quant_labels[] = { "Off", "1/8", "1/16", "1/32" };
+
 /* ===========================================================================
  *  SEQ (pages principales)
  * ===========================================================================*/
@@ -138,13 +141,13 @@ static const ui_menu_spec_t seq_menu = {
 /* Page 1 : General */
 static const ui_param_spec_t seq_setup_page_general_params[4] = {
     { .label = "Clock", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_CLOCK),
-      .meta.en = { .labels = (const char*[]){"Int", "Ext"}, .count = 2 } },
+      .meta.en = { .labels = seq_setup_clock_labels, .count = 2 } },
     { .label = "Swing", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_SWING),
       .meta.range = { .min = 0, .max = 100, .step = 1 } },
     { .label = "Steps", .kind = UI_PARAM_CONT, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_STEPS),
       .meta.range = { .min = 1, .max = 64, .step = 1 } },
     { .label = "Quant", .kind = UI_PARAM_ENUM, .dest_id = SEQ_UI(SEQ_UI_LOCAL_SETUP_QUANT),
-      .meta.en = { .labels = (const char*[]){"Off", "1/8", "1/16", "1/32"}, .count = 4 } }
+      .meta.en = { .labels = seq_setup_quant_labels, .count = 4 } }
 };
 
 /* Page 2 : MIDI */

@@ -50,6 +50,12 @@ static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
 /* Keyboard */
 static bool     s_kbd_omni = false;
 
+/* Pré-calcul des couleurs accords Omnichord → stockées en Flash (.rodata). */
+static const led_color_t k_omni_chord_colors[8] = {
+    UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
+    UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
+};
+
 typedef struct {
     ui_led_event_t event;
     uint8_t index;
@@ -235,10 +241,6 @@ static inline void _render_keyboard_normal(void) {
     }
 }
 static inline void _render_keyboard_omnichord(void) {
-    const led_color_t chord_colors[8] = {
-        UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
-        UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
-    };
     for (uint8_t t = 0; t < NUM_STEPS; ++t) {
         const int led = _led_index_for_step(t);
         if ((t >= 4 && t <= 7) || (t >= 12 && t <= 15)) {
@@ -247,7 +249,7 @@ static inline void _render_keyboard_omnichord(void) {
         }
         if (t <= 3 || (t >= 8 && t <= 11)) {
             uint8_t chord_idx = (t <= 3) ? t : (uint8_t)(4 + (t - 8));
-            _set_led(led, chord_colors[chord_idx], LED_MODE_ON);
+            _set_led(led, k_omni_chord_colors[chord_idx], LED_MODE_ON);
             continue;
         }
         _set_led(led, UI_LED_COL_OFF, LED_MODE_OFF);
