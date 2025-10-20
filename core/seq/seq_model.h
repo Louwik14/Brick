@@ -147,11 +147,13 @@ typedef struct {
 } seq_model_track_config_t;
 
 /** Track container used by the sequencer. */
-typedef struct {
+typedef struct seq_model_track seq_model_track_t;
+
+struct seq_model_track {
     seq_model_step_t steps[SEQ_MODEL_STEPS_PER_TRACK]; /**< Step list. */
     seq_model_track_config_t config; /**< Track-level configuration. */
     seq_model_gen_t generation; /**< Dirty tracking counter. */
-} seq_model_track_t;
+};
 
 /** Reset the generation counter to its initial value. */
 void seq_model_gen_reset(seq_model_gen_t *gen);

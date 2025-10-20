@@ -107,7 +107,9 @@ typedef struct {
 } seq_project_bank_t;
 
 /** Sequencer project aggregating multiple banks and runtime tracks. */
-typedef struct {
+typedef struct seq_project seq_project_t;
+
+struct seq_project {
     seq_project_bank_t banks[SEQ_PROJECT_BANK_COUNT]; /**< Persistent metadata. */
     seq_project_track_t tracks[SEQ_PROJECT_MAX_TRACKS]; /**< Runtime track bindings. */
     uint8_t track_count;       /**< Highest contiguous track index bound. */
@@ -118,7 +120,7 @@ typedef struct {
     seq_model_gen_t generation;/**< Generation bumped on topology changes. */
     uint32_t tempo;            /**< Project tempo snapshot. */
     char name[SEQ_PROJECT_NAME_MAX]; /**< Project label. */
-} seq_project_t;
+};
 
 void seq_project_init(seq_project_t *project);
 bool seq_project_assign_track(seq_project_t *project, uint8_t track_index, seq_model_track_t *track);

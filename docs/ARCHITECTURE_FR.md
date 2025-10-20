@@ -148,7 +148,8 @@ SEQ
 
 ### 4.3 Lecture et classification
 * `seq_led_bridge_publish()` agrège la track active et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.【F:apps/seq_led_bridge.c†L824-L889】
-* `core/seq/seq_runtime.c` instancie `g_seq_runtime` (projet + tracks actives) et est initialisé dans `main()` juste après `chSysInit()` afin que moteur et UI partagent la même vue, conformément à `SEQ_BEHAVIOR.md` (§4).【F:core/seq/seq_runtime.h†L18-L39】【F:core/seq/seq_runtime.c†L1-L120】
+* `core/seq/seq_runtime.c` instancie `g_seq_runtime` (projet + tracks actives) et est initialisé dans `main()` juste après `chSysInit()` afin que moteur et UI partagent la même vue, conformément à `SEQ_BEHAVIOR.md` (§4).【F:core/seq/seq_runtime.c†L1-L54】
+* L'en-tête `core/seq/seq_runtime.h` agit désormais comme barrière : il ne divulgue plus la structure interne, ne fournit qu'un type opaque `seq_runtime_t` et marque les accès bruts (`seq_runtime_get_*`) comme **dépréciés** via `SEQ_DEPRECATED`. Toute nouvelle dépendance forcera une migration vers l'API handle planifiée en P1.【F:core/seq/seq_runtime.h†L1-L44】
 * `ui_led_seq_render()` colore : vert = `active`, bleu = `automation`, rouge = mute.
 * `seq_model_step_recompute_flags()` pose `flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock`, garantissant que toute présence de p-lock SEQ garde le step vert.
 

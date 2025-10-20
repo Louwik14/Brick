@@ -7,7 +7,14 @@
 
 #include "brick_config.h"
 #include "core/seq/seq_runtime.h"
+#include "core/seq/seq_project.h"
+#include "core/seq/seq_model.h"
 #include "core/ram_audit.h"
+
+struct seq_runtime {
+    seq_project_t     project;
+    seq_model_track_t tracks[SEQ_RUNTIME_TRACK_CAPACITY];
+};
 
 seq_runtime_t g_seq_runtime;UI_RAM_AUDIT(g_seq_runtime);
 
