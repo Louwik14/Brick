@@ -18,6 +18,7 @@ DEFAULT_SOURCES = [
     "drivers/drv_leds_addr.c",
     "drivers/drv_display.c",
     "core/seq/seq_project.c",
+    "core/seq/seq_runtime.c",
 ]
 
 

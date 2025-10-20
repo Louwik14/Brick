@@ -51,7 +51,7 @@ La charge mémoire nécessaire à une pattern complète 16 tracks dépasse ~115�
 1. **Compresser davantage `seq_model_step_t`** : réduire le nombre de p-locks préalloués (20→12), mutualiser la liste par banque ou basculer vers un pool dynamique indexé par track afin d'abaisser la taille d'un pattern sous 8 KB.
 2. **Déporter une partie du modèle en flash externe + streaming** : maintenir un cache circulaire de steps actifs (p.ex. 4 pages × 16 steps) et charger à la volée les p-locks, ce qui limiterait la mémoire vive au strict nécessaire pour la fenêtre courante.
 3. **Segmenter l'exécution** : partitionner les 16 tracks en 4 groupes et n'en garder qu'un en RAM simultanément, avec prélecture avant le prochain tick et duplication minimale des offsets pour respecter l'ordre P-lock/NOTE (référence SEQ_BEHAVIOR §3-5).【F:SEQ_BEHAVIOR.md†L64-L109】
-4. **Réévaluer l'empreinte UI/hold** : fusionner les buffers `g_hold_slots`/`seq_runtime_t` avec le modèle pour supprimer les copies complètes lors du hold, comme déjà anticipé par le plan d'action mémoire (Étapes 3-4).【F:brick_memory_audit.md†L34-L60】
+4. **Réévaluer l'empreinte UI/hold** : fusionner les buffers `g_hold_slots`/`seq_led_runtime_t` avec le modèle pour supprimer les copies complètes lors du hold, comme déjà anticipé par le plan d'action mémoire (Étapes 3-4).【F:brick_memory_audit.md†L34-L60】
 
 Une combinaison de ces stratégies est indispensable pour dégager >230 KB supplémentaires (ou éviter de les consommer) avant toute tentative de lecture simultanée des 16 tracks conformément à la spécification.
 

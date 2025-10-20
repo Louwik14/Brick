@@ -22,7 +22,7 @@
 #endif
 
 typedef struct {
-    seq_runtime_t rt;           /* Snapshot de la page visible */
+    seq_led_runtime_t rt;       /* Snapshot de la page visible */
     bool          running;      /* Lecture active */
     uint16_t      total_span;   /* pages * 16 (min 16, max 256) */
     uint16_t      play_abs;     /* Position absolue 0..total_span-1 */
@@ -47,7 +47,7 @@ static inline void _set_led_step(uint8_t s, led_color_t col, led_mode_t mode){
 
 /* ============================== API ===================================== */
 
-void ui_led_seq_update_from_app(const seq_runtime_t *rt){
+void ui_led_seq_update_from_app(const seq_led_runtime_t *rt){
     if (!rt) return;
     g.rt = *rt;
     if (g.rt.steps_per_page == 0) g.rt.steps_per_page = SEQ_STEPS_PER_PAGE;

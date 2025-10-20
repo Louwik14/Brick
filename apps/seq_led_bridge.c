@@ -12,6 +12,7 @@
 
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
+#include "core/seq/seq_runtime.h"
 #include "seq_led_bridge.h"
 #include "seq_engine_runner.h"
 #include "seq_recorder.h"
@@ -52,11 +53,11 @@
 #endif
 
 typedef struct {
-    seq_project_t       *project;       /**< Multi-track project handle. */
-    seq_model_pattern_t *pattern;       /**< Backing sequencer pattern reference. */
-    uint16_t             page_hold_mask[SEQ_MAX_PAGES]; /**< Held-step mask per page (UI only). */
-    uint16_t             preview_mask;  /**< Cached mask for the visible page. */
-    seq_runtime_t        rt;            /**< Runtime payload consumed by ui_led_seq. */
+    seq_project_t        *project;      /**< Multi-track project handle. */
+    seq_model_pattern_t  *pattern;      /**< Backing sequencer pattern reference. */
+    uint16_t              page_hold_mask[SEQ_MAX_PAGES]; /**< Held-step mask per page (UI only). */
+    uint16_t              preview_mask; /**< Cached mask for the visible page. */
+    seq_led_runtime_t     rt;           /**< Runtime payload consumed by ui_led_seq. */
     uint8_t              max_pages;     /**< Number of usable pages. */
     uint8_t              visible_page;  /**< Currently focused page. */
     uint16_t             total_span;    /**< Pattern span exposed to LEDs (pages × 16). */
@@ -66,15 +67,6 @@ typedef struct {
     seq_led_bridge_hold_view_t hold;    /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
-static CCM_DATA seq_project_t g_project;
-UI_RAM_AUDIT(g_project);
-
-#ifndef SEQ_LED_BRIDGE_TRACK_CAPACITY
-#define SEQ_LED_BRIDGE_TRACK_CAPACITY 2U
-#endif
-
-static CCM_DATA seq_model_pattern_t g_project_patterns[SEQ_LED_BRIDGE_TRACK_CAPACITY];
-UI_RAM_AUDIT(g_project_patterns);
 static CCM_DATA seq_led_bridge_state_t g;
 UI_RAM_AUDIT(g);
 
@@ -806,18 +798,16 @@ static void _publish_runtime(void) {
 /* ===== API =============================================================== */
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
-    g.project = &g_project;
-    seq_project_init(g.project);
-
-    for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_TRACK_CAPACITY; ++i) {
-        seq_model_pattern_init(&g_project_patterns[i]);
-        seq_project_assign_track(g.project, i, &g_project_patterns[i]);
+    g.project = seq_runtime_access_project_mut();
+    if (g.project != NULL) {
+        g.track_index = seq_project_get_active_track(g.project);
+        g.track_count = seq_project_get_track_count(g.project);
+        g.pattern = seq_project_get_active_pattern(g.project);
+    } else {
+        g.track_index = 0U;
+        g.track_count = 0U;
+        g.pattern = NULL;
     }
-
-    (void)seq_project_set_active_track(g.project, 0U);
-    g.track_index = seq_project_get_active_track(g.project);
-    g.track_count = seq_project_get_track_count(g.project);
-    g.pattern = seq_project_get_active_pattern(g.project);
     _hold_slots_clear();
     _hold_cart_reset();
     g.last_note = 60U;
@@ -1313,11 +1303,11 @@ const seq_model_gen_t *seq_led_bridge_get_generation(void) {
 }
 
 seq_project_t *seq_led_bridge_get_project(void) {
-    return &g_project;
+    return seq_runtime_access_project_mut();
 }
 
 const seq_project_t *seq_led_bridge_get_project_const(void) {
-    return &g_project;
+    return seq_runtime_get_project();
 }
 
 uint8_t seq_led_bridge_get_track_index(void) {

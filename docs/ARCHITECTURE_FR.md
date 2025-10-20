@@ -107,12 +107,13 @@ SEQ
 2. Pendant le hold, les mouvements d'encodeur :
    * Pages SEQ (`UI_DEST_UI`) ⇒ `_resolve_seq_param()` résout `seq_hold_param_id_t`, `seq_led_bridge_apply_plock_param()` écrit les offsets ou voix dans les steps maintenus, crée les p-locks internes via `_ensure_internal_plock_value()`, recalcule les flags (`seq_model_step_recompute_flags`) et publie.
    * Paramètres cart (`UI_DEST_CART`) ⇒ `seq_led_bridge_apply_cart_param()` enregistre les p-locks cart dans les steps maintenus.
-3. À la release, `seq_led_bridge_end_plock_preview()` et `_hold_sync_mask()` committent les steps stagés, recalculent le `seq_runtime_t` et forcent `seq_led_bridge_publish()` pour rafraîchir les LED.
+3. À la release, `seq_led_bridge_end_plock_preview()` et `_hold_sync_mask()` committent les steps stagés, recalculent le `seq_led_runtime_t` et forcent `seq_led_bridge_publish()` pour rafraîchir les LED.
 4. Les steps verts (actifs ou contenant des p-locks SEQ) conservent leur note et leur vélocité (`seq_model_step_make_neutral()`), les steps bleus (automation pure) ont vélocité voix1 = 0.
 5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback.
 
 ### 4.3 Lecture et classification
-* `seq_led_bridge_publish()` agrège le pattern et renseigne `seq_runtime_t.steps[]` : `active`, `automation`, `muted`.
+* `seq_led_bridge_publish()` agrège le pattern et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.
+* `core/seq/seq_runtime.c` instancie `g_seq_runtime` (projet + patterns actifs) et est initialisé dans `main()` juste après `chSysInit()` afin que moteur et UI partagent la même vue, conformément à `SEQ_BEHAVIOR.md` (§4).
 * `ui_led_seq_render()` colore : vert = `active`, bleu = `automation`, rouge = mute.
 * `seq_model_step_recompute_flags()` pose `flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock`, garantissant que toute présence de p-lock SEQ garde le step vert.
 
@@ -163,7 +164,7 @@ SEQ
 
 * Archives et logs (`Brick4_labelstab_uistab_phase4.zip`, `drivers/drivers.zip`, `log.txt`, `tableaudebord.txt`) ne participent pas au build.
 * `docs/ARCHITECTURE_FR.md` (ancienne version) décrivait des fonctions inexistantes (`seq_led_bridge_tick()`, `seq_led_bridge_bind_pattern()`). Cette version reflète les noms et flux actuels.
-* Aucun double des structures principales (`seq_model_step_t`, `seq_runtime_t`). Les entêtes `*_v2` ou backups n'existent plus, mais vérifier régulièrement les répertoires pour éviter leur réapparition.
+* Aucun double des structures principales (`seq_model_step_t`, `seq_led_runtime_t`). Les entêtes `*_v2` ou backups n'existent plus, mais vérifier régulièrement les répertoires pour éviter leur réapparition.
 
 ## 9. Résumé des invariants comportementaux
 
@@ -181,6 +182,7 @@ Cette documentation reflète l'état réel du dépôt actuel et sert de base à 
 | Étape | Statut | Détails |
 | --- | --- | --- |
 | Phase A — Audit RAM UI | ✅ | Instrumentation `UI_RAM_AUDIT(sym)` sur les buffers UI/LED/OLED (`seq_led_bridge`, `ui_led_backend`, drivers) et script `tools/ui_ram_audit.py` pour extraire les symboles depuis un build `arm-none-eabi`. |
+| Phase B — Runtime partagé | ✅ | `core/seq/seq_runtime.*` centralise `seq_project_t` + patterns actifs ; `seq_led_bridge.c` consomme `seq_runtime_get_*` et ne duplique plus `g_project` / `g_project_patterns`. |
 
 ### Snapshot mémoire (avant refactor)
 
@@ -197,3 +199,19 @@ Cette documentation reflète l'état réel du dépôt actuel et sert de base à 
 | `led_buffer` | 51 B | `drv_leds_addr.o` |
 
 Ces mesures constituent la référence minimale à améliorer lors des phases suivantes (mutualisation buffers, pool de patterns). Les extractions proviennent de `tools/ui_ram_audit.py` (voir `UI_REFACTOR_REPORT.md`).
+
+### Snapshot mémoire (Phase B — après runtime partagé)
+
+| Symbole | Taille | Module |
+| --- | ---: | --- |
+| `g_seq_runtime` | 101 448 B | `seq_runtime.o` |
+| `s_pattern_buffer` | 3 968 B | `seq_project.o` |
+| `g_hold_slots` | 3 648 B | `seq_led_bridge.o` |
+| `buffer` | 1 024 B | `drv_display.o` |
+| `g_hold_cart_params` | 512 B | `seq_led_bridge.o` |
+| `g` | 320 B | `seq_led_bridge.o` |
+| `s_evt_queue` | 192 B | `ui_led_backend.o` |
+| `drv_leds_addr_state` | 68 B | `drv_leds_addr.o` |
+| `led_buffer` | 51 B | `drv_leds_addr.o` |
+
+`g_project` et `g_project_patterns` disparaissent du build UI : leur volumétrie est absorbée par `g_seq_runtime` mutualisé, initialisé côté `main.c`.

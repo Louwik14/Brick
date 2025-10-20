@@ -10,13 +10,14 @@
 #include "apps/seq_recorder.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_live_capture.h"
+#include "core/seq/seq_runtime.h"
 #include "core/clock_manager.h"
 #include "midi/midi.h"
 #include "ui/ui_led_backend.h"
 
 /* ===== Stub runtime hooks ================================================= */
 static systime_t g_stub_time;
-static seq_runtime_t g_last_runtime;
+static seq_led_runtime_t g_last_runtime;
 static bool g_runtime_valid;
 static uint16_t g_total_span;
 static bool g_seq_running;
@@ -45,7 +46,7 @@ void chSysUnlock(void) {}
 void chSysLockFromISR(void) {}
 void chSysUnlockFromISR(void) {}
 
-void ui_led_seq_update_from_app(const seq_runtime_t *rt) {
+void ui_led_seq_update_from_app(const seq_led_runtime_t *rt) {
     if (rt != NULL) {
         g_last_runtime = *rt;
         g_runtime_valid = true;
@@ -113,6 +114,7 @@ static void reset_runtime(void) {
     g_keyboard_last_note_off = 0U;
     g_keyboard_led_mode = UI_LED_MODE_NONE;
     g_keyboard_led_omni = false;
+    seq_runtime_init();
     seq_led_bridge_init();
     assert(g_runtime_valid);
 }
@@ -121,7 +123,7 @@ static void set_stub_time(systime_t now) {
     g_stub_time = now;
 }
 
-static const seq_runtime_t *require_runtime(void) {
+static const seq_led_runtime_t *require_runtime(void) {
     assert(g_runtime_valid);
     return &g_last_runtime;
 }
@@ -162,7 +164,7 @@ static void test_seq_plock_commit_updates_step_flags(void) {
     assert(seq_model_step_has_playable_voice(step));
     assert(!seq_model_step_is_automation_only(step));
 
-    const seq_runtime_t *rt = require_runtime();
+    const seq_led_runtime_t *rt = require_runtime();
     assert(rt->steps[step_index].active);
     assert(!rt->steps[step_index].automation);
 }
@@ -187,7 +189,7 @@ static void test_cart_plock_only_yields_automation_step(void) {
     assert(voice != NULL);
     assert(voice->velocity == 0U);
 
-    const seq_runtime_t *rt = require_runtime();
+    const seq_led_runtime_t *rt = require_runtime();
     assert(!rt->steps[step_index].active);
     assert(rt->steps[step_index].automation);
 }
@@ -250,7 +252,7 @@ static void test_seq_recorder_commits_length_and_led_state(void) {
     assert(seq_model_step_has_playable_voice(step));
     assert(!seq_model_step_is_automation_only(step));
 
-    const seq_runtime_t *rt = require_runtime();
+    const seq_led_runtime_t *rt = require_runtime();
     assert(rt->steps[0].active);
     assert(!rt->steps[0].automation);
 }
