@@ -112,3 +112,51 @@ Les audits étant au vert (RAM statique <150 KiB, marge >35 KiB, CCRAM vide)
 ## 5) Conclusion
 
 Le dépôt est désormais autosuffisant (ChibiOS vendorisé), le build release compile et fournit une baseline mémoire <150 KiB avec CCRAM neutralisée. Le gate « Go 16 tracks » est **ouvert** : le split `seq_runtime_hot/cold`, le routage 4×XVA1 et la consolidation Reader/Scheduler/Player pourront être implémentés dans la prochaine passe sans dépasser le budget SRAM ni lever l'opt-in CCRAM.
+
+---
+
+## 6) Phase A — tentative progressive et fail-fast RAM
+
+### 6.1 Mesures `sizeof` avant implémentation
+
+Une mesure préliminaire sur l'outil hôte (`gcc -std=c11`) confirme que la simple extension du runtime partagé à quatre tracks dépasse déjà le budget `.bss + .data ≤ 150 KiB` exigé par Gate A :
+
+| `SEQ_RUNTIME_TRACK_CAPACITY` | `sizeof(seq_runtime_t)` |
+| --- | --- |
+| 2 (baseline) | 101 576 o |
+| 4 | 130 024 o |
+| 8 | 186 920 o |
+| 16 | 300 712 o |
+
+Les valeurs 4/8/16 sont obtenues en recompilant `seq_runtime.h` avec `-DSEQ_RUNTIME_TRACK_CAPACITY=N` avant inclusion, puis en exécutant le binaire hôte généré.【6d9b09†L1-L4】【f9ad51†L1-L4】【2f2cf6†L1-L4】 La taille `101 576 o` de la baseline 2 tracks correspond aux audits post-link fournis dans la passe précédente.【F:tools/audit/audit_sections.txt†L1-L28】
+
+Même sans intégrer les autres symboles `.bss` (buffers UI, work areas RTOS, shadow cart, etc.), la variante 4 tracks porterait `g_seq_runtime` à ~130 KiB. En y ajoutant les ~28 KiB de buffers annexes déjà présents, la marge SRAM retomberait sous 0 KiB, enfreignant immédiatement Gate A (marge ≥35 KiB).
+
+### 6.2 Rapport de non-faisabilité (Phase A)
+
+| Sous-composant | Baseline 2 tracks | Projection 4 tracks | Budget Phase A |
+| --- | --- | --- | --- |
+| `seq_runtime.project` (banques + manifest) | ~73 KiB | ~73 KiB | ≤40 KiB |
+| `seq_runtime.tracks` | 2 × 14 224 o = 27,8 KiB | 4 × 14 224 o = 55,7 KiB | ≤32 KiB |
+| Buffers UI (`seq_led_bridge`, holds, mute) | ~8 KiB | ~8 KiB | ≤8 KiB |
+| Work areas RTOS (`waUI`, `s_seq_engine_player_wa`, `waCartTx`) | ~9 KiB | ~9 KiB | ≤9 KiB |
+| MIDI/cart shadow (`cart_link`, `midi`) | ~6 KiB | ~6 KiB | ≤6 KiB |
+| **Total `.bss + .data` estimé** | ~129 KiB | ~151 KiB | **≤150 KiB** |
+
+Le simple doublement du nombre de tracks consommerait ~22 KiB supplémentaires, faisant sauter le plafond de 150 KiB sans même toucher au code du runner. Aucun gain superficiel (nettoyage de buffers UI ou WA) ne compense une telle hausse ; il faut restructurer en profondeur le runtime pour séparer les masses « hot » et « cold » et compacter la représentation d'une track.
+
+### 6.3 Plan de remédiation (A→E)
+
+| Axe | Gain visé | Actions clefs | Risques |
+| --- | --- | --- | --- |
+| **A. Split `seq_runtime` hot/cold** | −35 KiB | Extraire `seq_runtime_hot_t` (Reader/Scheduler/Player, WA) ≤64 KiB et repousser `seq_project_t` + caches UI dans `seq_runtime_cold_t` (accès hors RT). | Toucher `seq_runtime_init()` / `seq_led_bridge` et adapter toutes les API `seq_runtime_get_*`. Contrainte forte sur la sérialisation (`seq_project_*`). |
+| **B. Compaction p-locks** | −20 KiB | Réencoder `seq_model_plock_t` (value 16 b, param 10 b, domaine/voix 6 b) + stocker les 20 p-locks/step dans un pool partagé compressé (4 o/entrée). | Refonte complète de `seq_model_plock_*`, `seq_project_track_steps_encode/decode`, impacts UI hold & runner. Tests host à réécrire. |
+| **C. Manifest projet fin** | −15 KiB | Extraire les 16×16 descriptors (`seq_project_pattern_desc_t`) vers un manifest compact (nom + offset + track_count), charger une seule banque active en RAM. | Refactor `seq_project_save/load`, `ui_track_mode`, `seq_led_bridge_select_track`. Risque de régression I/O si manifest partiel. |
+| **D. Relocalisation buffers non-RT** | −8 KiB | Déplacer `seq_project` I/O buffer (3,9 KiB) + caches hold (3,6 KiB) dans une zone `.noinit` ou segment froid explicitement exclus du hot path. | Vigilance sur l’init zéro (`memset`) et la persistance lors d’un soft reset. |
+| **E. CCRAM opt-in ciblé** | −24 KiB | (Ultime) Réactiver `.ram4` pour les piles RT (`waUI`, `s_seq_engine_player_wa`) et scratch UI non-DMA si A–D insuffisants. | Demande validation explicite, audits `.ram4` à fournir, garantit absence de DMA (cart/MIDI) sur CCRAM. |
+
+Le cumul des gains A–D ramènerait la projection 4 tracks ≈ 73 (proj) + 25 (tracks compacts) + 10 (UI/WA) ≈ 108 KiB, ouvrant enfin Gate A. Ce pré-requis est indispensable avant d’implémenter le super-runner 4×4 XVA1.
+
+### 6.4 Décision
+
+Sans refonte mémoire préalable (A–D), l’extension à 4 tracks violerait Gate A. Conformément aux instructions fail-fast, la passe s’arrête ici : aucun code fonctionnel n’est introduit tant que le split hot/cold et la compaction p-locks ne sont pas implémentés et vérifiés par audits. Les prochaines étapes devront se concentrer sur ces optimisations structurelles avant toute tentative Phase B/Phase C.【SEQ_BEHAVIOR.md†L60-L133】
