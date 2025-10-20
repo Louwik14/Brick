@@ -13,6 +13,14 @@ Principes structurants :
 
 ### Organisation mémoire (Flash/SRAM/CCM)
 
+#### Empreinte mémoire — snapshot (build courant indisponible)
+
+* Dernier audit disponible (`tools/Audit/audit_sections.txt`) : `.data` **1 788 o**, `.bss` **130 184 o**, soit **~128,9 KiB** de RAM statique. Avec 192 KiB de SRAM utiles, la marge restante avant piles ≈ **63 KiB**, conforme au garde-fou (>35 KiB).【F:tools/Audit/audit_sections.txt†L1-L33】
+* `.ram4` (CCRAM) reste **vide (0 o)** et mappée en `NOLOAD` à `0x1000_0000`, conformément à la politique de neutralisation temporaire.【F:tools/Audit/audit_sections.txt†L1-L33】
+* L'exécution de `make -j8 all` échoue actuellement faute de sous-module `chibios2111`, empêchant la régénération de `build/ch.elf` et des audits associés ; la réintégration du port ChibiOS est un prérequis avant toute validation supplémentaire.【da5dc4†L1-L4】【3b42f1†L1-L2】
+
+> **Note terminologique** : dans tout le code, `seq_model_pattern_t` désigne une **track de 64 steps**. Un pattern complet (sens spec) agrège 16 instances (`CH1..CH16`), ce qui sera clarifié lors du renommage planifié (`seq_model_track_t`).【F:SEQ_BEHAVIOR.md†L10-L43】
+
 * Les tables d'énumération SEQ/ARP (libellés de paramètres UI) sont désormais stockées en Flash (`static const char* const`), éliminant ~60 o de pointeurs initialement placés en `.data` (`ui/ui_seq_ui.c`, `ui/ui_arp_ui.c`).
 * La configuration GPT3 (`core/midi_clock.c`) est promue en `static const GPTConfig`, ce qui la rend éligible à `.rodata` tout en restant référencée par `gptStart()`.
 * Les buffers dynamiques (patterns, snapshots LED, files d'événements) demeurent en SRAM système. L'attribut `CCM_DATA` est temporairement neutralisé (no-op) le temps de l'audit UI, aucun objet n'est envoyé en CCRAM sans opt-in explicite.
@@ -22,11 +30,11 @@ Principes structurants :
 * Le dictionnaire clavier agrège ses triades/extensions et offsets de gammes dans des tables uniques (`k_chord_bases`, `k_chord_exts`, `k_kbd_scale_offsets`) stockées en Flash (`apps/kbd_chords_dict.c`). Les libellés de notes côté renderer (`k_note_name_table`) sont également partagés pour éviter toute duplication en pile (`ui/ui_renderer.c`).
 
 * Build release 2025-10 (profil `-Os`) : `.text` 83 616 o, `.rodata` 66 904 o, `.data` 1 788 o, `.bss` 110 864 o, `.ram4` (CCRAM) 18 784 o (`arm-none-eabi-size -A build/ch.elf`).
-* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Depuis le hotfix CCRAM (2025-11), `CCM_DATA` n'injecte plus automatiquement les buffers en `.ram4` : ils retombent en `.bss`/`.data` tant que la reprise contrôlée n'est pas déclenchée.
+* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Depuis le hotfix CCRAM (2025-11), `CCM_DATA` n'injecte plus automatiquement les buffers en `.ram4` : ils retombent en `.bss`/`.data` tant que la reprise contrôlée n'est pas déclenchée. Le split envisagé `seq_runtime_hot_t` / `seq_runtime_cold_t` devra maintenir l'ordre Reader → Scheduler → Player décrit dans `SEQ_BEHAVIOR.md` (§3-5) tout en ramenant la zone hot ≤64 KiB.【F:SEQ_BEHAVIOR.md†L60-L109】
 
 ### État CCRAM
 
-* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique.
+* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique ; seuls les symboles de section (`__ram4_*`) subsistent dans `tools/Audit/audit_ram4_symbols.txt` (aucune donnée réelle chargée).【F:tools/Audit/audit_ram4_symbols.txt†L1-L8】
 * `g_seq_runtime` et `s_pattern_buffer` restent en SRAM (0x2000_xxxx). Toute donnée nécessitant un contenu initial non nul reste explicitement hors CCRAM.
 * L'audit automatique (`tools/check_ccmram.py`, déclenché via `POST_MAKE_ALL_RULE_HOOK`) reste actif. Il doit signaler immédiatement toute régression (`.ram4` non vide, adresse ≠ `0x1000_0000`, drapeau `LOAD/CONTENTS`).
 
@@ -158,6 +166,10 @@ SEQ
 ## 5. Politique MIDI et cartouches
 
 * `seq_engine_runner_on_transport_stop()` diffuse désormais un CC123 “All Notes Off” sur les 16 canaux avant de relayer les NOTE_OFF individuels via `_runner_note_off_cb()` et de restaurer les paramètres cart p-lockés ; hors STOP, aucune commande globale n'est émise.
+
+## 6. Validation & perfs — phase «1 pattern / 16 tracks»
+
+* **Statut** : bloqué. La compilation (`make -j8 all`) échoue faute de dépendance `chibios2111`, empêchant toute mesure de jitter Reader/Scheduler/Player ou capture MIDI CH1..CH16. Une fois la toolchain rétablie, les validations devront confirmer jitter Player ≤500 µs, absence de NOTE_OFF perdus et mapping MIDI 1→16 conformément à la spec.【da5dc4†L1-L4】【3b42f1†L1-L2】【F:SEQ_BEHAVIOR.md†L60-L109】
 * `midi.c` centralise l'émission des Channel Mode Messages (CC#120-127) via `midi_all_notes_off()`, `midi_all_sound_off()`, etc., évitant les stubs dispersés.
 * Les p-locks cart sont appliqués via `cart_link_param_changed()` et restaurés lorsque leur profondeur (`slot->depth`) retombe à zéro.
 * `cart_registry_get_active_id()` et `cart_link_shadow_get/set()` fournissent les valeurs courantes aux autres modules.
