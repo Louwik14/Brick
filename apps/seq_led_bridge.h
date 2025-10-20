@@ -81,8 +81,8 @@ void seq_led_bridge_step_clear(uint8_t i);
 void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, uint8_t velocity);
 void seq_led_bridge_step_set_has_plock(uint8_t i, bool on);
 
-seq_model_pattern_t *seq_led_bridge_access_pattern(void);
-const seq_model_pattern_t *seq_led_bridge_get_pattern(void);
+seq_model_track_t *seq_led_bridge_access_track(void);
+const seq_model_track_t *seq_led_bridge_get_track(void);
 const seq_model_gen_t *seq_led_bridge_get_generation(void);
 
 seq_project_t *seq_led_bridge_get_project(void);

@@ -51,16 +51,16 @@ static int8_t _seq_recorder_lookup_slot(uint8_t note) {
     return -1;
 }
 
-void seq_recorder_init(seq_model_pattern_t *pattern) {
+void seq_recorder_init(seq_model_track_t *track) {
     seq_live_capture_config_t cfg = {
-        .pattern = pattern
+        .track = track
     };
     seq_live_capture_init(&s_capture, &cfg);
     _seq_recorder_reset_active_voices();
 }
 
-void seq_recorder_attach_pattern(seq_model_pattern_t *pattern) {
-    seq_live_capture_attach_pattern(&s_capture, pattern);
+void seq_recorder_attach_track(seq_model_track_t *track) {
+    seq_live_capture_attach_track(&s_capture, track);
     _seq_recorder_reset_active_voices();
 }
 

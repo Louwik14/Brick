@@ -140,9 +140,9 @@ static void release_hold(uint16_t held_mask, uint8_t step_index) {
 }
 
 static void init_seq_recorder(void) {
-    seq_model_pattern_t *pattern = seq_led_bridge_access_pattern();
-    assert(pattern != NULL);
-    seq_recorder_init(pattern);
+    seq_model_track_t *track = seq_led_bridge_access_track();
+    assert(track != NULL);
+    seq_recorder_init(track);
     seq_recorder_set_recording(true);
 }
 
@@ -157,8 +157,8 @@ static void test_seq_plock_commit_updates_step_flags(void) {
     seq_led_bridge_apply_plock_param(SEQ_HOLD_PARAM_V1_NOTE, 64, mask);
     release_hold(mask, step_index);
 
-    const seq_model_pattern_t *pattern = seq_led_bridge_get_pattern();
-    const seq_model_step_t *step = &pattern->steps[step_index];
+    const seq_model_track_t *track = seq_led_bridge_get_track();
+    const seq_model_step_t *step = &track->steps[step_index];
 
     assert(seq_model_step_has_seq_plock(step));
     assert(seq_model_step_has_playable_voice(step));
@@ -179,8 +179,8 @@ static void test_cart_plock_only_yields_automation_step(void) {
     seq_led_bridge_apply_cart_param(7U, 42, mask);
     release_hold(mask, step_index);
 
-    const seq_model_pattern_t *pattern = seq_led_bridge_get_pattern();
-    const seq_model_step_t *step = &pattern->steps[step_index];
+    const seq_model_track_t *track = seq_led_bridge_get_track();
+    const seq_model_step_t *step = &track->steps[step_index];
     const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
 
     assert(!seq_model_step_has_seq_plock(step));
@@ -205,8 +205,8 @@ static void test_seq_plock_keeps_velocity_and_length(void) {
     seq_led_bridge_apply_plock_param(SEQ_HOLD_PARAM_V1_LEN, 12, mask);
     release_hold(mask, step_index);
 
-    const seq_model_pattern_t *pattern = seq_led_bridge_get_pattern();
-    const seq_model_step_t *step = &pattern->steps[step_index];
+    const seq_model_track_t *track = seq_led_bridge_get_track();
+    const seq_model_step_t *step = &track->steps[step_index];
     const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
     assert(voice != NULL);
 
@@ -242,8 +242,8 @@ static void test_seq_recorder_commits_length_and_led_state(void) {
     set_stub_time(1250);
     seq_recorder_handle_note_off(60);
 
-    const seq_model_pattern_t *pattern = seq_led_bridge_get_pattern();
-    const seq_model_step_t *step = &pattern->steps[0];
+    const seq_model_track_t *track = seq_led_bridge_get_track();
+    const seq_model_step_t *step = &track->steps[0];
     const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
     assert(voice != NULL);
     assert(voice->velocity == 96U);
@@ -258,10 +258,10 @@ static void test_seq_recorder_commits_length_and_led_state(void) {
 }
 
 static void test_live_capture_records_length(void) {
-    seq_model_pattern_t pattern;
-    seq_model_pattern_init(&pattern);
+    seq_model_track_t track;
+    seq_model_track_init(&track);
 
-    seq_live_capture_config_t cfg = { .pattern = &pattern };
+    seq_live_capture_config_t cfg = { .track = &track };
     seq_live_capture_t capture;
     seq_live_capture_init(&capture, &cfg);
     seq_live_capture_set_recording(&capture, true);
@@ -302,7 +302,7 @@ static void test_live_capture_records_length(void) {
     assert(seq_live_capture_plan_event(&capture, &off, &plan));
     assert(seq_live_capture_commit_plan(&capture, &plan));
 
-    seq_model_step_t *step = &pattern.steps[recorded_step];
+    seq_model_step_t *step = &track.steps[recorded_step];
     const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
     assert(voice != NULL);
     assert(voice->length > 1U);

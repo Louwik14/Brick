@@ -664,7 +664,7 @@ Cette section récapitule les ajouts réalisés en Phase 6, sans modifier l’ar
 
   - `ui_led_seq.c/.h` : **renderer SEQ** (playhead absolu, pages, priorités d’état, sans dépendre de `clock_manager`).
 - `ui/seq/`
-  - `seq_led_bridge.c/.h` : **pont SEQ ↔ renderer** (pages, P-Lock mask, publication snapshot, total_span `pages×16`) adossé au `seq_model_pattern_t` partagé.
+  - `seq_led_bridge.c/.h` : **pont SEQ ↔ renderer** (pages, P-Lock mask, publication snapshot, total_span `pages×16`) adossé au `seq_model_track_t` partagé.
 - `ui/customs/`
   - `ui_keyboard_ui.c/.h` : **vitrine UI KEYBOARD** (menu unique **Mode** avec 4 paramètres : *Gamme*, *Root*, *Arp On/Off*, *Omnichord On/Off*).
 

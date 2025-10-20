@@ -1,6 +1,6 @@
 /**
  * @file seq_led_bridge.c
- * @brief Sequencer LED bridge relying on seq_model pattern snapshots.
+ * @brief Sequencer LED bridge relying on seq_model track snapshots.
  * @ingroup ui_led_backend
  * @ingroup ui_seq
  */
@@ -54,13 +54,13 @@
 
 typedef struct {
     seq_project_t        *project;      /**< Multi-track project handle. */
-    seq_model_pattern_t  *pattern;      /**< Backing sequencer pattern reference. */
+    seq_model_track_t  *track;        /**< Backing sequencer track reference. */
     uint16_t              page_hold_mask[SEQ_MAX_PAGES]; /**< Held-step mask per page (UI only). */
     uint16_t              preview_mask; /**< Cached mask for the visible page. */
     seq_led_runtime_t     rt;           /**< Runtime payload consumed by ui_led_seq. */
     uint8_t              max_pages;     /**< Number of usable pages. */
     uint8_t              visible_page;  /**< Currently focused page. */
-    uint16_t             total_span;    /**< Pattern span exposed to LEDs (pages × 16). */
+    uint16_t             total_span;    /**< Track span exposed to LEDs (pages × 16). */
     uint8_t              last_note;     /**< Last armed note used for quick steps. */
     uint8_t              track_index;   /**< Currently bound track (for future multi-track). */
     uint8_t              track_count;   /**< Active track count (project view). */
@@ -74,18 +74,18 @@ static inline seq_project_t *_seq_led_bridge_project(void) {
     return g.project;
 }
 
-static inline seq_model_pattern_t *_seq_led_bridge_pattern(void) {
-    return g.pattern;
+static inline seq_model_track_t *_seq_led_bridge_track(void) {
+    return g.track;
 }
 
-static inline const seq_model_pattern_t *_seq_led_bridge_pattern_const(void) {
-    return g.pattern;
+static inline const seq_model_track_t *_seq_led_bridge_track_const(void) {
+    return g.track;
 }
 
 static inline void _seq_led_bridge_bump_generation(void) {
-    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-    if (pattern != NULL) {
-        seq_model_gen_bump(&pattern->generation);
+    seq_model_track_t *track = _seq_led_bridge_track();
+    if (track != NULL) {
+        seq_model_gen_bump(&track->generation);
     }
 }
 
@@ -123,8 +123,8 @@ static inline uint16_t _clamp_total_span(uint16_t span) {
     if (span < SEQ_LED_BRIDGE_STEPS_PER_PAGE) {
         span = SEQ_LED_BRIDGE_STEPS_PER_PAGE;
     }
-    if (span > SEQ_MODEL_STEPS_PER_PATTERN) {
-        span = SEQ_MODEL_STEPS_PER_PATTERN;
+    if (span > SEQ_MODEL_STEPS_PER_TRACK) {
+        span = SEQ_MODEL_STEPS_PER_TRACK;
     }
     return span;
 }
@@ -140,19 +140,19 @@ static inline uint8_t _clamp_page(uint8_t page) {
 }
 
 static inline bool _valid_step_index(uint16_t absolute) {
-    return (absolute < g.total_span) && (absolute < SEQ_MODEL_STEPS_PER_PATTERN);
+    return (absolute < g.total_span) && (absolute < SEQ_MODEL_STEPS_PER_TRACK);
 }
 
 static inline seq_model_step_t *_step_from_page(uint8_t local_step) {
-    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-    if (pattern == NULL) {
+    seq_model_track_t *track = _seq_led_bridge_track();
+    if (track == NULL) {
         return NULL;
     }
     uint16_t absolute = _page_base(g.visible_page) + (uint16_t)local_step;
     if (!_valid_step_index(absolute)) {
         return NULL;
     }
-    return &pattern->steps[absolute];
+    return &track->steps[absolute];
 }
 
 static inline void _clear_step_voices(seq_model_step_t *step) {
@@ -247,12 +247,12 @@ static bool _hold_commit_slot(uint8_t local) {
     }
 
     bool mutated = slot->mutated;
-    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-    if ((pattern != NULL) && mutated && _valid_step_index(slot->absolute_index)) {
-        pattern->steps[slot->absolute_index] = slot->staged;
-        seq_model_step_recompute_flags(&pattern->steps[slot->absolute_index]);
+    seq_model_track_t *track = _seq_led_bridge_track();
+    if ((track != NULL) && mutated && _valid_step_index(slot->absolute_index)) {
+        track->steps[slot->absolute_index] = slot->staged;
+        seq_model_step_recompute_flags(&track->steps[slot->absolute_index]);
         const seq_model_voice_t *voice =
-            seq_model_step_get_voice(&pattern->steps[slot->absolute_index], 0U);
+            seq_model_step_get_voice(&track->steps[slot->absolute_index], 0U);
         if ((voice != NULL) &&
             (voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
             g.last_note = voice->note;
@@ -280,9 +280,9 @@ static seq_led_bridge_hold_slot_t *_hold_resolve_slot(uint8_t local, bool ensure
         }
         bool mutated = _hold_commit_slot(local);
         if (mutated) {
-            seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-            if (pattern != NULL) {
-                seq_model_gen_bump(&pattern->generation);
+            seq_model_track_t *track = _seq_led_bridge_track();
+            if (track != NULL) {
+                seq_model_gen_bump(&track->generation);
             }
         }
         slot = &g_hold_slots[local];
@@ -297,14 +297,14 @@ static seq_led_bridge_hold_slot_t *_hold_resolve_slot(uint8_t local, bool ensure
         return NULL;
     }
 
-    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-    if (pattern == NULL) {
+    seq_model_track_t *track = _seq_led_bridge_track();
+    if (track == NULL) {
         return NULL;
     }
 
     slot->active = true;
     slot->absolute_index = absolute;
-    slot->staged = pattern->steps[absolute];
+    slot->staged = track->steps[absolute];
     slot->mutated = false;
     return slot;
 }
@@ -339,9 +339,9 @@ static void _hold_sync_mask(uint16_t mask) {
     }
 
     if (mutated) {
-        seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-        if (pattern != NULL) {
-            seq_model_gen_bump(&pattern->generation);
+        seq_model_track_t *track = _seq_led_bridge_track();
+        if (track != NULL) {
+            seq_model_gen_bump(&track->generation);
         }
     }
 
@@ -357,11 +357,11 @@ static const seq_model_step_t *_hold_step_for_view(uint8_t local, uint16_t absol
     if (slot->active && slot->absolute_index == absolute) {
         return &slot->staged;
     }
-    const seq_model_pattern_t *pattern = _seq_led_bridge_pattern_const();
-    if (pattern == NULL) {
+    const seq_model_track_t *track = _seq_led_bridge_track_const();
+    if (track == NULL) {
         return NULL;
     }
-    return &pattern->steps[absolute];
+    return &track->steps[absolute];
 }
 
 static seq_led_bridge_hold_cart_entry_t *_hold_cart_entry_get(uint16_t parameter_id,
@@ -708,14 +708,14 @@ static void _update_preview_mask(void) {
     g.rt.plock_selected_mask = g.preview_mask;
 }
 
-static void _rebuild_runtime_from_pattern(void) {
+static void _rebuild_runtime_from_track(void) {
     memset(&g.rt, 0, sizeof(g.rt));
     g.rt.visible_page = g.visible_page;
     g.rt.steps_per_page = SEQ_LED_BRIDGE_STEPS_PER_PAGE;
     g.rt.plock_selected_mask = g.preview_mask;
 
-    const seq_model_pattern_t *pattern = _seq_led_bridge_pattern_const();
-    if (pattern == NULL) {
+    const seq_model_track_t *track = _seq_led_bridge_track_const();
+    if (track == NULL) {
         return;
     }
 
@@ -731,13 +731,13 @@ static void _rebuild_runtime_from_pattern(void) {
             continue;
         }
 
-        const seq_model_step_t *src = &pattern->steps[absolute];
+        const seq_model_step_t *src = &track->steps[absolute];
         const bool has_voice = seq_model_step_has_playable_voice(src);
         const bool has_seq_plock = seq_model_step_has_seq_plock(src);
         const bool has_cart_plock = seq_model_step_has_cart_plock(src);
         const bool automation = (!has_voice) && !has_seq_plock && has_cart_plock;
-        const uint8_t track = _first_active_voice(src);
-        const bool muted = ui_mute_backend_is_muted(track);
+        const uint8_t voice = _first_active_voice(src);
+        const bool muted = ui_mute_backend_is_muted(g.track_index);
 
         dst->active = has_voice || has_seq_plock;
         dst->recorded = has_voice || has_seq_plock || has_cart_plock;
@@ -745,7 +745,7 @@ static void _rebuild_runtime_from_pattern(void) {
         dst->automation = automation;
         (void)muted; /* Track mute reflété uniquement en mode MUTE (pas en SEQ). */
         dst->muted = false;
-        dst->track = track;
+        dst->track = voice;
     }
 
     ui_led_seq_set_total_span(g.total_span);
@@ -755,26 +755,26 @@ static void _rebuild_runtime_from_pattern(void) {
 static void _publish_runtime(void) {
     seq_project_t *project = _seq_led_bridge_project();
     if (project != NULL) {
-        g.track_index = seq_project_get_active_track(project);
+        g.track_index = seq_project_get_active_track_index(project);
         g.track_count = seq_project_get_track_count(project);
-        g.pattern = seq_project_get_active_pattern(project);
+        g.track = seq_project_get_active_track(project);
     } else {
         g.track_index = 0U;
         g.track_count = 0U;
-        g.pattern = NULL;
+        g.track = NULL;
     }
 
     g.visible_page = _clamp_page(g.visible_page);
 
     _update_preview_mask();
-    _rebuild_runtime_from_pattern();
+    _rebuild_runtime_from_track();
     _hold_refresh_if_active();
     {
         uint8_t per_slot[4] = {0, 0, 0, 0};
         for (uint8_t track = 0U; track < SEQ_PROJECT_MAX_TRACKS; ++track) {
             bool present = false;
             if (project != NULL) {
-                const seq_model_pattern_t *tp =
+                const seq_model_track_t *tp =
                     seq_project_get_track_const(project, track);
                 present = (tp != NULL);
             }
@@ -800,13 +800,13 @@ void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
     g.project = seq_runtime_access_project_mut();
     if (g.project != NULL) {
-        g.track_index = seq_project_get_active_track(g.project);
+        g.track_index = seq_project_get_active_track_index(g.project);
         g.track_count = seq_project_get_track_count(g.project);
-        g.pattern = seq_project_get_active_pattern(g.project);
+        g.track = seq_project_get_active_track(g.project);
     } else {
         g.track_index = 0U;
         g.track_count = 0U;
-        g.pattern = NULL;
+        g.track = NULL;
     }
     _hold_slots_clear();
     _hold_cart_reset();
@@ -1065,7 +1065,7 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
         return;
     }
 
-    bool mutated_pattern = false;
+    bool mutated_track = false;
 
     for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
         if ((held_mask & (1U << i)) == 0U) {
@@ -1195,12 +1195,12 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             if (slot != NULL) {
                 slot->mutated = true;
             } else {
-                mutated_pattern = true;
+                mutated_track = true;
             }
         }
     }
 
-    if (mutated_pattern) {
+    if (mutated_track) {
         _seq_led_bridge_bump_generation();
     }
 
@@ -1245,7 +1245,7 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
         return;
     }
 
-    bool mutated_pattern = false;
+    bool mutated_track = false;
 
     for (uint8_t i = 0U; i < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++i) {
         if ((held_mask & (1U << i)) == 0U) {
@@ -1266,7 +1266,7 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
             if (slot != NULL) {
                 slot->mutated = true;
             } else {
-                mutated_pattern = true;
+                mutated_track = true;
             }
         }
 
@@ -1274,14 +1274,14 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
             if (slot != NULL) {
                 slot->mutated = true;
             } else {
-                mutated_pattern = true;
+                mutated_track = true;
             }
         }
 
         seq_model_step_recompute_flags(step);
     }
 
-    if (mutated_pattern) {
+    if (mutated_track) {
         _seq_led_bridge_bump_generation();
     }
 
@@ -1289,17 +1289,17 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
     seq_led_bridge_publish();
 }
 
-seq_model_pattern_t *seq_led_bridge_access_pattern(void) {
-    return _seq_led_bridge_pattern();
+seq_model_track_t *seq_led_bridge_access_track(void) {
+    return _seq_led_bridge_track();
 }
 
-const seq_model_pattern_t *seq_led_bridge_get_pattern(void) {
-    return _seq_led_bridge_pattern_const();
+const seq_model_track_t *seq_led_bridge_get_track(void) {
+    return _seq_led_bridge_track_const();
 }
 
 const seq_model_gen_t *seq_led_bridge_get_generation(void) {
-    const seq_model_pattern_t *pattern = _seq_led_bridge_pattern_const();
-    return (pattern != NULL) ? &pattern->generation : NULL;
+    const seq_model_track_t *track = _seq_led_bridge_track_const();
+    return (track != NULL) ? &track->generation : NULL;
 }
 
 seq_project_t *seq_led_bridge_get_project(void) {
@@ -1318,15 +1318,15 @@ uint8_t seq_led_bridge_get_track_count(void) {
     return g.track_count;
 }
 
-bool seq_led_bridge_select_track(uint8_t track) {
+bool seq_led_bridge_select_track(uint8_t track_index) {
     seq_project_t *project = _seq_led_bridge_project();
-    if ((project == NULL) || !seq_project_set_active_track(project, track)) {
+    if ((project == NULL) || !seq_project_set_active_track(project, track_index)) {
         return false;
     }
 
-    g.track_index = seq_project_get_active_track(project);
+    g.track_index = seq_project_get_active_track_index(project);
     g.track_count = seq_project_get_track_count(project);
-    g.pattern = seq_project_get_active_pattern(project);
+    g.track = seq_project_get_active_track(project);
 
     _hold_slots_clear();
     _hold_cart_reset();
@@ -1336,10 +1336,10 @@ bool seq_led_bridge_select_track(uint8_t track) {
     memset(g.page_hold_mask, 0, sizeof(g.page_hold_mask));
     g.preview_mask = 0U;
 
-    seq_model_pattern_t *pattern = _seq_led_bridge_pattern();
-    if (pattern != NULL) {
-        seq_engine_runner_attach_pattern(pattern);
-        seq_recorder_attach_pattern(pattern);
+    seq_model_track_t *track_model = _seq_led_bridge_track();
+    if (track_model != NULL) {
+        seq_engine_runner_attach_track(track_model);
+        seq_recorder_attach_track(track_model);
     }
 
     _publish_runtime();

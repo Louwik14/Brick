@@ -21,7 +21,7 @@ typedef struct __attribute__((packed)) {
     uint8_t slot_id;
     uint8_t flags;
     uint16_t capabilities;
-} pattern_track_header_t;
+} track_payload_header_t;
 
 static int migrate(const uint8_t *input, size_t input_len, FILE *output) {
     if (input_len < sizeof(pattern_blob_header_t)) {
@@ -52,11 +52,11 @@ static int migrate(const uint8_t *input, size_t input_len, FILE *output) {
     }
 
     for (uint8_t track = 0U; track < header.track_count; ++track) {
-        if (remaining < sizeof(pattern_track_header_t)) {
+        if (remaining < sizeof(track_payload_header_t)) {
             fprintf(stderr, "error: truncated track header\n");
             return -1;
         }
-        pattern_track_header_t track_header;
+        track_payload_header_t track_header;
         memcpy(&track_header, cursor, sizeof(track_header));
         cursor += sizeof(track_header);
         remaining -= sizeof(track_header);
@@ -71,16 +71,16 @@ static int migrate(const uint8_t *input, size_t input_len, FILE *output) {
         cursor += payload_size;
         remaining -= payload_size;
 
-        seq_model_pattern_t pattern;
-        if (!seq_project_pattern_steps_decode(&pattern, payload, payload_size, header.version,
-                                              SEQ_PROJECT_PATTERN_DECODE_FULL)) {
+        seq_model_track_t track;
+        if (!seq_project_track_steps_decode(&track, payload, payload_size, header.version,
+                                              SEQ_PROJECT_TRACK_DECODE_FULL)) {
             fprintf(stderr, "error: decode failed for track %u\n", track);
             return -1;
         }
 
         uint8_t encoded[SEQ_PROJECT_PATTERN_STORAGE_MAX];
         size_t written = 0U;
-        if (!seq_project_pattern_steps_encode(&pattern, encoded, sizeof(encoded), &written)) {
+        if (!seq_project_track_steps_encode(&track, encoded, sizeof(encoded), &written)) {
             fprintf(stderr, "error: encode failed for track %u\n", track);
             return -1;
         }

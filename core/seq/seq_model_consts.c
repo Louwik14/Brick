@@ -50,7 +50,7 @@ const seq_model_step_t k_seq_model_step_default = {
     },
 };
 
-const seq_model_pattern_config_t k_seq_model_pattern_config_default = {
+const seq_model_track_config_t k_seq_model_track_config_default = {
     .quantize = {
         .enabled = false,
         .grid = SEQ_MODEL_QUANTIZE_1_16,

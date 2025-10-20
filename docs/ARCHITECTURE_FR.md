@@ -5,7 +5,7 @@ Brick est un firmware séquenceur pour **STM32F429 + ChibiOS 21.11.x**. Il pilot
 
 Principes structurants :
 
-* Le **modèle de séquenceur** (`core/seq/seq_model.c`) contient l'état sérialisable : 64 pas, 4 voix par pas, p-locks internes (note, vélocité, longueur, micro, offsets "All") et p-locks cart.
+* Le **modèle de séquenceur** (`core/seq/seq_model.c`) contient l'état sérialisable d'une **track 64 steps** : 4 voix par pas, p-locks internes (note, vélocité, longueur, micro, offsets "All") et p-locks cart.【F:core/seq/seq_model.h†L17-L174】
 * Le **moteur** (`core/seq/seq_engine.c`) lit le modèle à chaque tick 1/16, ordonne note on/off et p-locks via `seq_engine_runner.c`, et ne change jamais le modèle directement.
 * L'**UI** (répartition `ui/` + ponts `apps/`) capte boutons/encodeurs/clavier, applique les modifications via `ui_backend.c`, tient à jour les LED via `seq_led_bridge.c` et `ui_led_backend.c`, et publie les événements MIDI en direct pour le mode clavier.
 * Les **cartouches** (`cart/`) reçoivent leurs p-locks via `cart_link.c` qui manipule un shadow de paramètres et sérialise les trames UART.
@@ -17,11 +17,11 @@ Principes structurants :
 
 * Build `make -j8 all` régénéré avec la toolchain GNU Arm Embedded `arm-none-eabi-gcc 13.2.1` (container CI) ; la distribution Windows (ChibiStudio) doit rester alignée sur 10.3‑2021.10 pour refléter la cible officielle.【2b76ba†L1-L6】
 * Audit sections (`tools/audit/audit_sections.txt`) : `.data` **1 792 o**, `.bss` **130 220 o**, soit **~129,0 KiB** de RAM statique. Sur les 192 KiB de SRAM F429, il reste ~**63 KiB** de marge avant les piles système, satisfaisant le garde‑fou ≥35 KiB.【F:tools/audit/audit_sections.txt†L1-L28】
-* La section `.ram4` (CCRAM) reste neutralisée : taille **0 o**, VMA `0x1000_0000`, et attribut `NOLOAD` confirmé dans le map post‑link.【F:build/ch.map†L4995-L5009】【F:tools/audit/audit_map_ram4.txt†L1-L19】
+* La section `.ram4` (CCRAM) reste neutralisée : taille **0 o**, VMA `0x1000_0000`, et attribut `NOLOAD` confirmé dans l'audit post‑link.【F:tools/audit/audit_map_ram4.txt†L1-L19】
 * Répartition BSS : `g_seq_runtime` occupe **101 448 o** (≈99,1 KiB), suivi par les buffers UI/cart (`g_hold_slots` 3 648 o, `waCartTx` 3 200 o, `g_shadow_params` 2 048 o, `s_ui_shadow` 2 048 o). Le reste de la BSS est dominé par les work areas RTOS (`waUI`, `s_seq_engine_player_wa`) et les objets ChibiOS (`SDx`, `USBD1`).【F:tools/audit/audit_bss_top.txt†L1-L10】【F:tools/audit/audit_ram_top.txt†L1-L30】
 * `.data` est quasi exclusivement occupée par la glibc embarquée (`__malloc_av_`, `_impure_data`, locale) ; aucune constante SEQ/UI ne retombe en RAM initialisée depuis la dernière passe.【F:tools/audit/audit_data_top.txt†L1-L7】
 
-> **Terminologie** (inchangée) : `seq_model_pattern_t` représente une **track de 64 steps**, et un pattern complet agrège 16 tracks synchronisées, conformément à `SEQ_BEHAVIOR.md` (§1). Le renommage planifié (`seq_model_track_t`) reste à l'ordre du jour.【F:SEQ_BEHAVIOR.md†L10-L43】
+> **Terminologie** : `seq_model_track_t` représente une **track de 64 steps**, et un pattern complet agrège 16 tracks synchronisées, conformément à `SEQ_BEHAVIOR.md` (§1). Le renommage de l'ancienne structure `seq_model_pattern_t` a été appliqué dans cette passe pour lever toute ambiguïté avec la définition canonique du pattern (agrégat de 16 tracks).【F:SEQ_BEHAVIOR.md†L10-L43】
 
 ### Environnement build courant
 
@@ -59,7 +59,7 @@ Principes structurants :
 * `midi_clock.c` : pilote la GPT interne, relaye Start/Stop/Song Position.
 * `cart_link.c` : shadow des paramètres cart, notifications vers UART.
 * `usb_device.c` : démarrage USB Device / MIDI.
-* `seq/seq_model.c` : modèle du pattern + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).
+* `seq/seq_model.c` : modèle de track 64 steps + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).【F:core/seq/seq_model.c†L1-L384】
 * `seq/seq_engine.c` : moteur Reader/Scheduler/Player, callbacks `note_on`, `note_off`, `plock`.
 * `seq/seq_project.c` : conteneur multi-pistes `seq_project_t`, métadonnées banque/pattern, sérialisation vers la flash externe (16 Mo) et remapping automatique des cartouches via `cart_registry`.
 * `seq/seq_live_capture.c` : planifie les événements live (note on/off) en utilisant la clock et enregistre note, vélocité, longueur et micro sous forme de p-locks internes.
@@ -67,7 +67,7 @@ Principes structurants :
 
 ### `apps/`
 * `seq_engine_runner.c` : instancie `seq_engine`, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
-* `seq_led_bridge.c` : conserve un snapshot `seq_model_pattern_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
+* `seq_led_bridge.c` : conserve un snapshot `seq_model_track_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
 * `seq_recorder.c` : relie `ui_keyboard_bridge` au live capture, maintient les voix actives pour mesurer les longueurs de note.
 * `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---
 * `kbd_*` : dictionnaire d'accords et mapper clavier.
@@ -147,8 +147,8 @@ SEQ
 5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback.
 
 ### 4.3 Lecture et classification
-* `seq_led_bridge_publish()` agrège le pattern et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.
-* `core/seq/seq_runtime.c` instancie `g_seq_runtime` (projet + patterns actifs) et est initialisé dans `main()` juste après `chSysInit()` afin que moteur et UI partagent la même vue, conformément à `SEQ_BEHAVIOR.md` (§4).
+* `seq_led_bridge_publish()` agrège la track active et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.【F:apps/seq_led_bridge.c†L824-L889】
+* `core/seq/seq_runtime.c` instancie `g_seq_runtime` (projet + tracks actives) et est initialisé dans `main()` juste après `chSysInit()` afin que moteur et UI partagent la même vue, conformément à `SEQ_BEHAVIOR.md` (§4).【F:core/seq/seq_runtime.h†L18-L39】【F:core/seq/seq_runtime.c†L1-L120】
 * `ui_led_seq_render()` colore : vert = `active`, bleu = `automation`, rouge = mute.
 * `seq_model_step_recompute_flags()` pose `flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock`, garantissant que toute présence de p-lock SEQ garde le step vert.
 
@@ -177,7 +177,7 @@ SEQ
 
 ## 6. Validation & perfs — phase «1 pattern / 16 tracks»
 
-* **Statut** : bloqué. La compilation (`make -j8 all`) échoue faute de dépendance `chibios2111`, empêchant toute mesure de jitter Reader/Scheduler/Player ou capture MIDI CH1..CH16. Une fois la toolchain rétablie, les validations devront confirmer jitter Player ≤500 µs, absence de NOTE_OFF perdus et mapping MIDI 1→16 conformément à la spec.【da5dc4†L1-L4】【3b42f1†L1-L2】【F:SEQ_BEHAVIOR.md†L60-L109】
+* **Statut** : build embarqué OK (`make -j8 all`) et audits post-link régénérés (`tools/audit/*.txt`) — `.data` = 1 792 o, `.bss` = 130 220 o, `.ram4` = 0 o (NOLOAD). Les tests host (`make check-host`) compilent et couvrent runner, UI Track/PMute et codec track.【459204†L1-L12】【5ca866†L1-L34】【47e987†L1-L19】【6e78c9†L1-L74】
 * `midi.c` centralise l'émission des Channel Mode Messages (CC#120-127) via `midi_all_notes_off()`, `midi_all_sound_off()`, etc., évitant les stubs dispersés.
 * Les p-locks cart sont appliqués via `cart_link_param_changed()` et restaurés lorsque leur profondeur (`slot->depth`) retombe à zéro.
 * `cart_registry_get_active_id()` et `cart_link_shadow_get/set()` fournissent les valeurs courantes aux autres modules.
@@ -187,13 +187,13 @@ SEQ
 * `make -j8 all` : build complet embarqué via les règles ChibiOS.
 * `make clean` : nettoyage du répertoire `build/`.
 * `make lint-cppcheck` : exécute `cppcheck` sur `core/` et `ui/`.
-* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests` et `tests/ui_mode_edgecase_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
+* `make check-host` : compile et lance `tests/seq_model_tests`, `tests/seq_hold_runtime_tests`, `tests/ui_mode_transition_tests`, `tests/ui_mode_edgecase_tests`, `tests/ui_track_pmute_regression_tests` et `tests/seq_track_codec_tests` avec `gcc -std=c11 -Wall -Wextra -Wpedantic`.
 * `tests/ui_track_pmute_regression_tests.c` : scénario complet Track overlay + QUICK/PMute, exécuté via `make check-host` avec stubs LED/flash dédiés. 【F:tests/ui_track_pmute_regression_tests.c†L1-L102】【F:Makefile†L307-L320】
 * Les stubs `tests/stubs/ch.h` fournissent les symboles ChibiOS manquants pour les tests host.
 
 ## 7. Points d'extension identifiés
 
-* **Patterns multiples / banques** : `seq_led_bridge.c` expose `seq_led_bridge_access_pattern()` pour partager le pattern avec d'autres modules ; l'initialisation se fait dans `ui_task.c`. Il publie aussi la disponibilité/focus piste (`ui_led_backend_set_track_present/focus`) pour Track Select.
+* **Patterns multiples / banques** : `seq_led_bridge.c` expose `seq_led_bridge_access_track()` (ancien `*_pattern`) pour partager la track active avec d'autres modules ; l'initialisation se fait dans `ui_task.c`. Il publie aussi la disponibilité/focus piste (`ui_led_backend_set_track_present/focus`) pour Track Select.【F:apps/seq_led_bridge.h†L24-L96】【F:ui/ui_task.c†L96-L140】
 * **Système de projets** : `seq_project_save()/load()` et `seq_pattern_save()/load()` permettent de sérialiser les 16 banques × 16 patterns dans la flash externe (1 Mo par projet) en conservant les cartouches (`cart_id`) et en remappant automatiquement les slots disponibles.
 * **Nouveaux modes UI** : `ui_backend.c` gère les overlays via `ui_overlay.h` et `ui_shortcuts`. Ajouter un mode implique de fournir un `ui_cart_spec_t` et de mettre à jour les cycles BM dans `ui_controller.c`.
 * **Cartouches supplémentaires** : enregistrer une nouvelle spec via `cart_registry_register()` et fournir les mappings `ui_spec`/`cart_link`.
@@ -281,7 +281,7 @@ Prochain lot : isoler les tables MIDI (notes, mappings) et les assets cart `XVA1
 Modules : `ui/ui_led_layout.c`, `ui/ui_led_backend.c`, `ui/ui_led_seq.c`, `core/seq/seq_model.c`, `core/seq/seq_model_consts.c`, `core/seq/seq_engine_tables.c`
 Changements majeurs :
 - Table de correspondance SEQ→LED (`k_ui_led_seq_step_to_index`) factorisée dans un module dédié et partagée entre backend et renderer LED.
-- Gabarits du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) externalisés en Flash, copiés lors des initialisations au lieu de boucles structurées.
+- Gabarits du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_track_config_default`) externalisés en Flash, copiés lors des initialisations au lieu de boucles structurées.
 - Masques d'échelle du moteur (`k_seq_engine_scale_masks`) consolidés dans une table Flash unique, consommée par `_seq_engine_apply_scale()`.
 Impact sections :
 - `.rodata` : +~350 o | `.data` : 0 o | `.bss` : 0 o *(estimation en l'absence de build release ; la croissance correspond aux gabarits stockés en Flash, tandis que les duplications locales sont éliminées)*

@@ -32,7 +32,7 @@
 
 static CCM_DATA THD_WORKING_AREA(s_seq_engine_player_wa, SEQ_ENGINE_PLAYER_STACK_SIZE);
 
-static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_pattern_t *pattern);
+static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_track_t *track);
 static void _seq_engine_reader_refresh_flags(seq_engine_reader_t *reader);
 static void _seq_engine_player_init(seq_engine_player_t *player);
 static THD_FUNCTION(_seq_engine_player_thread, arg);
@@ -63,7 +63,7 @@ void seq_engine_init(seq_engine_t *engine, const seq_engine_config_t *config) {
         engine->config = *config;
     }
 
-    _seq_engine_reader_init(&engine->reader, engine->config.pattern);
+    _seq_engine_reader_init(&engine->reader, engine->config.track);
     seq_engine_scheduler_clear(&engine->scheduler);
     _seq_engine_player_init(&engine->player);
     chMtxObjectInit(&engine->scheduler_lock);
@@ -82,11 +82,11 @@ void seq_engine_set_callbacks(seq_engine_t *engine, const seq_engine_callbacks_t
     }
 }
 
-void seq_engine_attach_pattern(seq_engine_t *engine, seq_model_pattern_t *pattern) {
+void seq_engine_attach_track(seq_engine_t *engine, seq_model_track_t *track) {
     chDbgCheck(engine != NULL);
 
-    engine->config.pattern = pattern;
-    _seq_engine_reader_init(&engine->reader, pattern);
+    engine->config.track = track;
+    _seq_engine_reader_init(&engine->reader, track);
 }
 
 msg_t seq_engine_start(seq_engine_t *engine) {
@@ -149,7 +149,7 @@ void seq_engine_reset(seq_engine_t *engine) {
     seq_engine_scheduler_clear(&engine->scheduler);
     chMtxUnlock(&engine->scheduler_lock);
 
-    _seq_engine_reader_init(&engine->reader, engine->config.pattern);
+    _seq_engine_reader_init(&engine->reader, engine->config.track);
     _seq_engine_reset_voice_state(engine);
 }
 
@@ -231,30 +231,30 @@ void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info
         return;
     }
 
-    if (!engine->clock_attached || (engine->config.pattern == NULL)) {
+    if (!engine->clock_attached || (engine->config.track == NULL)) {
         return;
     }
 
     seq_engine_reader_t *reader = &engine->reader;
-    reader->pattern = engine->config.pattern;
-    reader->step_index = (size_t)(info->step_idx_abs % SEQ_MODEL_STEPS_PER_PATTERN);
+    reader->track = engine->config.track;
+    reader->step_index = (size_t)(info->step_idx_abs % SEQ_MODEL_STEPS_PER_TRACK);
     _seq_engine_reader_refresh_flags(reader);
 
-    const seq_model_step_t *step = &engine->config.pattern->steps[reader->step_index];
+    const seq_model_step_t *step = &engine->config.track->steps[reader->step_index];
     _seq_engine_handle_step(engine, step, info, reader->step_index);
-    reader->last_generation = engine->config.pattern->generation;
+    reader->last_generation = engine->config.track->generation;
 }
 
-static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_pattern_t *pattern) {
+static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_track_t *track) {
     chDbgCheck(reader != NULL);
 
-    reader->pattern = pattern;
+    reader->track = track;
     reader->step_index = 0U;
     reader->step_has_playable_voice = false;
     reader->step_has_automation = false;
 
-    if (pattern != NULL) {
-        reader->last_generation = pattern->generation;
+    if (track != NULL) {
+        reader->last_generation = track->generation;
         _seq_engine_reader_refresh_flags(reader);
     } else {
         reader->last_generation.value = 0U;
@@ -269,11 +269,11 @@ static void _seq_engine_reader_refresh_flags(seq_engine_reader_t *reader) {
     reader->step_has_playable_voice = false;
     reader->step_has_automation = false;
 
-    if ((reader->pattern == NULL) || (reader->step_index >= SEQ_MODEL_STEPS_PER_PATTERN)) {
+    if ((reader->track == NULL) || (reader->step_index >= SEQ_MODEL_STEPS_PER_TRACK)) {
         return;
     }
 
-    const seq_model_step_t *step = &reader->pattern->steps[reader->step_index];
+    const seq_model_step_t *step = &reader->track->steps[reader->step_index];
     const bool has_voice = seq_model_step_has_playable_voice(step);
     reader->step_has_playable_voice = has_voice;
     reader->step_has_automation = seq_model_step_is_automation_only(step);
@@ -548,8 +548,8 @@ static void _seq_engine_handle_step(seq_engine_t *engine,
         return;
     }
 
-    const seq_model_pattern_t *pattern = engine->config.pattern;
-    const seq_model_pattern_config_t *cfg = (pattern != NULL) ? &pattern->config : NULL;
+    const seq_model_track_t *track = engine->config.track;
+    const seq_model_track_config_t *cfg = (track != NULL) ? &track->config : NULL;
     const seq_model_step_offsets_t *offsets = &step->offsets;
 
     const systime_t step_start = info->now;

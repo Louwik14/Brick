@@ -23,7 +23,7 @@ extern "C" {
  * @brief Configuration provided at initialisation.
  */
 typedef struct {
-    seq_model_pattern_t *pattern; /**< Optional initial pattern binding. */
+    seq_model_track_t *track; /**< Optional initial track binding. */
 } seq_live_capture_config_t;
 
 /**
@@ -50,7 +50,7 @@ typedef struct {
  */
 typedef struct {
     seq_live_capture_event_type_t type; /**< Event type echoed back. */
-    size_t step_index;                  /**< Target step index inside the pattern. */
+    size_t step_index;                  /**< Target step index inside the track. */
     int32_t step_delta;                 /**< Signed offset relative to the latest clock step. */
     uint8_t voice_index;                /**< Voice slot to affect. */
     uint8_t note;                       /**< MIDI note number. */
@@ -66,7 +66,7 @@ typedef struct {
  * @brief Live capture façade context.
  */
 typedef struct {
-    seq_model_pattern_t *pattern;            /**< Active pattern reference. */
+    seq_model_track_t *track;              /**< Active track reference. */
     seq_model_quantize_config_t quantize;    /**< Cached quantize configuration. */
     bool recording;                          /**< Recording flag. */
     bool clock_valid;                        /**< True once clock data has been provided. */
@@ -74,7 +74,7 @@ typedef struct {
     systime_t clock_step_duration;           /**< Duration of a 1/16 step. */
     systime_t clock_tick_duration;           /**< Duration of a single MIDI tick. */
     uint32_t clock_step_index;               /**< Absolute step index (monotonic). */
-    size_t clock_pattern_step;               /**< Step index within the pattern. */
+    size_t clock_track_step;               /**< Step index within the track. */
     struct {
         bool active;                         /**< True when a note-on has been captured. */
         size_t step_index;                   /**< Step index that received the note-on. */
@@ -88,8 +88,8 @@ typedef struct {
 
 /** Initialise the live capture context. */
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config);
-/** Bind a pattern to the capture façade. */
-void seq_live_capture_attach_pattern(seq_live_capture_t *capture, seq_model_pattern_t *pattern);
+/** Bind a track to the capture façade. */
+void seq_live_capture_attach_track(seq_live_capture_t *capture, seq_model_track_t *track);
 /** Override the quantize configuration used during capture. */
 void seq_live_capture_override_quantize(seq_live_capture_t *capture, const seq_model_quantize_config_t *config);
 /** Enable or disable live capture recording. */
@@ -102,7 +102,7 @@ void seq_live_capture_update_clock(seq_live_capture_t *capture, const clock_step
 bool seq_live_capture_plan_event(seq_live_capture_t *capture,
                                  const seq_live_capture_input_t *input,
                                  seq_live_capture_plan_t *out_plan);
-/** Commit a planned event into the bound pattern. */
+/** Commit a planned event into the bound track. */
 bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                   const seq_live_capture_plan_t *plan);
 

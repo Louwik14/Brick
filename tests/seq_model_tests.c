@@ -140,8 +140,8 @@ static void test_plock_capacity_guard(void) {
     assert(!seq_model_step_add_plock(&step, &plock));
 }
 
-static void test_pattern_config_mutations(void) {
-    seq_model_pattern_t pattern;
+static void test_track_config_mutations(void) {
+    seq_model_track_t track;
     seq_model_quantize_config_t quantize = {
         .enabled = true,
         .grid = SEQ_MODEL_QUANTIZE_1_32,
@@ -157,23 +157,23 @@ static void test_pattern_config_mutations(void) {
         .mode = SEQ_MODEL_SCALE_MINOR,
     };
 
-    seq_model_pattern_init(&pattern);
-    seq_model_pattern_set_quantize(&pattern, &quantize);
-    seq_model_pattern_set_transpose(&pattern, &transpose);
-    seq_model_pattern_set_scale(&pattern, &scale);
+    seq_model_track_init(&track);
+    seq_model_track_set_quantize(&track, &quantize);
+    seq_model_track_set_transpose(&track, &transpose);
+    seq_model_track_set_scale(&track, &scale);
 
-    assert(pattern.config.quantize.enabled == quantize.enabled);
-    assert(pattern.config.quantize.grid == quantize.grid);
-    assert(pattern.config.quantize.strength == quantize.strength);
+    assert(track.config.quantize.enabled == quantize.enabled);
+    assert(track.config.quantize.grid == quantize.grid);
+    assert(track.config.quantize.strength == quantize.strength);
 
-    assert(pattern.config.transpose.global == transpose.global);
+    assert(track.config.transpose.global == transpose.global);
     for (size_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
-        assert(pattern.config.transpose.per_voice[i] == transpose.per_voice[i]);
+        assert(track.config.transpose.per_voice[i] == transpose.per_voice[i]);
     }
 
-    assert(pattern.config.scale.enabled == scale.enabled);
-    assert(pattern.config.scale.root == scale.root);
-    assert(pattern.config.scale.mode == scale.mode);
+    assert(track.config.scale.enabled == scale.enabled);
+    assert(track.config.scale.root == scale.root);
+    assert(track.config.scale.mode == scale.mode);
 }
 
 int main(void) {
@@ -181,7 +181,7 @@ int main(void) {
     test_default_step_initialisation();
     test_step_state_helpers();
     test_plock_capacity_guard();
-    test_pattern_config_mutations();
+    test_track_config_mutations();
 
     printf("seq_model_tests: OK\n");
     return 0;

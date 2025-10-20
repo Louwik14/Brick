@@ -13,7 +13,7 @@
 #define MICRO_OFFSET_MAX   (12)
 
 static void _seq_live_capture_reset_context(seq_live_capture_t *capture);
-static void _seq_live_capture_bind_pattern(seq_live_capture_t *capture, seq_model_pattern_t *pattern);
+static void _seq_live_capture_bind_track(seq_live_capture_t *capture, seq_model_track_t *track);
 static bool _seq_live_capture_compute_grid(const seq_live_capture_t *capture,
                                            seq_model_quantize_grid_t grid,
                                            systime_t *out_duration);
@@ -39,15 +39,15 @@ void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_c
 
     _seq_live_capture_reset_context(capture);
 
-    if ((config != NULL) && (config->pattern != NULL)) {
-        _seq_live_capture_bind_pattern(capture, config->pattern);
+    if ((config != NULL) && (config->track != NULL)) {
+        _seq_live_capture_bind_track(capture, config->track);
     }
 }
 
-void seq_live_capture_attach_pattern(seq_live_capture_t *capture, seq_model_pattern_t *pattern) {
+void seq_live_capture_attach_track(seq_live_capture_t *capture, seq_model_track_t *track) {
     chDbgCheck(capture != NULL);
 
-    _seq_live_capture_bind_pattern(capture, pattern);
+    _seq_live_capture_bind_track(capture, track);
 }
 
 void seq_live_capture_override_quantize(seq_live_capture_t *capture, const seq_model_quantize_config_t *config) {
@@ -79,7 +79,7 @@ void seq_live_capture_update_clock(seq_live_capture_t *capture, const clock_step
     capture->clock_step_duration = info->step_st;
     capture->clock_tick_duration = info->tick_st;
     capture->clock_step_index = info->step_idx_abs;
-    capture->clock_pattern_step = (size_t)(info->step_idx_abs % SEQ_MODEL_STEPS_PER_PATTERN);
+    capture->clock_track_step = (size_t)(info->step_idx_abs % SEQ_MODEL_STEPS_PER_TRACK);
     capture->clock_valid = true;
 }
 
@@ -96,7 +96,7 @@ bool seq_live_capture_plan_event(seq_live_capture_t *capture,
         return false;
     }
 
-    if (capture->pattern == NULL) {
+    if (capture->track == NULL) {
         return false;
     }
 
@@ -105,15 +105,15 @@ bool seq_live_capture_plan_event(seq_live_capture_t *capture,
     }
 
     seq_model_quantize_config_t active_quantize = capture->quantize;
-    if (capture->pattern != NULL) {
-        active_quantize = capture->pattern->config.quantize;
+    if (capture->track != NULL) {
+        active_quantize = capture->track->config.quantize;
     }
     capture->quantize = active_quantize;
 
     int64_t base_time = (int64_t)capture->clock_step_time;
     int64_t step_duration = (int64_t)capture->clock_step_duration;
     int64_t delta_time = (int64_t)input->timestamp - base_time;
-    int64_t base_step = (int64_t)capture->clock_pattern_step;
+    int64_t base_step = (int64_t)capture->clock_track_step;
 
     if (delta_time < 0) {
         while (delta_time < 0) {
@@ -167,7 +167,7 @@ bool seq_live_capture_plan_event(seq_live_capture_t *capture,
 
 bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                   const seq_live_capture_plan_t *plan) {
-    if ((capture == NULL) || (plan == NULL) || (capture->pattern == NULL)) {
+    if ((capture == NULL) || (plan == NULL) || (capture->track == NULL)) {
         return false;
     }
 
@@ -177,7 +177,7 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
     }
 
     if (plan->type == SEQ_LIVE_CAPTURE_EVENT_NOTE_OFF) {
-        if (plan->step_index >= SEQ_MODEL_STEPS_PER_PATTERN) {
+        if (plan->step_index >= SEQ_MODEL_STEPS_PER_TRACK) {
             return false;
         }
 
@@ -204,9 +204,9 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         if ((slot < SEQ_MODEL_VOICES_PER_STEP) && capture->voices[slot].active) {
             target_step = capture->voices[slot].step_index;
         }
-        target_step %= SEQ_MODEL_STEPS_PER_PATTERN;
+        target_step %= SEQ_MODEL_STEPS_PER_TRACK;
 
-        seq_model_step_t *step = &capture->pattern->steps[target_step];
+        seq_model_step_t *step = &capture->track->steps[target_step];
         const seq_model_voice_t *voice_src = seq_model_step_get_voice(step, slot);
         seq_model_voice_t voice;
         if (voice_src != NULL) {
@@ -245,15 +245,15 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         capture->voices[slot].note = 0U;
         capture->voices[slot].start_time_raw = 0U;
 
-        seq_model_gen_bump(&capture->pattern->generation);
+        seq_model_gen_bump(&capture->track->generation);
         return true;
     }
 
-    if (plan->step_index >= SEQ_MODEL_STEPS_PER_PATTERN) {
+    if (plan->step_index >= SEQ_MODEL_STEPS_PER_TRACK) {
         return false;
     }
 
-    seq_model_step_t *step = &capture->pattern->steps[plan->step_index];
+    seq_model_step_t *step = &capture->track->steps[plan->step_index];
 
     if (!seq_model_step_has_playable_voice(step) && !seq_model_step_has_any_plock(step)) {
         seq_model_step_make_automation_only(step); // --- FIX: éviter le C3 fantôme en gardant les voix désactivées ---
@@ -298,7 +298,7 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
     capture->voices[slot].voice_slot = slot;
     capture->voices[slot].note = plan->note;
 
-    seq_model_gen_bump(&capture->pattern->generation);
+    seq_model_gen_bump(&capture->track->generation);
     return true;
 }
 
@@ -310,10 +310,10 @@ static void _seq_live_capture_reset_context(seq_live_capture_t *capture) {
     _seq_live_capture_clear_voice_trackers(capture);
 }
 
-static void _seq_live_capture_bind_pattern(seq_live_capture_t *capture, seq_model_pattern_t *pattern) {
-    capture->pattern = pattern;
-    if (pattern != NULL) {
-        capture->quantize = pattern->config.quantize;
+static void _seq_live_capture_bind_track(seq_live_capture_t *capture, seq_model_track_t *track) {
+    capture->track = track;
+    if (track != NULL) {
+        capture->quantize = track->config.quantize;
     }
     _seq_live_capture_clear_voice_trackers(capture);
 }
@@ -430,9 +430,9 @@ static int8_t _seq_live_capture_micro_from_within(int64_t within_step, int64_t s
 static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta) {
     int64_t step = base_step + delta;
     while (step < 0) {
-        step += SEQ_MODEL_STEPS_PER_PATTERN;
+        step += SEQ_MODEL_STEPS_PER_TRACK;
     }
-    step %= SEQ_MODEL_STEPS_PER_PATTERN;
+    step %= SEQ_MODEL_STEPS_PER_TRACK;
     return (size_t)step;
 }
 
