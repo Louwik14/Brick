@@ -1,19 +1,17 @@
 /**
  * @file drv_encoders.h
- * @brief Interface du driver des encodeurs rotatifs (TIM + soft quadrature).
+ * @brief Interface du driver des encodeurs rotatifs.
  *
- * Fournit une API unifiée pour la lecture des 4 encodeurs :
- * - `ENC1` → TIM8 matériel
- * - `ENC2` → TIM4
- * - `ENC3` → Décodage quadrature logiciel (interruptions GPIO)
- * - `ENC4` → TIM2
+ * Le driver regroupe l’ensemble des stratégies matérielles employées sur Brick :
+ * - encodeurs quadrature matériel (TIMx en mode encoder) ;
+ * - quadrature logiciel via interruptions GPIO ;
+ * - entrées "step/dir" sur ligne `EXT`.
  *
- * Fonctions principales :
- * - Lecture brute et remise à zéro
- * - Calcul d’incrément (delta) depuis le dernier appel
- * - Mode accéléré avec filtrage exponentiel (EMA) et détection de "flick"
+ * L’API expose une lecture normalisée en *pas utilisateur* (1 par cran) et un
+ * mode accéléré basé sur un EMA de vitesse avec seuils/hystérésis.
  *
- * @note La configuration du matériel (TIM, GPIO, callbacks) est faite par `drv_encoders_start()`.
+ * @note La configuration matérielle (TIM, GPIO, callbacks) est entièrement
+ * gérée par `drv_encoders_start()` ; aucune dépendance externe n’est requise.
  *
  * @ingroup drivers
  */
@@ -54,7 +52,7 @@ void drv_encoders_start(void);
 int16_t drv_encoder_get(encoder_id_t id);
 
 /**
- * @brief Réinitialise la position et l’état d’un encodeur.
+ * @brief Réinitialise la position et l’état interne d’un encodeur.
  * @param id Identifiant de l’encodeur à réinitialiser.
  */
 void drv_encoder_reset(encoder_id_t id);
@@ -67,11 +65,11 @@ void drv_encoder_reset(encoder_id_t id);
 int16_t drv_encoder_get_delta(encoder_id_t id);
 
 /**
- * @brief Calcule l’incrément avec accélération dynamique (EMA + flick).
+ * @brief Calcule l’incrément avec accélération dynamique (EMA + hystérésis).
  *
- * Utilise un filtre exponentiel sur la vitesse et un système
- * d’impulsion temporaire lors des mouvements rapides pour améliorer
- * la réactivité.
+ * La vitesse instantanée est filtrée par EMA et comparée à des seuils
+ * configurables (avec hystérésis) afin de sélectionner le multiplicateur
+ * d’accélération.
  *
  * @param id Identifiant de l’encodeur.
  * @return Incrément accéléré normalisé en “pas utilisateur”.
