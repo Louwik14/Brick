@@ -427,21 +427,13 @@ static uint8_t _seq_engine_apply_scale(uint8_t note, const seq_model_scale_confi
         return note;
     }
 
-    static const uint16_t masks[] = {
-        0x0FFFU, /* Chromatic: unused when enabled flag false. */
-        0x0AB5U, /* Major: 0,2,4,5,7,9,11 */
-        0x05ADU, /* Minor (natural): 0,2,3,5,7,8,10 */
-        0x06ADU, /* Dorian: 0,2,3,5,7,9,10 */
-        0x06B5U  /* Mixolydian: 0,2,4,5,7,9,10 */
-    };
-
     uint8_t mode = (uint8_t)scale->mode;
-    if (mode >= (sizeof(masks) / sizeof(masks[0]))) {
+    if (mode >= SEQ_ENGINE_SCALE_MASK_COUNT) {
         return note;
     }
 
-    uint16_t mask = masks[mode];
-    if (!scale->enabled || (mask == 0U)) {
+    uint16_t mask = k_seq_engine_scale_masks[mode];
+    if (mask == 0U) {
         return note;
     }
 

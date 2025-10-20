@@ -119,6 +119,9 @@ static SerialDriver* map_uart(cart_id_t id) {
  * =========================================================== */
 static CCM_DATA THD_WORKING_AREA(waCartTx[CART_COUNT], 512);
 
+/* Configuration UART commune à toutes les cartouches (Flash). */
+static const SerialConfig k_cart_serial_cfg = { CART_UART_BAUD, 0, 0, 0 };
+
 static THD_FUNCTION(cart_tx_thread, arg) {
     const cart_id_t id = (cart_id_t)(uintptr_t)arg;
     cart_port_t *p = &s_port[id];
@@ -150,13 +153,11 @@ static THD_FUNCTION(cart_tx_thread, arg) {
  * Initialisation du bus cartouche
  * =========================================================== */
 void cart_bus_init(void) {
-    const SerialConfig cfg = { CART_UART_BAUD, 0, 0, 0 };
-
     for (int i = 0; i < CART_COUNT; i++) {
         cart_port_t *p = &s_port[i];
         p->uart = map_uart((cart_id_t)i);
         chDbgAssert(p->uart != NULL, "UART map invalid");
-        sdStart(p->uart, &cfg);
+        sdStart(p->uart, &k_cart_serial_cfg);
 
         chMBObjectInit(&p->mb, p->q, CART_QUEUE_LEN);
         chPoolObjectInit(&p->pool, sizeof(cart_cmd_t), NULL);

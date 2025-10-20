@@ -18,6 +18,7 @@
 #include "ui_led_backend.h"
 #include "ui_led_palette.h"
 #include "drv_leds_addr.h"
+#include "ui_led_layout.h"
 #include "ui_led_seq.h"   /* @ingroup ui_led_backend @ingroup ui_seq */
 #include "core/ram_audit.h"
 
@@ -49,6 +50,12 @@ static ui_led_mode_t s_mode = UI_LED_MODE_NONE;
 
 /* Keyboard */
 static bool     s_kbd_omni = false;
+
+/* Pré-calcul des couleurs accords Omnichord → stockées en Flash (.rodata). */
+static const led_color_t k_omni_chord_colors[8] = {
+    UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
+    UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
+};
 
 typedef struct {
     ui_led_event_t event;
@@ -152,13 +159,10 @@ static void _drain_event_queue(void) {
 
 /* ===== MAP step→LED physique ===== */
 static inline int _led_index_for_step(uint8_t step) {
-    static const uint8_t idx[NUM_STEPS] = {
-        LED_SEQ1, LED_SEQ2, LED_SEQ3, LED_SEQ4,
-        LED_SEQ5, LED_SEQ6, LED_SEQ7, LED_SEQ8,
-        LED_SEQ9, LED_SEQ10, LED_SEQ11, LED_SEQ12,
-        LED_SEQ13, LED_SEQ14, LED_SEQ15, LED_SEQ16
-    };
-    return (step < NUM_STEPS) ? idx[step] : LED_SEQ1;
+    if (step >= UI_LED_SEQ_STEP_COUNT) {
+        return k_ui_led_seq_step_to_index[0];
+    }
+    return k_ui_led_seq_step_to_index[step];
 }
 static inline void _set_led(int idx, led_color_t col, led_mode_t mode) {
     drv_leds_addr_set(idx, col, mode);
@@ -235,10 +239,6 @@ static inline void _render_keyboard_normal(void) {
     }
 }
 static inline void _render_keyboard_omnichord(void) {
-    const led_color_t chord_colors[8] = {
-        UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
-        UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
-    };
     for (uint8_t t = 0; t < NUM_STEPS; ++t) {
         const int led = _led_index_for_step(t);
         if ((t >= 4 && t <= 7) || (t >= 12 && t <= 15)) {
@@ -247,7 +247,7 @@ static inline void _render_keyboard_omnichord(void) {
         }
         if (t <= 3 || (t >= 8 && t <= 11)) {
             uint8_t chord_idx = (t <= 3) ? t : (uint8_t)(4 + (t - 8));
-            _set_led(led, chord_colors[chord_idx], LED_MODE_ON);
+            _set_led(led, k_omni_chord_colors[chord_idx], LED_MODE_ON);
             continue;
         }
         _set_led(led, UI_LED_COL_OFF, LED_MODE_OFF);

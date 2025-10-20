@@ -111,6 +111,11 @@ static void draw_filled_rect(int x, int y, int w, int h) {
     }
 }
 
+static const int k_param_frame_width  = 31;
+static const int k_param_frame_height = 37;
+static const int k_param_frame_x_offsets[4] = {0, 32, 65, 97};
+static const int k_param_frame_y = 16;
+
 /* Largeur d’un texte en pixels */
 static int text_width_px(const font_t *font, const char *s) {
     if (!font || !s) return 0;
@@ -149,21 +154,16 @@ static void _copy_project_name(const seq_project_t *project, char *dst, size_t d
 
 static void _draw_track_mode_placeholder(const seq_project_t *project,
                                          const ui_mode_context_t *ctx) {
-    static const int frame_w = 31;
-    static const int frame_h = 37;
-    static const int x_offsets[4] = {0, 32, 65, 97};
-    const int y_frames = 16;
-
     for (int slot = 0; slot < 4; ++slot) {
-        int x = x_offsets[slot];
-        int y = y_frames;
-        draw_rect_open_corners(x, y, frame_w, frame_h);
+        int x = k_param_frame_x_offsets[slot];
+        int y = k_param_frame_y;
+        draw_rect_open_corners(x, y, k_param_frame_width, k_param_frame_height);
 
         char label[12];
         (void)snprintf(label, sizeof(label), "CART%d", slot + 1);
         int tw_label = text_width_px(&FONT_4X6, label);
         drv_display_draw_text_with_font(&FONT_4X6,
-                                        (uint8_t)(x + (frame_w - tw_label) / 2),
+                                        (uint8_t)(x + (k_param_frame_width - tw_label) / 2),
                                         (uint8_t)(y + 3),
                                         label);
 
@@ -183,7 +183,7 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
                                (unsigned)(track_idx + 1U));
             }
 
-            int y_line = y + 10 + row * (FONT_4X6.height + 1);
+        int y_line = y + 10 + row * (FONT_4X6.height + 1);
             if (active) {
                 int tw_line = text_width_px(&FONT_4X6, line);
                 draw_filled_rect(x + 2, y_line - 1, tw_line + 2, FONT_4X6.height + 2);
@@ -204,12 +204,12 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
                        (unsigned)(slot * 4U + 1U),
                        (unsigned)(slot * 4U + 4U));
         int tw_hint = text_width_px(&FONT_4X6, bs_hint);
-        int hint_y = y + frame_h - (FONT_4X6.height + 2);
+        int hint_y = y + k_param_frame_height - (FONT_4X6.height + 2);
         if (hint_y < y + 20) {
-            hint_y = y + frame_h - (FONT_4X6.height + 1);
+            hint_y = y + k_param_frame_height - (FONT_4X6.height + 1);
         }
         drv_display_draw_text_with_font(&FONT_4X6,
-                                        (uint8_t)(x + (frame_w - tw_hint) / 2),
+                                        (uint8_t)(x + (k_param_frame_width - tw_hint) / 2),
                                         (uint8_t)hint_y,
                                         bs_hint);
     }
@@ -423,14 +423,10 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
     }
 
     /* ===== 4 cadres paramètres ===== */
-    const int frame_w = 31, frame_h = 37;
-    const int x_offsets[4] = {0, 32, 65, 97};
-    const int y_frames = 16;
-
     for (int i = 0; i < 4; i++) {
-        int x = x_offsets[i];
-        int y = y_frames;
-        draw_rect_open_corners(x, y, frame_w, frame_h);
+        int x = k_param_frame_x_offsets[i];
+        int y = k_param_frame_y;
+        draw_rect_open_corners(x, y, k_param_frame_width, k_param_frame_height);
 
         const ui_param_spec_t *ps = &page->params[i];
         if (!ps->label) continue;
@@ -451,7 +447,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
         /* --- Label param centré --- */
         int tw_label = text_width_px(&FONT_4X6, ps->label);
-        int x_label = x + (frame_w - tw_label) / 2;
+        int x_label = x + (k_param_frame_width - tw_label) / 2;
         if (hold_plocked) {
             draw_filled_rect(x_label - 1, y + 2, tw_label + 2, FONT_4X6.height + 2);
             display_draw_text_inverted(&FONT_4X6, x_label, y + 3, ps->label);
@@ -518,7 +514,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
         /* --- Rendu du widget (icônes par **TEXTE réel**, jamais par index) --- */
         switch (wtype) {
         case UIW_SWITCH:
-            uiw_draw_switch(x, y, frame_w, frame_h, bool_on);
+            uiw_draw_switch(x, y, k_param_frame_width, k_param_frame_height, bool_on);
             break;
 
         case UIW_ENUM_ICON_WAVE:
@@ -529,7 +525,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
                 txt = ps->meta.en.labels[pv->value];
             }
             /* Dessin via label réel ; si non reconnu → ne rien afficher (pas de fallback knob) */
-            (void)uiw_draw_icon_by_text(txt, x, y, frame_w, frame_h);
+            (void)uiw_draw_icon_by_text(txt, x, y, k_param_frame_width, k_param_frame_height);
             break;
         }
 
@@ -542,7 +538,7 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
                     int vmin = ps->meta.range.min;
                     int vmax = ps->meta.range.max;
                     if (vmax <= vmin) { vmin = 0; vmax = 255; }
-                    uiw_draw_knob(x, y, frame_w, frame_h, v, vmin, vmax);
+                    uiw_draw_knob(x, y, k_param_frame_width, k_param_frame_height, v, vmin, vmax);
                 }
             }
             /* ENUM/BOOL sans widget spécifique → ne rien dessiner */
@@ -551,8 +547,11 @@ void ui_draw_frame(const ui_cart_spec_t* cart, const ui_state_t* st) {
 
         /* --- Valeur texte centrée bas --- */
         int tw_val = text_width_px(&FONT_4X6, valbuf);
-        int x_val = x + (frame_w - tw_val) / 2;
-        drv_display_draw_text_with_font(&FONT_4X6, x_val, y + frame_h - 8, valbuf);
+        int x_val = x + (k_param_frame_width - tw_val) / 2;
+        drv_display_draw_text_with_font(&FONT_4X6,
+                                        x_val,
+                                        y + k_param_frame_height - 8,
+                                        valbuf);
     }
 
     /* ===== Bandeau bas (pages) ===== */

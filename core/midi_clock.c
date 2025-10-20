@@ -43,7 +43,7 @@ static bool      s_running        = false;
 static bool      s_initialized    = false;
 
 /* === Configuration du GPT === */
-static GPTConfig gpt3cfg = {
+static const GPTConfig gpt3cfg = {
   .frequency = MIDI_GPT_BASE_HZ,
   .callback  = gpt3_cb,
   .cr2       = 0U,

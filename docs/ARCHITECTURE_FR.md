@@ -11,6 +11,20 @@ Principes structurants :
 * Les **cartouches** (`cart/`) reçoivent leurs p-locks via `cart_link.c` qui manipule un shadow de paramètres et sérialise les trames UART.
 * La couche **MIDI** (`midi/midi.c`) fournit les primitives note on/off/CC utilisées par l'UI, le runner et la clock.
 
+### Organisation mémoire (Flash/SRAM/CCM)
+
+* Les tables d'énumération SEQ/ARP (libellés de paramètres UI) sont désormais stockées en Flash (`static const char* const`), éliminant ~60 o de pointeurs initialement placés en `.data` (`ui/ui_seq_ui.c`, `ui/ui_arp_ui.c`).
+* La configuration GPT3 (`core/midi_clock.c`) est promue en `static const GPTConfig`, ce qui la rend éligible à `.rodata` tout en restant référencée par `gptStart()`.
+* Les buffers dynamiques (patterns, snapshots LED, files d'événements) demeurent en SRAM système/CCM et ne subissent aucune relocalisation implicite.
+* Le mapping 4×4 des pads SEQ → LEDs physiques est centralisé dans `ui/ui_led_layout.c` et partagé par `ui_led_backend` / `ui_led_seq`, supprimant deux copies locales dans `.rodata`.
+* Les gabarits neutres du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) vivent désormais en Flash (`core/seq/seq_model_consts.c`) et sont copiés lors de l'initialisation au lieu de rester encodés dans du code mutable.
+* Les masques d'échelle utilisés par le moteur (`k_seq_engine_scale_masks`) sont définis une seule fois en Flash (`core/seq/seq_engine_tables.c`) et consommés par `_seq_engine_apply_scale()`.
+
+### État CCRAM
+
+* Région `.ccmram` : VMA attendue `0x1000_0000`, capacité 64 KiB. Les symboles `g_seq_runtime`, `s_pattern_buffer`, `s_track_*` et files LED y résident toujours et restent marqués `NOLOAD`.
+* Aucun buffer DMA n'est déplacé en CCRAM durant ce lot ; les contraintes STM32F429 (DMA uniquement sur SRAM principale) sont respectées.
+
 ## 2. Arborescence commentée
 
 ### Racine
@@ -183,6 +197,7 @@ Cette documentation reflète l'état réel du dépôt actuel et sert de base à 
 | --- | --- | --- |
 | Phase A — Audit RAM UI | ✅ | Instrumentation `UI_RAM_AUDIT(sym)` sur les buffers UI/LED/OLED (`seq_led_bridge`, `ui_led_backend`, drivers) et script `tools/ui_ram_audit.py` pour extraire les symboles depuis un build `arm-none-eabi`. |
 | Phase B — Runtime partagé | ✅ | `core/seq/seq_runtime.*` centralise `seq_project_t` + patterns actifs ; `seq_led_bridge.c` consomme `seq_runtime_get_*` et ne duplique plus `g_project` / `g_project_patterns`. |
+| Phase C — Lots 2→3 | ✅ | Tables LED/UI partagées en Flash (`ui/ui_led_layout.c`), gabarits du modèle séquenceur externalisés (`core/seq/seq_model_consts.c`) et masques d'échelle moteur unifiés (`core/seq/seq_engine_tables.c`). |
 
 ### Snapshot mémoire (avant refactor)
 
@@ -215,3 +230,35 @@ Ces mesures constituent la référence minimale à améliorer lors des phases su
 | `led_buffer` | 51 B | `drv_leds_addr.o` |
 
 `g_project` et `g_project_patterns` disparaissent du build UI : leur volumétrie est absorbée par `g_seq_runtime` mutualisé, initialisé côté `main.c`.
+
+### [2024-06-12] – Constantes → Flash (Lot 1)
+Modules : `ui/ui_seq_ui.c`, `ui/ui_arp_ui.c`, `core/midi_clock.c`
+Changements majeurs :
+- Tables d'énumération SEQ/ARP (`Clock`, `Quant`, `On/Off`, `Rate`, `Sync`) promues en `static const char* const` (RAM UI → Flash).
+- `gpt3cfg` marqué `static const GPTConfig` pour sortir de `.data`.
+Impact sections :
+- `.rodata` : +~60 o | `.data` : −~60 o | `.bss` : 0 o *(estimation, build release indisponible : dépendances ChibiOS manquantes sur l'environnement CI local)*
+CCRAM : inchangé vs Phase B (`g_seq_runtime`, `s_pattern_buffer`, caches LED`), VMA `0x1000_0000`, section `NOLOAD`, 0 buffer DMA (audit détaillé à confirmer lorsque le build release sera rétabli).
+Prochain lot : cart specs (labels XVA1), tables MIDI communes (`midi_note_labels`, mappings cart) → Flash.
+
+### [2024-06-13] – Constantes → Flash (Lot 2)
+Modules : `ui/ui_led_backend.c`, `ui/ui_renderer.c`, `cart/cart_bus.c`, `apps/ui_keyboard_bridge.c`
+Changements majeurs :
+- Palette Omnichord (8 couleurs `led_color_t`) déplacée en `static const` pour éviter une reconstruction en RAM à chaque rafraîchissement LED.
+- Facteurs géométriques des cadres paramètres UI mutualisés en constantes Flash (`k_param_frame_*`).
+- Configuration UART du bus cartouche (`SerialConfig`) et callbacks ARP UI (`arp_callbacks_t`) promus en `static const` (suppression d'objets pile).
+Impact sections :
+- `.rodata` : +~80 o | `.data` : 0 o | `.bss` : 0 o *(estimation, compilation release toujours bloquée par les dépendances ChibiOS manquantes ; les gains portent essentiellement sur la pile et les copies runtime)*
+CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA).
+Prochain lot : isoler les tables MIDI (notes, mappings) et les assets cart `XVA1` vers Flash dédiée.
+
+### [2024-06-14] – Constantes → Flash (Lot 3)
+Modules : `ui/ui_led_layout.c`, `ui/ui_led_backend.c`, `ui/ui_led_seq.c`, `core/seq/seq_model.c`, `core/seq/seq_model_consts.c`, `core/seq/seq_engine_tables.c`
+Changements majeurs :
+- Table de correspondance SEQ→LED (`k_ui_led_seq_step_to_index`) factorisée dans un module dédié et partagée entre backend et renderer LED.
+- Gabarits du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) externalisés en Flash, copiés lors des initialisations au lieu de boucles structurées.
+- Masques d'échelle du moteur (`k_seq_engine_scale_masks`) consolidés dans une table Flash unique, consommée par `_seq_engine_apply_scale()`.
+Impact sections :
+- `.rodata` : +~350 o | `.data` : 0 o | `.bss` : 0 o *(estimation en l'absence de build release ; la croissance correspond aux gabarits stockés en Flash, tandis que les duplications locales sont éliminées)*
+CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA ; `g_seq_runtime` reste en CCM).
+Prochain lot : migrer les tables MIDI communes (noms de notes, mappings cart) et les assets cart `XVA1` vers des modules `const` dédiés.
