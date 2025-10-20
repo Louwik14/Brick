@@ -15,20 +15,20 @@ Principes structurants :
 
 * Les tables d'énumération SEQ/ARP (libellés de paramètres UI) sont désormais stockées en Flash (`static const char* const`), éliminant ~60 o de pointeurs initialement placés en `.data` (`ui/ui_seq_ui.c`, `ui/ui_arp_ui.c`).
 * La configuration GPT3 (`core/midi_clock.c`) est promue en `static const GPTConfig`, ce qui la rend éligible à `.rodata` tout en restant référencée par `gptStart()`.
-* Les buffers dynamiques (patterns, snapshots LED, files d'événements) demeurent en SRAM système/CCM et ne subissent aucune relocalisation implicite.
+* Les buffers dynamiques (patterns, snapshots LED, files d'événements) demeurent en SRAM système. L'attribut `CCM_DATA` est temporairement neutralisé (no-op) le temps de l'audit UI, aucun objet n'est envoyé en CCRAM sans opt-in explicite.
 * Le mapping 4×4 des pads SEQ → LEDs physiques est centralisé dans `ui/ui_led_layout.c` et partagé par `ui_led_backend` / `ui_led_seq`, supprimant deux copies locales dans `.rodata`.
 * Les gabarits neutres du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_pattern_config_default`) vivent désormais en Flash (`core/seq/seq_model_consts.c`) et sont copiés lors de l'initialisation au lieu de rester encodés dans du code mutable.
 * Les masques d'échelle utilisés par le moteur (`k_seq_engine_scale_masks`) sont définis une seule fois en Flash (`core/seq/seq_engine_tables.c`) et consommés par `_seq_engine_apply_scale()`.
 * Le dictionnaire clavier agrège ses triades/extensions et offsets de gammes dans des tables uniques (`k_chord_bases`, `k_chord_exts`, `k_kbd_scale_offsets`) stockées en Flash (`apps/kbd_chords_dict.c`). Les libellés de notes côté renderer (`k_note_name_table`) sont également partagés pour éviter toute duplication en pile (`ui/ui_renderer.c`).
 
 * Build release 2025-10 (profil `-Os`) : `.text` 83 616 o, `.rodata` 66 904 o, `.data` 1 788 o, `.bss` 110 864 o, `.ram4` (CCRAM) 18 784 o (`arm-none-eabi-size -A build/ch.elf`).
-* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Les buffers temps réel (LED/UI/ARP) annotés `CCM_DATA` sont regroupés dans `.ram4` (NOLOAD @ `0x1000_0000`).
+* `g_seq_runtime` (101 448 o) réside en SRAM principale (`.bss`). Depuis le hotfix CCRAM (2025-11), `CCM_DATA` n'injecte plus automatiquement les buffers en `.ram4` : ils retombent en `.bss`/`.data` tant que la reprise contrôlée n'est pas déclenchée.
 
 ### État CCRAM
 
-* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, 18 784 o alloués (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, `midi_usb_queue`, caches LED). Section `NOLOAD`, aucun symbole `const`, aucun buffer DMA.
-* `g_seq_runtime` et `s_pattern_buffer` sont désormais en SRAM (0x2000_xxxx) pour rester sous le budget CCRAM 64 KiB tout en conservant les performances d’accès.
-* Un audit automatique (`tools/check_ccmram.py`, déclenché via `POST_MAKE_ALL_RULE_HOOK`) valide systématiquement l’adresse, la taille (<64 KiB) et l’absence de drapeaux `LOAD/CONTENTS` sur `.ram4` lors des builds.
+* Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique.
+* `g_seq_runtime` et `s_pattern_buffer` restent en SRAM (0x2000_xxxx). Toute donnée nécessitant un contenu initial non nul reste explicitement hors CCRAM.
+* L'audit automatique (`tools/check_ccmram.py`, déclenché via `POST_MAKE_ALL_RULE_HOOK`) reste actif. Il doit signaler immédiatement toute régression (`.ram4` non vide, adresse ≠ `0x1000_0000`, drapeau `LOAD/CONTENTS`).
 
 ## 2. Arborescence commentée
 
