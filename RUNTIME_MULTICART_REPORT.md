@@ -160,3 +160,60 @@ Le cumul des gains A–D ramènerait la projection 4 tracks ≈ 73 (proj) + 25 (
 ### 6.4 Décision
 
 Sans refonte mémoire préalable (A–D), l’extension à 4 tracks violerait Gate A. Conformément aux instructions fail-fast, la passe s’arrête ici : aucun code fonctionnel n’est introduit tant que le split hot/cold et la compaction p-locks ne sont pas implémentés et vérifiés par audits. Les prochaines étapes devront se concentrer sur ces optimisations structurelles avant toute tentative Phase B/Phase C.【SEQ_BEHAVIOR.md†L60-L133】
+
+## Phase A — Analyse de faisabilité (Fail-Fast mémoire A→D)
+
+### 1. Diagnostic de l’échec
+
+**Résumé.** La tentative de refonte mémoire A→D a été interrompue « fail-fast » car le découplage `g_seq_runtime` → hot/cold implique une requalification simultanée des API runtime/UI/engine/projet, un effort supérieur au budget de la passe. Les quatre axes (split hot/cold, compaction p-locks, manifest compact, relocalisation non-RT) sont interdépendants : toucher l’un impose d’aligner les autres pour conserver la compatibilité des encodeurs/sérialiseurs et des vues UI, ce qui excède la fenêtre impartie.
+
+**Points de blocage concrets.**
+
+- **Dépendances croisées fortes** : `seq_runtime_t` agrège directement le projet persistant et les tracks actives, exposant des getters utilisés par le bridge LED, le runner engine et la capture live. Toute scission impose de revoir `seq_runtime_init()` et les assignations `seq_project_assign_track()` pour tous les consommateurs.【F:core/seq/seq_runtime.h†L18-L40】【F:core/seq/seq_runtime.c†L12-L47】【F:apps/seq_led_bridge.h†L24-L93】【F:apps/seq_engine_runner.h†L18-L22】
+- **Sérialisation/UI sensibles** : le modèle track + p-lock est encodé/décodé par `seq_project_track_steps_encode/decode()` et vérifié par les tests hôtes (`seq_track_codec_tests.c`). Toute modification binaire (compaction p-locks, manifest) nécessite d’adapter ces fonctions et de régénérer les tests, travail impossible dans le budget fail-fast.【F:core/seq/seq_model.h†L82-L154】【F:core/seq/seq_project.h†L109-L156】【F:tests/seq_track_codec_tests.c†L71-L160】
+- **Structure actuelle des p-locks** : `seq_model_plock_t` stocke cinq champs (value, paramètre, domaine, voix, param interne). Le bit-packing envisagé requiert une représentation parallèle, plus un upgrade de tous les appels UI/runner qui inspectent `seq_model_step_t`, effort incompatible avec une passe courte.【F:core/seq/seq_model.h†L82-L120】
+- **Tests manquants pour la migration mémoire** : aucun test automatisé ne couvre aujourd’hui un runtime scindé hot/cold, ni la migration des buffers UI/cart hors `g_seq_runtime`. Les suites existantes (`seq_hold_runtime_tests`, `ui_*_tests`) supposent les symboles actuels et échoueraient tant que les doubles pointeurs ne sont pas recablés et validés sur cible réelle.【F:tests/seq_hold_runtime_tests.c†L1-L200】【F:tests/ui_mode_transition_tests.c†L1-L200】
+- **Risque d’instabilité init/runtime partagé** : `seq_runtime_init()` efface la totalité de `g_seq_runtime` avant d’attacher les tracks au projet. Un split en plusieurs sections impose de garantir la remise à zéro et l’attachement cohérents, faute de quoi les pointeurs du bridge UI ou du runner engine deviennent pendants pendant l’initialisation.【F:core/seq/seq_runtime.c†L14-L25】
+
+### 2. Analyse de la structure actuelle
+
+#### 2.1 Cartographie mémoire baseline
+
+- `.data` = 1 792 o, `.bss` = 130 220 o, soit ≈ 129 KiB de RAM statique ; la marge SRAM restante est ~63 KiB hors piles, confirmant que la CCRAM (`.ram4`) est vide (`0 o`, NOLOAD).【F:tools/audit/audit_sections.txt†L1-L28】【F:tools/audit/audit_map_ram4.txt†L1-L19】
+- `g_seq_runtime` demeure le symbole dominant avec 101 448 o, suivi par `g_hold_slots` (3 648 o), `waCartTx` (3 200 o), les caches UI (`s_ui_shadow`, `g_shadow_params`) et les work areas ChibiOS (`waUI`, `s_seq_engine_player_wa`).【F:tools/audit/audit_ram_top.txt†L1-L45】
+- Les autres audits (`audit_bss_top`, `audit_data_top`) restent inchangés par rapport à la baseline précédente ; aucune relocalisation automatique ne réduit le poids des patterns ou du projet dans `g_seq_runtime`.
+
+#### 2.2 Composants les plus coûteux
+
+- **Runtime séquenceur** (`g_seq_runtime`) : embarque `seq_project_t` (manifest complet, banques/patterns) et `seq_model_track_t[2]`. Le projet seul contient 16 banques × 16 patterns, chacune avec 16 descriptors, ce qui explique la masse >70 KiB.【F:core/seq/seq_runtime.h†L26-L40】【F:core/seq/seq_project.h†L20-L121】
+- **Caches UI/LED** : `seq_led_bridge` maintient des vues hold (masques, paramètres) qui pointent directement sur les tracks du runtime, empêchant de simplement déplacer ces buffers sans plan de synchronisation.【F:apps/seq_led_bridge.h†L61-L93】
+- **Work areas temps réel** : `waCartTx`, `waUI`, `s_seq_engine_player_wa` sont nécessaires au runner et doivent rester en SRAM principale tant que `.ram4` est neutralisée.【F:tools/audit/audit_ram_top.txt†L12-L45】
+
+#### 2.3 Complexité du couplage
+
+- Le runtime expose des getters partagés : `seq_led_bridge_access_track()`, `seq_engine_runner_attach_track()` et `seq_project_get_track()` manipulent directement les pointeurs internes. Séparer hot/cold impose de réinventer l’accès (handles, proxies) pour éviter les derefs directs.【F:apps/seq_led_bridge.h†L84-L93】【F:apps/seq_engine_runner.h†L18-L22】【F:core/seq/seq_project.h†L123-L156】
+- Les encodeurs/décodeurs projet manipulent les structures complètes (steps, p-locks). Toute compaction doit préserver les invariants Reader → Scheduler → Player décrits dans `SEQ_BEHAVIOR.md` et les invariants de sérialisation, d’où un chantier transversal Model/Project/UI/Engine.【F:SEQ_BEHAVIOR.md†L60-L133】【F:core/seq/seq_project.h†L147-L156】
+- L’absence de tests CI ciblant la migration mémoire (hot/cold, manifest partiel) impose une validation manuelle lourde : il faudrait forger de nouveaux tests hôtes et scripts d’audit avant de pouvoir bouger un seul champ dans `seq_runtime_t`.
+
+### 3. Relance progressive (micro-passes A1→A5)
+
+| Étape | Objectif | Impact attendu | Risque | Dépendances clés | Estimation | Vérification |
+| :---- | :------- | :------------- | :----- | :--------------- | :--------- | :----------- |
+| **A1** | Introduire `seq_runtime_hot_t` / `seq_runtime_cold_t` sans déplacer les données (double wrapper + API). | 0 KiB (préparation) | Faible | `seq_runtime_init`, `seq_led_bridge`, `seq_engine_runner`, `seq_project` (pointeurs). | 1,5 j | Build release, `make check-host`, audits identiques (`audit_sections`). |
+| **A2** | Déporter `seq_project` + caches UI non-RT dans `seq_runtime_cold_t`. | ~10 KiB | Modéré | `seq_project_*`, `seq_led_bridge_*project`, sauvegarde/chargement projet. | 2 j | Build OK, audits verts (`audit_ram_top`), vérif UI (smoke). |
+| **A3** | Prototype bit-packing p-locks via structure parallèle + encodeur pilote. | 15–20 KiB | Fort | `seq_model_step_t`, `seq_project_track_steps_encode/decode`, tests codec, UI hold. | 4 j | `make check-host`, nouvel encodeur validé sur pattern de test, audits `sizeof`. |
+| **A4** | Manifest projet compact (charge 1 banque active). | ~10 KiB | Moyen | `seq_project_*descriptor`, `seq_project_load/save`, UI bank/pattern selectors. | 3 j | Migration flash manuelle, tests UI navigation, audits `.bss`. |
+| **A5** | Campagne `sizeof` + audits post-refactor pour Gate A. | 0 KiB | Aucun | Scripts audit (`tools/audit/*`), docs runtime. | 0,5 j | `make -j8 all`, `tools/audit`, check `.ram4 = 0 o`. |
+
+**Notes d’exécution.**
+
+- Chaque étape garde CCRAM désactivée ; toute réactivation (`.ram4`) devra faire l’objet d’un jalon distinct avec audits spécifiques.【F:tools/audit/audit_map_ram4.txt†L1-L19】
+- Les dépendances listées impliquent mise à jour des tests hôtes (`tests/seq_track_codec_tests.c`, `tests/seq_hold_runtime_tests.c`) pour suivre les nouvelles signatures et garantir la compatibilité des encodeurs UI/engine.【F:tests/seq_track_codec_tests.c†L71-L160】【F:tests/seq_hold_runtime_tests.c†L1-L200】
+- Les estimations supposent disponibilité des audits automatiques (`tools/audit/*.txt`) et d’un environnement cible pour smoke tests UI/runner.
+
+### 4. Décision
+
+- **Code inchangé** : aucun fichier source n’a été modifié durant cette passe (fail-fast documenté uniquement).
+- **Prochain jalon** : A1 (split minimal hot/cold) pour préparer la migration sans déplacer les données.
+- **CCRAM** : reste désactivée (`.ram4 = 0 o`).【F:tools/audit/audit_map_ram4.txt†L1-L19】
+- **Phase A (4 tracks)** : exécution suspendue jusqu’à validation complète des étapes A1→A4 puis audits Gate A.
