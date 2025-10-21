@@ -11,6 +11,7 @@
 #include "tests/support/rt_blackbox.h"
 #include "tests/support/rt_queues.h"
 #include "tests/support/rt_timing.h"
+#include "tests/support/seq_rt_runs.h"
 
 #define SOAK_TRACK_COUNT 16U
 #define SOAK_STEP_DURATION 24U
@@ -119,7 +120,7 @@ static void init_track_pattern(track_ctx_t *ctx, uint8_t track_index) {
     seq_model_gen_bump(&ctx->track.generation);
 }
 
-int main(void) {
+int seq_rt_run_16tracks_soak(void) {
     track_ctx_t ctx[SOAK_TRACK_COUNT];
     memset(ctx, 0, sizeof(ctx));
 
@@ -285,3 +286,9 @@ int main(void) {
 
     return EXIT_SUCCESS;
 }
+
+#if !defined(SEQ_RT_TEST_LIBRARY)
+int main(void) {
+    return seq_rt_run_16tracks_soak();
+}
+#endif
