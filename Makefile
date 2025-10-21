@@ -494,24 +494,24 @@ $(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/reader/se
 
 
 
-$(HOST_SEQ_16TRACKS_STRESS_TEST): tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-	core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
+$(HOST_SEQ_16TRACKS_STRESS_TEST): tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+        core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
+        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
-	        tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
-	        core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-	        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
-	        cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	        -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
+	tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
+                core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
+	core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
+	cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+	-o $@
 
-$(HOST_SEQ_16TRACKS_SOAK_TEST): tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-	core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
+$(HOST_SEQ_16TRACKS_SOAK_TEST): tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+        core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
+        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
-	        tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
-	        core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-	        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
-	        cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	        -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
+	tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
+                core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
+	core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
+	cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+	-o $@

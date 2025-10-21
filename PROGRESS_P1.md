@@ -365,3 +365,15 @@
 - make check-host : OK (`16-track stress` + `16-track soak` invariants MIDI, `max_len_ticks ≤ 64`).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
+
+## [2025-11-06 12:00] MP15 — Timing p99 & moniteurs de files (host)
+### Étapes réalisées
+- Module timing host `tests/support/rt_timing.{h,c}` : mesure `min/avg/p95/p99/max` via `clock_gettime`, reservoir 512 échantillons.
+- Stress & soak 16 pistes : instrumentation `rt_tim_tick_begin/end`, rapport final + garde `p99 ≤ 2.0 ms`, reset automatique via `rt_tim_reset()`.
+- Moniteurs de files temps réel `tests/support/rt_queues.{h,c}` : profondeur courante, high-watermarks et flags underflow/overflow (évènements & player), rapport `rq_report()` et fail host si anomalie.
+- Intégration Makefile (`SEQ_RT_QUEUE_MONITORING=1`) liant timing + queues aux binaires stress/soak.
+- Hooks cible optionnels `core/seq/runtime/seq_rt_debug.h` + compteurs `g_rt_tick_events_max` / `g_rt_event_queue_hwm` actifs seulement si `SEQ_RT_DEBUG`.
+### Tests
+- make check-host : OK (rapports timing p99 + queues, stress & soak sans overflow, invariants MIDI OK).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation confinée host, hooks cible OFF par défaut.

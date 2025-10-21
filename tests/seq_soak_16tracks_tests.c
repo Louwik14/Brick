@@ -9,6 +9,8 @@
 #include "core/seq/seq_engine.h"
 #include "core/seq/seq_model.h"
 #include "tests/support/rt_blackbox.h"
+#include "tests/support/rt_queues.h"
+#include "tests/support/rt_timing.h"
 
 #define SOAK_TRACK_COUNT 16U
 #define SOAK_STEP_DURATION 24U
@@ -124,6 +126,8 @@ int main(void) {
     bb_reset();
     bb_pair_reset();
     bb_track_counters_reset();
+    rq_reset();
+    rt_tim_reset();
 
     seq_engine_callbacks_t callbacks = {
         .note_on = host_note_on_cb,
@@ -151,6 +155,7 @@ int main(void) {
     ch_stub_set_time(current_time);
 
     for (uint32_t tick = 0U; tick < SOAK_TICKS; ++tick) {
+        rt_tim_tick_begin();
         g_current_tick = tick;
         bb_tick_begin(g_current_tick);
 
@@ -176,11 +181,14 @@ int main(void) {
             while (seq_engine_scheduler_peek(&ctx[t].engine.scheduler, &event) &&
                    (event.scheduled_time <= current_time)) {
                 (void)seq_engine_scheduler_pop(&ctx[t].engine.scheduler, &event);
+                rq_player_enq();
                 host_dispatch_event(t, &ctx[t].engine, &event);
+                rq_player_deq();
             }
         }
 
         bb_tick_end();
+        rt_tim_tick_end();
     }
 
     double avg = (SOAK_TICKS > 0U) ? ((double)g_total_events / (double)SOAK_TICKS) : 0.0;
@@ -197,6 +205,19 @@ int main(void) {
            u_off,
            (unsigned long)maxlen,
            avg);
+
+    rt_tim_report();
+    rq_report();
+
+    const double P99_BUDGET_NS = 2000000.0;
+    if (rt_tim_p99_ns() > P99_BUDGET_NS) {
+        fprintf(stderr,
+                "Regression: p99 tick time %.0f ns > %.0f ns\n",
+                rt_tim_p99_ns(),
+                P99_BUDGET_NS);
+        bb_dump();
+        return EXIT_FAILURE;
+    }
 
     const unsigned MIN_TRACKS_ACTIVE = 16U;
     const unsigned MAX_SILENT_TICKS = 0U;
@@ -219,6 +240,12 @@ int main(void) {
 
     if (silent > MAX_SILENT_TICKS) {
         fprintf(stderr, "Regression: silent ticks detected (%u > %u)\n", silent, MAX_SILENT_TICKS);
+        bb_dump();
+        return EXIT_FAILURE;
+    }
+
+    if (rq_any_underflow_or_overflow() != 0) {
+        fprintf(stderr, "Regression: RT queue underflow/overflow detected\n");
         bb_dump();
         return EXIT_FAILURE;
     }

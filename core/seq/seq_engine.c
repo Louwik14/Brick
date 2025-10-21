@@ -6,6 +6,11 @@
 #include "seq_engine.h"
 #include "core/seq/runtime/seq_rt_phase.h"
 #include "brick_config.h"
+#include "core/seq/runtime/seq_rt_debug.h"
+
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+#include "tests/support/rt_queues.h"
+#endif
 
 #include <limits.h>
 #include <string.h>
@@ -32,6 +37,12 @@
 #define SEQ_ENGINE_MICRO_DIVISOR       24
 
 static CCM_DATA THD_WORKING_AREA(s_seq_engine_player_wa, SEQ_ENGINE_PLAYER_STACK_SIZE);
+
+#if defined(SEQ_RT_DEBUG) && SEQ_RT_DEBUG
+volatile unsigned g_rt_tick_events_max;
+volatile unsigned g_rt_event_queue_hwm;
+static unsigned s_rt_tick_events_current = 0U;
+#endif
 
 static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_track_t *track);
 static void _seq_engine_reader_refresh_flags(seq_engine_reader_t *reader);
@@ -158,6 +169,9 @@ bool seq_engine_scheduler_push(seq_engine_scheduler_t *scheduler, const seq_engi
     chDbgCheck((scheduler != NULL) && (event != NULL));
 
     if (scheduler->count >= SEQ_ENGINE_SCHEDULER_CAPACITY) {
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+        rq_event_enq();
+#endif
         return false;
     }
 
@@ -186,6 +200,21 @@ bool seq_engine_scheduler_push(seq_engine_scheduler_t *scheduler, const seq_engi
     }
 
     scheduler->count++;
+
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+    rq_event_enq();
+#endif
+
+#if defined(SEQ_RT_DEBUG) && SEQ_RT_DEBUG
+    if (scheduler->count > g_rt_event_queue_hwm) {
+        g_rt_event_queue_hwm = (unsigned)scheduler->count;
+    }
+    ++s_rt_tick_events_current;
+    if (s_rt_tick_events_current > g_rt_tick_events_max) {
+        g_rt_tick_events_max = s_rt_tick_events_current;
+    }
+#endif
+
     return true;
 }
 
@@ -202,6 +231,11 @@ bool seq_engine_scheduler_pop(seq_engine_scheduler_t *scheduler, seq_engine_even
 
     scheduler->head = (scheduler->head + 1U) % SEQ_ENGINE_SCHEDULER_CAPACITY;
     scheduler->count--;
+
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+    rq_event_deq();
+#endif
+
     return true;
 }
 
@@ -225,6 +259,11 @@ void seq_engine_scheduler_clear(seq_engine_scheduler_t *scheduler) {
     scheduler->head = 0U;
     scheduler->count = 0U;
     memset(scheduler->buffer, 0, sizeof(scheduler->buffer));
+
+#if defined(SEQ_RT_DEBUG) && SEQ_RT_DEBUG
+    g_rt_event_queue_hwm = 0U;
+    s_rt_tick_events_current = 0U;
+#endif
 }
 
 void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info) {
@@ -233,6 +272,10 @@ void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info
     }
 
     seq_rt_phase_set(SEQ_RT_PHASE_TICK);
+
+#if defined(SEQ_RT_DEBUG) && SEQ_RT_DEBUG
+    s_rt_tick_events_current = 0U;
+#endif
 
     if (!engine->clock_attached || (engine->config.track == NULL)) {
         seq_rt_phase_set(SEQ_RT_PHASE_IDLE);
@@ -327,7 +370,15 @@ static THD_FUNCTION(_seq_engine_player_thread, arg) {
         (void)seq_engine_scheduler_pop(&engine->scheduler, &event);
         chMtxUnlock(&engine->scheduler_lock);
 
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+        rq_player_enq();
+#endif
+
         _seq_engine_dispatch_event(engine, &event);
+
+#if defined(SEQ_RT_QUEUE_MONITORING) && SEQ_RT_QUEUE_MONITORING
+        rq_player_deq();
+#endif
     }
 }
 
