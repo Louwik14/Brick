@@ -304,3 +304,13 @@
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
 
+
+## [2025-11-05 09:30] MP11 — Audit symboles RT + smoke test tick
+### Étapes réalisées
+- Ajout de la cible `audit_rt_symbols` (nm+grep sur `build/obj/seq_player*.o build/obj/seq_scheduler*.o`) et branchement sur `POST_MAKE_ALL_RULE_HOOK`.
+- Nouveau test host `tests/seq_rt_path_smoke.c` : transition BOOT→IDLE→TICK→IDLE via `seq_rt_phase_set()` sans appel façade cold.
+- Intégration du binaire `seq_rt_path_smoke` dans `make check-host` (compilation + exécution).
+### Tests
+- make check-host : OK (inclut `seq_rt_path_smoke`).
+### Audits mémoire
+- Inchangés vs baseline (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).

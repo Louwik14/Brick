@@ -48,6 +48,7 @@ Principes structurants :
 > **P2/MP9b — Comptage cold host** : `seq_runtime_cold_stats.{h,c}` additionne les tailles des vues `SEQ_COLDV_*` et le test `seq_cold_stats_tests` imprime `Cold domains (bytes): project=73128 cart_meta=384 hold_slots=3648 ui_shadow=0 total=77160` pour guider la migration future des blocs froids.【F:core/seq/runtime/seq_runtime_cold_stats.c†L1-L22】【F:tests/seq_cold_stats_tests.c†L1-L15】【d506ed†L68-L70】
 > **P2/MP9c — Essai relocation cold** : `g_hold_slots` est prêt à migrer vers `.cold` via `SEQ_COLD_SEC` lorsque `SEQ_EXPERIMENT_MOVE_ONE_BLOCK=1`; l'essai embarqué (flags forcés via `CFLAGS`) échoue ici faute de toolchain ARM, mais la relocalisation attendue déplacerait 3 648 o de `.bss` vers `.cold` (buffer UI hors ISR).【F:apps/seq_led_bridge.c†L100-L109】【f7aa25†L1-L19】
 > **P2/MP10 — RT safety** : l’API `seq_rt_phase_*` marque `BOOT/IDLE/TICK`, la façade `seq_runtime_cold_view()` déclenche un assert host + compteur si appelée en phase TICK, une règle CI (`check_no_cold_in_rt_sources`) bloque l’inclusion directe de `seq_runtime_cold.h` dans Scheduler/Player, et `make check-host` trace `cold_view_calls_in_tick(host): <n>` pour tout accès anormal.
+> **P2/MP11 — Audit symboles RT** : la règle `audit_rt_symbols` (`nm` + `grep` sur les objets Player/Scheduler) est branchée sur `POST_MAKE_ALL_RULE_HOOK` pour empêcher toute référence à `seq_runtime_cold_*` dans le chemin TICK, et un smoke test host (`seq_rt_path_smoke`) valide la transition BOOT→IDLE→TICK→IDLE sans déclencher la façade cold.
 
 ### État CCRAM
 
