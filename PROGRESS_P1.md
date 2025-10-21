@@ -240,3 +240,23 @@
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — modifications host-only, aucun déplacement de RAM embarquée.
 
+
+## [2025-11-02 09:30] MP7e — Troisième domaine cold (hold slots)
+### Étapes réalisées
+- `SEQ_COLDV_HOLD_SLOTS` résout désormais le buffer UI `g_hold_slots` via `seq_runtime_cold_view()` sans déplacer la BSS ; stub host dédié pour les tests légers (`tests/stubs/seq_led_bridge_hold_slots_stub.c`).
+- `_hold_step_for_view()` (`apps/seq_led_bridge.c`) consomme la vue cold (avec fallback local) pour lire les slots agrégés en lecture seule.
+- Nouveau test host `seq_runtime_cold_hold_slots_tests` branché dans `make check-host` pour garantir `_p != NULL` et `_bytes > 0`.
+### Tests
+- make check-host : OK (inclut le nouveau test hold slots).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — alias uniquement, aucun déplacement de RAM embarquée.
+
+## [2025-11-02 10:15] MP8c — Micro-bench host Reader/Scheduler/Player
+### Étapes réalisées
+- Ajout du micro-bench host `tests/seq_rt_timing_tests.c` (boucle `clock_gettime` sur `seq_reader_get_step`), intégré à `make check-host`.
+- Sortie console formattée `Reader.get_step: <ns>` pour suivre l'évolution du coût Reader ; TODO en place pour Scheduler/Player.
+### Tests
+- make check-host : OK (affiche les timings Reader sur l'environnement host).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation host-only.
+

@@ -10,6 +10,9 @@ typedef struct {
     size_t _bytes;
 } _cv;
 
+extern uint8_t g_hold_slots[];
+extern const size_t g_hold_slots_size;
+
 typedef struct {
     seq_project_t     project;
     seq_model_track_t tracks[SEQ_RUNTIME_TRACK_CAPACITY];
@@ -28,6 +31,11 @@ static _cv _resolve(seq_cold_domain_t domain) {
             return (_cv){ (const void *)&legacy->project,
                           sizeof(legacy->project) };
         }
+        case SEQ_COLDV_HOLD_SLOTS:
+            if (g_hold_slots_size > 0U) {
+                return (_cv){ (const void *)g_hold_slots, g_hold_slots_size };
+            }
+            return (_cv){ NULL, 0U };
         case SEQ_COLDV_CART_META: {
             const seq_runtime_blocks_t *blocks = seq_runtime_blocks_get();
             if ((blocks == NULL) || (blocks->cold_impl == NULL)) {
@@ -40,7 +48,6 @@ static _cv _resolve(seq_cold_domain_t domain) {
                           sizeof(legacy->project.tracks) };
         }
         case SEQ_COLDV_UI_SHADOW:
-        case SEQ_COLDV_HOLD_SLOTS:
         default:
             return (_cv){ NULL, 0U };
     }
