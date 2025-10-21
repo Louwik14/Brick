@@ -149,7 +149,7 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
     }
 
 #if SEQ_USE_HANDLES
-    // MP4b: single-site migration to Reader
+    // MP4c: Reader-backed lookup (no behavior change)
     seq_track_handle_t active = seq_reader_get_active_track_handle();
     seq_track_handle_t h = seq_reader_make_handle(active.bank, active.pattern, active.track);
     const uint8_t step_idx = (uint8_t)(s_engine.reader.step_index % SEQ_MODEL_STEPS_PER_TRACK);
@@ -159,15 +159,17 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
 
     seq_step_view_t view;
     if (seq_reader_get_step(h, step_idx, &view)) {
-        seq_plock_iter_t it;
-        if (seq_reader_plock_iter_open(h, step_idx, &it)) {
-            uint16_t pid;
-            int32_t val;
-            while (seq_reader_plock_iter_next(&it, &pid, &val)) {
-                if (pid == payload->parameter_id) {
-                    value = _runner_clamp_u8((int16_t)val);
-                    have_value = true;
-                    break;
+        if ((view.flags & SEQ_STEPF_HAS_CART_PLOCK) != 0U) {
+            seq_plock_iter_t it;
+            if (seq_reader_plock_iter_open(h, step_idx, &it)) {
+                uint16_t pid;
+                int32_t val;
+                while (seq_reader_plock_iter_next(&it, &pid, &val)) {
+                    if (pid == payload->parameter_id) {
+                        value = _runner_clamp_u8((int16_t)val);
+                        have_value = true;
+                        break;
+                    }
                 }
             }
         }

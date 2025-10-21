@@ -249,6 +249,7 @@ lint-cppcheck:
 apps/seq_led_bridge.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
 apps/seq_led_bridge.o: check_no_legacy_includes_led
 apps/seq_engine_runner.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
+apps/seq_engine_runner.o: check_no_legacy_includes_runner
 
 .PHONY: warn_legacy_includes_apps \
 check_no_legacy_includes_led \
