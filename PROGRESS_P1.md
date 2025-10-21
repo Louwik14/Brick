@@ -57,3 +57,14 @@
 - Handles maintenus OFF globalement ; migration fichier-par-fichier prévue MP3/MP4 avec opt-in ciblé et garde-fous bloquants.
 ### Blocages & TODO
 - Aucun.
+
+## [2025-10-22 14:30] MP3a — Pré-wire Reader pour bridge LED
+### Étapes réalisées
+- Ajout de `seq_reader_get_active_track_handle()` (déclaré dans `core/seq/reader/seq_reader.h`, implémenté dans `core/seq/reader/seq_reader.c`).
+- Préparation de `apps/seq_led_bridge.c` avec l’include façade `core/seq/seq_access.h` (sans changer le comportement).
+### Tests
+- make check-host : OK (inchangé).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### TODO
+- MP3b : brancher les vraies lectures legacy dans `seq_reader_get_active_track_handle()`.

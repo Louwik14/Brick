@@ -13,6 +13,8 @@
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_runtime.h"
+// MP3a: prepare Reader include (no behavior change)
+#include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
 #include "seq_engine_runner.h"
 #include "seq_recorder.h"
