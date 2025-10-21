@@ -37,3 +37,23 @@
 - Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o (state lecteur en statique négligeable).
 ### Blocages & TODO
 - Aucun.
+
+## [2025-10-22 09:15] MP2 — Plomberie build handles (opt-in par fichier)
+### Contexte lu
+- Makefile racine — points d’accroche `USE_COPT` et hooks `POST_MAKE_ALL_RULE_HOOK`.
+- ARCHITECTURE_FR.md — rappel qu’aucune interface publique ne change.
+- RUNTIME_MULTICART_REPORT.md — baseline mémoire (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### Étapes réalisées
+- Flag global `SEQ_USE_HANDLES=0` injecté via `USE_COPT` (comportement legacy préservé).
+- Règles opt-in par fichier préparées (commentées) pour `apps/seq_led_bridge.c` et `apps/seq_engine_runner.c`.
+- Cible `warn_legacy_includes_apps` ajoutée + accrochée en fin de build (`POST_MAKE_ALL_RULE_HOOK`).
+- Cibles bloquantes prêtes (`check_no_legacy_includes_led`, `check_no_legacy_includes_runner`) sans activation.
+### Tests
+- make -j : ⚠️ KO (toolchain arm-none-eabi-gcc absente, inchangé vs MP1).
+- make check-host : OK.
+### Audits mémoire
+- Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o.
+### Décisions
+- Handles maintenus OFF globalement ; migration fichier-par-fichier prévue MP3/MP4 avec opt-in ciblé et garde-fous bloquants.
+### Blocages & TODO
+- Aucun.

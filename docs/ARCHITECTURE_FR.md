@@ -292,3 +292,5 @@ Prochain lot : migrer les tables MIDI communes (noms de notes, mappings cart) et
 ---
 
 **Note P1 (MP0, 2025-10-21)** — Ajout des façades `core/seq/seq_access.h` et API Reader squelettique pour préparer la migration handles (voir PROGRESS_P1.md).
+
+**Note P1 (MP2, 2025-10-22)** — Plomberie build (opt-in par fichier, garde-fous grep), détails dans PROGRESS_P1.md.

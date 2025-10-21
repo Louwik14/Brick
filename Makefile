@@ -25,6 +25,8 @@ else
 endif
 
 USE_COPT += $(WARNINGS_FLAGS)
+# P1/MP2 — handles plumbing: keep legacy path by default.
+USE_COPT += -DSEQ_USE_HANDLES=0
 
 # C++ specific options here (added to USE_OPT).
 ifeq ($(USE_CPPOPT),)
@@ -241,6 +243,34 @@ lint-cppcheck:
 #
 # Custom rules
 ##############################################################################
+
+# P1/MP2 — handles plumbing scaffolding (no functional change yet).
+# Future opt-in (keep commented until migration in MP3/MP4).
+# apps/seq_led_bridge.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
+# apps/seq_engine_runner.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
+
+.PHONY: warn_legacy_includes_apps \
+check_no_legacy_includes_led \
+check_no_legacy_includes_runner
+
+warn_legacy_includes_apps:
+	@grep -R -nE '#include\s+"seq_(project|model)\.h"' apps || true
+
+check_no_legacy_includes_led:
+	@if grep -nE '#include\s+"seq_(project|model)\.h"' apps/seq_led_bridge.* > /dev/null; then \
+	  echo "Forbidden legacy include in seq_led_bridge.*"; \
+	  grep -nE '#include\s+"seq_(project|model)\.h"' apps/seq_led_bridge.*; \
+	  exit 1; \
+	fi
+
+check_no_legacy_includes_runner:
+	@if grep -nE '#include\s+"seq_(project|model)\.h"' apps/seq_engine_runner.* > /dev/null; then \
+	  echo "Forbidden legacy include in seq_engine_runner.*"; \
+	  grep -nE '#include\s+"seq_(project|model)\.h"' apps/seq_engine_runner.*; \
+	  exit 1; \
+	fi
+
+POST_MAKE_ALL_RULE_HOOK: warn_legacy_includes_apps
 
 HOST_CC ?= gcc
 HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g \
