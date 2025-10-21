@@ -5,11 +5,13 @@
  * @ingroup ui_seq
  */
 
+#include <stddef.h>
 #include <string.h>
 
 #include "ch.h"
 #include "brick_config.h"
 
+#include "core/seq/runtime/seq_runtime_cold.h"
 #include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
 #include "seq_engine_runner.h"
@@ -94,8 +96,9 @@ typedef struct {
     bool mutated;
 } seq_led_bridge_hold_slot_t;
 
-static CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
 UI_RAM_AUDIT(g_hold_slots);
+const size_t g_hold_slots_size = sizeof(g_hold_slots);
 
 #ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
 #define SEQ_LED_BRIDGE_MAX_CART_PARAMS 32U
@@ -139,6 +142,26 @@ static inline uint8_t _clamp_page(uint8_t page) {
 
 static inline bool _valid_step_index(uint16_t absolute) {
     return (absolute < g.total_span) && (absolute < SEQ_MODEL_STEPS_PER_TRACK);
+}
+
+static const seq_led_bridge_hold_slot_t *_hold_slots_view(size_t *out_count) {
+    const seq_cold_view_t view = seq_runtime_cold_view(SEQ_COLDV_HOLD_SLOTS);
+    const bool has_payload = (view._p != NULL) &&
+                             (view._bytes >= sizeof(seq_led_bridge_hold_slot_t));
+    if (has_payload) {
+        const size_t count = view._bytes / sizeof(seq_led_bridge_hold_slot_t);
+        if (count > 0U) {
+            if (out_count != NULL) {
+                *out_count = count;
+            }
+            return (const seq_led_bridge_hold_slot_t *)view._p;
+        }
+    }
+
+    if (out_count != NULL) {
+        *out_count = SEQ_LED_BRIDGE_STEPS_PER_PAGE;
+    }
+    return g_hold_slots;
 }
 
 static inline seq_model_step_t *_step_from_page(uint8_t local_step) {
@@ -351,7 +374,13 @@ static const seq_model_step_t *_hold_step_for_view(uint8_t local, uint16_t absol
         return NULL;
     }
 
-    const seq_led_bridge_hold_slot_t *slot = &g_hold_slots[local];
+    size_t slot_count = 0U;
+    const seq_led_bridge_hold_slot_t *slots = _hold_slots_view(&slot_count);
+    if ((slots == NULL) || (local >= slot_count)) {
+        return NULL;
+    }
+
+    const seq_led_bridge_hold_slot_t *slot = &slots[local];
     if (slot->active && slot->absolute_index == absolute) {
         return &slot->staged;
     }
