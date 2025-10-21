@@ -44,6 +44,9 @@ Principes structurants :
 > **P2/MP8c — Micro-bench Reader** : nouveau test host `seq_rt_timing_tests` (boucle `clock_gettime` sur `seq_reader_get_step`) ajouté à `make check-host`, imprimant `Reader.get_step: <ns>` pour suivre l'évolution des performances côté host.
 > **P2/MP8a — Garde budget hot (host)** : test `seq_hot_budget_tests` mesure Reader/Scheduler/Player (≈2,1 KiB sur hôte) et asserte `<= 64 KiB` sans déplacer la RAM embarquée.
 > **P2/MP8b — Snapshot hot verrouillé** : `seq_runtime_hot_budget.{h,c}` fournit un snapshot compilé (Reader/Scheduler/Player + files RT + scratch), le test host imprime le détail et `_Static_assert` garde la somme ≤64 KiB sans déplacer la RAM embarquée.
+> **P2/MP9a — Plomberie sections** : `seq_config.h` introduit les flags `SEQ_ENABLE_{HOT,COLD}_SECTIONS` et `SEQ_EXPERIMENT_MOVE_ONE_BLOCK` (à `0`), `seq_sections.h` centralise les attributs `SEQ_COLD_SEC`/`SEQ_HOT_SEC`, et le linker script note les placeholders `.hot/.cold` sans les activer par défaut.
+> **P2/MP9b — Comptage cold host** : `seq_runtime_cold_stats.{h,c}` additionne les tailles des vues `SEQ_COLDV_*` et le test `seq_cold_stats_tests` imprime `Cold domains (bytes): project=73128 cart_meta=384 hold_slots=3648 ui_shadow=0 total=77160` pour guider la migration future des blocs froids.【F:core/seq/runtime/seq_runtime_cold_stats.c†L1-L22】【F:tests/seq_cold_stats_tests.c†L1-L15】【d506ed†L68-L70】
+> **P2/MP9c — Essai relocation cold** : `g_hold_slots` est prêt à migrer vers `.cold` via `SEQ_COLD_SEC` lorsque `SEQ_EXPERIMENT_MOVE_ONE_BLOCK=1`; l'essai embarqué (flags forcés via `CFLAGS`) échoue ici faute de toolchain ARM, mais la relocalisation attendue déplacerait 3 648 o de `.bss` vers `.cold` (buffer UI hors ISR).【F:apps/seq_led_bridge.c†L100-L109】【f7aa25†L1-L19】
 
 ### État CCRAM
 

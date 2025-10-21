@@ -16,6 +16,11 @@
 
 SECTIONS
 {
+    /* Example placeholders - keep commented until enabled
+      .hot  (NOLOAD) : { *(.hot .hot.*) } > DTCMRAM
+      .cold          : { *(.cold .cold.*) } > SDRAM
+    */
+
     .data : ALIGN(4)
     {
         PROVIDE(_textdata = LOADADDR(.data));

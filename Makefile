@@ -276,6 +276,7 @@ HOST_SEQ_RUNTIME_CART_META_TEST := $(HOST_TEST_DIR)/seq_runtime_cold_cart_meta_t
 HOST_SEQ_HOT_BUDGET_TEST := $(HOST_TEST_DIR)/seq_hot_budget_tests
 HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST := $(HOST_TEST_DIR)/seq_runtime_cold_hold_slots_tests
 HOST_SEQ_RT_TIMING_TEST := $(HOST_TEST_DIR)/seq_rt_timing_tests
+HOST_SEQ_COLD_STATS_TEST := $(HOST_TEST_DIR)/seq_cold_stats_tests
 
 SEQ_LED_BRIDGE_HOLD_SLOTS_STUB := tests/stubs/seq_led_bridge_hold_slots_stub.c
 
@@ -289,7 +290,7 @@ endif
 
 .PHONY: check-host
 ifeq ($(HOST_CC_AVAILABLE),yes)
-check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST)
+check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
@@ -316,6 +317,8 @@ check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(
 	$(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST)
 	@echo "Running runtime timing microbench"
 	$(HOST_SEQ_RT_TIMING_TEST)
+	@echo "Running runtime cold stats report"
+	$(HOST_SEQ_COLD_STATS_TEST)
 else
 check-host:
 	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
@@ -400,4 +403,9 @@ $(HOST_SEQ_RT_TIMING_TEST): tests/seq_rt_timing_tests.c core/seq/reader/seq_read
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
 	tests/seq_rt_timing_tests.c core/seq/reader/seq_reader.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+
+$(HOST_SEQ_COLD_STATS_TEST): tests/seq_cold_stats_tests.c core/seq/runtime/seq_runtime_cold_stats.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
+	tests/seq_cold_stats_tests.c core/seq/runtime/seq_runtime_cold_stats.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
