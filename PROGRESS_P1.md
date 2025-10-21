@@ -93,3 +93,16 @@
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
 ### Notes
 - Sous-étape A effectuée : exposition des flags Reader pour couvrir les besoins LED sans heuristiques locales.
+
+## [2025-10-24 09:00] MP4a — Pré-wire runner avec façade Reader
+### Étapes réalisées
+- Ajout de l’include `core/seq/seq_access.h` dans `apps/seq_engine_runner.c` (commenté MP4a, sans modifier les includes legacy existants).
+- Fourniture d’un helper inline public `seq_reader_make_handle()` dans `core/seq/reader/seq_reader.h` pour faciliter la création de handles côté apps.
+### Impact
+- Aucun changement de comportement ni de dépendance effective au Reader pour le runner.
+### Tests
+- make check-host : OK (inchangé).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### Notes
+- Prêt pour MP4b : opt-in ciblé + migration d’un premier site de lecture.
