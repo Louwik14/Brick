@@ -10,6 +10,7 @@
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_model.h"
 #include "core/ram_audit.h"
+#include "core/seq/runtime/seq_runtime_layout.h"
 
 struct seq_runtime {
     seq_project_t     project;
@@ -19,6 +20,7 @@ struct seq_runtime {
 seq_runtime_t g_seq_runtime;UI_RAM_AUDIT(g_seq_runtime);
 
 void seq_runtime_init(void) {
+    seq_runtime_layout_reset_aliases();
     memset(&g_seq_runtime, 0, sizeof(g_seq_runtime));
 
     seq_project_init(&g_seq_runtime.project);
@@ -29,6 +31,8 @@ void seq_runtime_init(void) {
     }
 
     (void)seq_project_set_active_track(&g_seq_runtime.project, 0U);
+
+    seq_runtime_layout_attach_aliases((const void*)&g_seq_runtime, (const void*)&g_seq_runtime);
 }
 
 const seq_project_t *seq_runtime_get_project(void) {

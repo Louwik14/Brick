@@ -33,6 +33,12 @@ Principes structurants :
 
 * `g_seq_runtime` (101 448 o) réside intégralement en SRAM principale (`.bss`). Le futur split `seq_runtime_hot_t` / `seq_runtime_cold_t` devra préserver l'ordre Reader → Scheduler → Player décrit dans `SEQ_BEHAVIOR.md` (§3-5) tout en ramenant la zone hot ≤64 KiB.【F:SEQ_BEHAVIOR.md†L60-L109】
 
+> **P2/MP6a — Préparation split hot/cold :** introduction des types opaques `seq_runtime_hot_t` / `seq_runtime_cold_t` et de la poignée interne `seq_runtime_blocks_t`. Les implémentations pointent encore vers `g_seq_runtime` (alias) et définissent les budgets cibles (hot ≤ 64 KiB). Aucun déplacement mémoire ni variation des audits à ce stade.
+>
+> **P2/MP6b — Reader** : les accès Reader → runtime passent par `seq_runtime_blocks_get()` (alias interne) pour préparer la barrière hot/cold, sans impact fonctionnel ni delta mémoire.
+>
+> **P2/MP6c — Init 2 phases** : `seq_runtime_layout_reset_aliases()` (Phase 1) neutralise les pointeurs avant l'init legacy, puis `seq_runtime_layout_attach_aliases()` (Phase 2) rattache `g_seq_runtime` en alias hot/cold. Aucune donnée n’est déplacée à ce stade ; prochaine étape P2/MP7 : extraction progressive du cold hors du chemin temps réel.
+
 ### État CCRAM
 
 * Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique ; seuls les symboles de section (`__ram4_*`) subsistent dans `tools/audit/audit_ram4_symbols.txt` (aucune donnée réelle chargée).【F:tools/audit/audit_ram4_symbols.txt†L1-L8】

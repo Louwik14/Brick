@@ -130,3 +130,50 @@
 - Inchangés vs baseline (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
 ### Notes
 - Aucun changement fonctionnel : pipeline Reader → Scheduler → Player intact, mêmes gardes mémoires.
+
+## [2025-10-27 09:00] MP6a — Préparer le split hot/cold (types + budgets)
+### Contexte lu
+- docs/ARCHITECTURE_FR.md — contraintes SRAM et futur split hot/cold.
+- RUNTIME_MULTICART_REPORT.md — baseline audits (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+- SEQ_BEHAVIOR.md — rappel pipeline Reader → Scheduler → Player, mute appliqué côté Reader.
+### Étapes réalisées
+- Création de `core/seq/runtime/seq_runtime_layout.h` (types opaques, budgets cibles hot/cold) et `core/seq/runtime/seq_runtime_layout.c` (alias internes sur `g_seq_runtime`).
+- Nouveau test host `tests/seq_runtime_layout_tests.c` validant `sizeof`, alias non nuls et logs budget.
+- Mise à jour du Makefile : compilation/exécution du test via `make check-host`.
+- Documentation : encart MP6a dans `docs/ARCHITECTURE_FR.md`.
+### Tests
+- make check-host : OK.
+### Audits mémoire
+- Inchangés : alias uniquement, pas de delta `.bss` / `.data` / `.ram4`.
+### Notes
+- Aucun changement fonctionnel ; API interne uniquement (`seq_runtime_blocks_get()`).
+
+## [2025-10-27 14:00] MP6b — Reader via seq_runtime_blocks_get()
+### Contexte lu
+- docs/ARCHITECTURE_FR.md — encart MP6a, objectif barrière hot/cold.
+- SEQ_BEHAVIOR.md — invariants pipeline Reader → Scheduler → Player.
+### Étapes réalisées
+- `core/seq/reader/seq_reader.c` inclut `seq_runtime_layout.h` et résout désormais les projets/tracks via `seq_runtime_blocks_get()` (alias sur `g_seq_runtime`).
+- Aucun export modifié : la vue `seq_step_view_t` reste copiée localement.
+### Tests
+- make check-host : OK.
+### Audits mémoire
+- Inchangés (alias uniquement, aucun nouveau symbole BSS/Data).
+### Notes
+- La dépendance Reader ↔ runtime passe par la barrière hot/cold préparée en MP6a.
+
+## [2025-10-28 09:30] MP6c — Init runtime en deux phases (alias)
+### Contexte lu
+- docs/ARCHITECTURE_FR.md — jalons P2/MP6a-b, contraintes hot ≤64 KiB.
+- SEQ_BEHAVIOR.md — séquence d'init runtime avant Reader/Scheduler/Player.
+### Étapes réalisées
+- API `seq_runtime_layout_reset_aliases()` / `seq_runtime_layout_attach_aliases()` ajoutée dans `seq_runtime_layout.h/.c`.
+- `seq_runtime_init()` applique désormais Phase 1 (reset) puis Phase 2 (attach alias sur `g_seq_runtime`).
+- Test host étendu : vérifie cycle reset/attach et restauration des alias.
+- Documentation mise à jour (`docs/ARCHITECTURE_FR.md`) avec diagramme de phases.
+### Tests
+- make check-host : OK.
+### Audits mémoire
+- Inchangés : alias uniquement, aucune nouvelle allocation.
+### Notes
+- Prépare la future séparation physique hot/cold sans déplacer les données existantes.

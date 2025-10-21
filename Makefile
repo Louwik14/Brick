@@ -268,6 +268,7 @@ HOST_UI_EDGE_TEST   := $(HOST_TEST_DIR)/ui_mode_edgecase_tests
 HOST_UI_TRACK_PMUTE_TEST := $(HOST_TEST_DIR)/ui_track_pmute_regression_tests
 HOST_SEQ_TRACK_CODEC_TEST := $(HOST_TEST_DIR)/seq_track_codec_tests
 HOST_SEQ_READER_TEST := $(HOST_TEST_DIR)/seq_reader_tests
+HOST_SEQ_RUNTIME_LAYOUT_TEST := $(HOST_TEST_DIR)/seq_runtime_layout_tests
 
 ifeq ($(OS),Windows_NT)
 HOST_CC_AVAILABLE := $(strip $(shell where $(HOST_CC) >NUL 2>NUL && echo yes))
@@ -279,7 +280,7 @@ endif
 
 .PHONY: check-host
 ifeq ($(HOST_CC_AVAILABLE),yes)
-check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST)
+check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
@@ -294,6 +295,8 @@ check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(
 	$(HOST_SEQ_TRACK_CODEC_TEST)
 	@echo "Running reader facade tests"
 	$(HOST_SEQ_READER_TEST)
+	@echo "Running runtime layout tests"
+	$(HOST_SEQ_RUNTIME_LAYOUT_TEST)
 else
 check-host:
 	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
@@ -306,16 +309,16 @@ $(HOST_SEQ_MODEL_TEST): tests/seq_model_tests.c core/seq/seq_model.c core/seq/se
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. $^ -o $@
 
-$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
+$(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-                tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c \
+		tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c \
 		apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
 
-$(HOST_UI_MODE_TEST): tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
+$(HOST_UI_MODE_TEST): tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-                tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c \
+		tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c \
 		apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
 
 $(HOST_UI_EDGE_TEST): tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/ui_shortcuts.c \
@@ -327,25 +330,29 @@ $(HOST_UI_EDGE_TEST): tests/ui_mode_edgecase_tests.c ui/ui_mode_transition.c ui/
 
 $(HOST_UI_TRACK_PMUTE_TEST): tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
                 ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c ui/ui_led_layout.c \
-                apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c \
-		tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
-		tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
-		tests/stubs/board_flash_stub.c
+                apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c \
+                tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
+                tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
+                tests/stubs/board_flash_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -Idrivers -I. \
 		tests/ui_track_pmute_regression_tests.c ui/ui_backend.c ui/ui_shortcuts.c \
-                ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c ui/ui_led_layout.c \
-                apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c \
+		ui/ui_mode_transition.c ui/ui_mute_backend.c ui/ui_led_backend.c ui/ui_led_seq.c ui/ui_led_layout.c \
+		apps/seq_led_bridge.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c \
 		tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_backend_test_stubs.c \
 		tests/stubs/drv_leds_addr_stub.c tests/stubs/ui_overlay_stub.c tests/stubs/ui_model_stub.c \
 		tests/stubs/board_flash_stub.c -o $@
-
 $(HOST_SEQ_TRACK_CODEC_TEST): tests/seq_track_codec_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -DBRICK_EXPERIMENTAL_PATTERN_CODEC_V2=1 -I. -Icore -Icart -Iboard \
 		tests/seq_track_codec_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c -o $@
 
-$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c
+$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
-		tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c -o $@
+		tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c -o $@
+
+$(HOST_SEQ_RUNTIME_LAYOUT_TEST): tests/seq_runtime_layout_tests.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard -Iui \
+		tests/seq_runtime_layout_tests.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c -o $@
