@@ -1,20 +1,9 @@
-                0x10000000                        __ram4_base__ = ORIGIN (ram4)
-                0x00010000                        __ram4_size__ = LENGTH (ram4)
-                0x10010000                        __ram4_end__ = (__ram4_base__ + __ram4_size__)
-.ram4_init      0x10000000        0x0 load address 0x08028eb0
-                0x08028eb0                        __ram4_init_text__ = LOADADDR (.ram4_init)
-                0x10000000                        __ram4_init__ = .
+.ram4_init      0x10000000        0x0 load address 0x080296b4
+                0x080296b4                __ram4_init_text__ = LOADADDR (.ram4_init)
  *(.ram4_init)
  *(.ram4_init.*)
-.ram4           0x10000000        0x0 load address 0x08028eb0
-                0x10000000                        __ram4_clear__ = .
+.ram4           0x10000000        0x0 load address 0x080296b4
  *(.ram4_clear)
  *(.ram4_clear.*)
-                0x10000000                        __ram4_noinit__ = .
  *(.ram4)
  *(.ram4.*)
-                0x10000000                        __ram4_free__ = .
-__ram4_clear__                                    ./build/obj/crt1.o
-__ram4_init__                                     ./build/obj/crt1.o
-__ram4_init_text__                                ./build/obj/crt1.o
-__ram4_noinit__                                   ./build/obj/crt1.o

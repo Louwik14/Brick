@@ -1,5 +1,5 @@
 00010000 A __ram4_size__
-08028eb0 A __ram4_init_text__
+080296b4 A __ram4_init_text__
 10000000 B __ram4_base__
 10000000 ? __ram4_clear__
 10000000 ? __ram4_free__

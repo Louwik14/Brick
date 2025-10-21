@@ -50,17 +50,19 @@
 /* =======================================================================
  *   Encodeurs : profil d’accélération et “flick”
  * ======================================================================= */
-#define ENC_TICKS_PER_STEP   8        /**< Nombre de ticks matériels par pas logique. */
-#define ENC_ACCEL_TAU_MS     120.0f   /**< Constante de temps EMA pour la vitesse. */
-#define ENC_ACCEL_V0         50.0f    /**< Seuil de début d’accélération. */
-#define ENC_ACCEL_V1         300.0f   /**< Seuil haut de la zone accélérée. */
-#define ENC_ACCEL_G1         0.010f   /**< Gain de pente pour zone moyenne. */
-#define ENC_ACCEL_G2         0.003f   /**< Gain de pente pour zone haute. */
-#define ENC_ACCEL_MAX        10.0f    /**< Multiplicateur maximum. */
+#define ENC_TICKS_PER_STEP   4
 
-#define ENC_FLICK_THRESH     600.0f   /**< Seuil de détection d’un flick rapide. */
-#define ENC_FLICK_GAIN       0.003f   /**< Gain ajouté lors d’un flick. */
-#define ENC_FLICK_TAU_MS     150.0f   /**< Durée de décroissance du flick. */
+#define ENC_ACCEL_TAU_MS     50.0f
+#define ENC_ACCEL_V0         100.0f
+#define ENC_ACCEL_V1         200.0f
+#define ENC_ACCEL_G1         0.080f
+#define ENC_ACCEL_G2         0.025f
+#define ENC_ACCEL_MAX        36.0f
+
+#define ENC_FLICK_THRESH     100.0f
+#define ENC_FLICK_GAIN       0.010f
+#define ENC_FLICK_TAU_MS     100.0f
+
 
 /* =======================================================================
  *   Threads & Timings de l’interface utilisateur

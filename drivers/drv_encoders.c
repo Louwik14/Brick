@@ -23,7 +23,7 @@
 
 /* fallback si pas défini dans encoders.h */
 #ifndef ENC_TICKS_PER_STEP
-#define ENC_TICKS_PER_STEP 8
+#define ENC_TICKS_PER_STEP 4
 #endif
 /* =======================================================================
  * Accélération EMA + Flick
@@ -49,6 +49,11 @@ typedef struct {
 } enc_accel_state_t;
 
 static enc_accel_state_t g_accel[NUM_ENCODERS];
+
+/* Accumulateurs de sous-ticks → steps */
+static int16_t s_tick_residue_raw[NUM_ENCODERS] = {0};
+static int16_t s_tick_residue_acc[NUM_ENCODERS] = {0};
+
 
 /* ------------ Helpers ------------ */
 static inline int16_t encoder_get_x1_hw(volatile uint32_t *cnt) {
@@ -159,18 +164,22 @@ void encoder_reset(encoder_id_t id) {
     states[id].last_time    = chVTGetSystemTime();
     g_accel[id].vel_ema     = 0.0f;
     g_accel[id].impulse     = 0.0f;
+    s_tick_residue_raw[id] = 0;
+    s_tick_residue_acc[id] = 0;
 }
+
 
 int16_t drv_encoder_get_delta(encoder_id_t id) {
     int16_t current = drv_encoder_get(id);
     int16_t delta   = current - last_values[id];
     last_values[id] = current;
 
-    /* Normaliser en pas utilisateur */
-    int steps = delta / ENC_TICKS_PER_STEP;
-    if (steps == 0 && delta != 0) {
-        steps = (delta > 0) ? 1 : -1;
-    }
+    /* Accumule les sous-ticks (X4) — reset si inversion de sens pour compter le 1er cran */
+    int32_t acc = (int32_t)s_tick_residue_raw[id];
+    if ((acc > 0 && delta < 0) || (acc < 0 && delta > 0)) acc = 0;
+    acc += (int32_t)delta;
+    int16_t steps = (int16_t)(acc / ENC_TICKS_PER_STEP);
+    s_tick_residue_raw[id] = (int16_t)(acc - (int32_t)steps * ENC_TICKS_PER_STEP);
     return steps;
 }
 
@@ -227,13 +236,18 @@ int16_t drv_encoder_get_delta_accel(encoder_id_t id) {
     if (out_mag == 0 && mag > 0) out_mag = 1;
     int out_ticks = sign * out_mag;
 
-    /* → Normalisation en pas utilisateur */
-    int steps = out_ticks / ENC_TICKS_PER_STEP;
-    if (steps == 0 && out_ticks != 0) {
-        steps = (out_ticks > 0) ? 1 : -1;
-    }
 
-    if (steps >  32767) steps =  32767;
-    if (steps < -32768) steps = -32768;
-    return (int16_t)steps;
+/* → Normalisation en pas utilisateur (par cran), avec accumulation
+   Reset du résidu si inversion de sens pour ne pas perdre le 1er cran */
+int32_t acc = (int32_t)s_tick_residue_acc[id];
+if ((acc > 0 && out_ticks < 0) || (acc < 0 && out_ticks > 0)) acc = 0;
+acc += (int32_t)out_ticks;
+int32_t steps32 = acc / ENC_TICKS_PER_STEP;
+s_tick_residue_acc[id] = (int16_t)(acc - steps32 * ENC_TICKS_PER_STEP);
+if (steps32 >  32767) steps32 =  32767;
+if (steps32 < -32768) steps32 = -32768;
+return (int16_t)steps32;
 }
+
+
+void drv_encoder_reset(encoder_id_t id) { encoder_reset(id); }

@@ -1,15 +1,15 @@
-build/ch.elf  :
+build\ch.elf  :
 section              size         addr
 .mstack              1024    536870912
 .pstack              1024    536871936
 .vectors              480    134217728
-.text               97944    134218240
-.rodata             67344    134316184
-.ARM.exidx              8    134383528
-.data                1792    536872960
-.bss               130220    536874752
-.ram0_init              0    537004972
-.ram0                   0    537004972
+.text               99908    134218240
+.rodata             67432    134318152
+.ARM.exidx              8    134385584
+.data                1788    536872960
+.bss               130184    536874752
+.ram0_init              0    537004936
+.ram0                   0    537004936
 .ram1_init              0    536870912
 .ram1                   0    536870912
 .ram2_init              0    536985600
@@ -26,16 +26,16 @@ section              size         addr
 .ram7                   0            0
 .heap                   0            0
 .ARM.attributes        47            0
-.comment               38            0
-.debug_line        255029            0
-.debug_line_str       525            0
-.debug_info        515465            0
-.debug_abbrev      100311            0
-.debug_aranges      11144            0
-.debug_str          61623            0
-.debug_loclists    202883            0
-.debug_rnglists     27530            0
-.debug_frame        29324            0
-Total             1503755
+.comment               51            0
+.debug_line        287312            0
+.debug_line_str       674            0
+.debug_info        540671            0
+.debug_abbrev      104512            0
+.debug_aranges      11840            0
+.debug_str          65361            0
+.debug_loclists    212620            0
+.debug_rnglists     29144            0
+.debug_frame        30724            0
+Total             1584804
 
 
