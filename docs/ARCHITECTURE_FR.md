@@ -49,6 +49,7 @@ Principes structurants :
 > **P2/MP9c — Essai relocation cold** : `g_hold_slots` est prêt à migrer vers `.cold` via `SEQ_COLD_SEC` lorsque `SEQ_EXPERIMENT_MOVE_ONE_BLOCK=1`; l'essai embarqué (flags forcés via `CFLAGS`) échoue ici faute de toolchain ARM, mais la relocalisation attendue déplacerait 3 648 o de `.bss` vers `.cold` (buffer UI hors ISR).【F:apps/seq_led_bridge.c†L100-L109】【f7aa25†L1-L19】
 > **P2/MP10 — RT safety** : l’API `seq_rt_phase_*` marque `BOOT/IDLE/TICK`, la façade `seq_runtime_cold_view()` déclenche un assert host + compteur si appelée en phase TICK, une règle CI (`check_no_cold_in_rt_sources`) bloque l’inclusion directe de `seq_runtime_cold.h` dans Scheduler/Player, et `make check-host` trace `cold_view_calls_in_tick(host): <n>` pour tout accès anormal.
 > **P2/MP11 — Audit symboles RT** : la règle `audit_rt_symbols` (`nm` + `grep` sur les objets Player/Scheduler) est branchée sur `POST_MAKE_ALL_RULE_HOOK` pour empêcher toute référence à `seq_runtime_cold_*` dans le chemin TICK, et un smoke test host (`seq_rt_path_smoke`) valide la transition BOOT→IDLE→TICK→IDLE sans déclencher la façade cold.
+> **P2/MP13a — Stress host 16 tracks** : banc host synthétique (16 pistes actives) exerçant Reader→Scheduler→Player avec un sink MIDI stub comptant NOTE_ON/OFF ; `make check-host` vérifie l’absence de ticks silencieux et trace `16-track stress: … silent_ticks=0`.
 
 ### P2 — État atteint (F429 sans SDRAM)
 
