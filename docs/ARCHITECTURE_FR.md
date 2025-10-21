@@ -41,6 +41,7 @@ Principes structurants :
 > **P2/MP7b — Première vue cold** : `seq_runtime_cold_view()` expose une vue `(ptr, bytes)` en lecture seule pour `SEQ_COLDV_PROJECT`, renvoyant l'alias legacy `g_seq_runtime.project`. Le Reader consomme désormais cette façade plutôt que caster directement les alias hot/cold. Les audits `.data/.bss/.ram4` restent inchangés.
 > **P2/MP7c — Cart metadata** : second domaine cold (`SEQ_COLDV_CART_META`) exposé sur `g_seq_runtime.project.tracks`, `seq_pattern_save()` lit désormais ces métadonnées via la façade et un test host dédié verrouille `ptr != NULL` et `bytes > 0`.
 > **P2/MP8a — Garde budget hot (host)** : test `seq_hot_budget_tests` mesure Reader/Scheduler/Player (≈2,1 KiB sur hôte) et asserte `<= 64 KiB` sans déplacer la RAM embarquée.
+> **P2/MP8b — Snapshot hot verrouillé** : `seq_runtime_hot_budget.{h,c}` fournit un snapshot compilé (Reader/Scheduler/Player + files RT + scratch), le test host imprime le détail et `_Static_assert` garde la somme ≤64 KiB sans déplacer la RAM embarquée.
 
 ### État CCRAM
 
