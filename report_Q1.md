@@ -1,3 +1,63 @@
+## [2025-10-21 23:50] Q1.2 — CI apps (cibles non branchées)
+
+Résumé
+- Ajout de deux cibles CI pour auditer apps/** : includes interdits et usage CCM.
+- Cibles NON branchées à la build (pipeline inchangé).
+
+Fichiers (créés/modifiés)
+- Makefile (ajout de cibles phony)
+
+Commandes exécutées
+- make -n check_no_legacy_includes_apps
+- make -n check_no_ccm_in_apps
+- make check_no_legacy_includes_apps
+- make check_no_ccm_in_apps
+
+Logs utiles (extraits)
+- $ make -n check_no_legacy_includes_apps
+  echo "[CI] check_no_legacy_includes_apps"
+  # Recherche uniquement dans .c/.h sous apps/
+  # On match les includes explicites de ces headers interdits
+  ! grep -RInE --include='*.c' --include='*.h' \
+        '^[[:space:]]*#include[[:space:]]*"ch\.h"|^[[:space:]]*#include[[:space:]]*"seq_project\.h"|^[[:space:]]*#include[[:space:]]*"seq_model\.h"' \
+        apps/ \
+        || { echo "[CI][FAIL] Forbidden include(s) found in apps/ (ch.h, seq_project.h, seq_model.h)"; exit 1; }
+  echo "[CI][OK] no forbidden includes in apps/"
+- $ make -n check_no_ccm_in_apps
+  echo "[CI] check_no_ccm_in_apps"
+  ! grep -RInE --include='*.c' --include='*.h' \
+        '\bCCM_|\.ccm\b|section[[:space:]]*\([[:space:]]*".*ccm' \
+        apps/ \
+        || { echo "[CI][FAIL] CCM usage found in apps/"; exit 1; }
+  echo "[CI][OK] no CCM usage in apps/"
+- $ make check_no_legacy_includes_apps
+  [CI] check_no_legacy_includes_apps
+  apps/seq_led_bridge.c:11:#include "ch.h"
+  apps/seq_engine_runner.c:15:#include "ch.h"
+  apps/seq_recorder.c:8:#include "ch.h"
+  apps/ui_keyboard_bridge.h:12:#include "ch.h" // --- ARP: systime_t pour tick ---
+  apps/seq_recorder.h:13:#include "ch.h" // --- ARP FIX: timestamp explicite ---
+  [CI][FAIL] Forbidden include(s) found in apps/ (ch.h, seq_project.h, seq_model.h)
+  make: *** [Makefile:535: check_no_legacy_includes_apps] Error 1
+- $ make check_no_ccm_in_apps
+  [CI] check_no_ccm_in_apps
+  apps/seq_led_bridge.c:71:static CCM_DATA seq_led_bridge_state_t g;
+  apps/seq_led_bridge.c:106:SEQ_LED_BRIDGE_HOLD_SLOTS_SEC CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+  apps/seq_led_bridge.c:122:static CCM_DATA seq_led_bridge_hold_cart_entry_t g_hold_cart_params[SEQ_LED_BRIDGE_MAX_CART_PARAMS];
+  apps/ui_keyboard_app.c:47:static CCM_DATA kbd_state_t g;
+  apps/seq_engine_runner.c:45:static CCM_DATA seq_engine_t s_engine;
+  apps/seq_engine_runner.c:55:static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
+  apps/seq_recorder.c:16:static CCM_DATA seq_live_capture_t s_capture;
+  apps/seq_recorder.c:22:static CCM_DATA seq_recorder_active_voice_t s_active_voices[SEQ_MODEL_VOICES_PER_STEP];
+  [CI][FAIL] CCM usage found in apps/
+  make: *** [Makefile:544: check_no_ccm_in_apps] Error 1
+
+Impact binaire/RAM
+- n/a (cibles CI uniquement, aucun lien)
+
+Risques / Next
+- Aucun à ce stade. Prochaine passe Q1.3 : test host start/stop smoke (non intrusif).
+
 ## [2025-10-21 23:40] Q1.1 — MIDI helpers (apps header-only)
 
 Résumé

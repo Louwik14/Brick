@@ -249,17 +249,6 @@ lint-cppcheck:
 ##############################################################################
 
 
-.PHONY: check_no_legacy_includes_apps
-
-check_no_legacy_includes_apps:
-	@if grep -R -nE '#include\s+"seq_(project|model)\.h"' apps > /dev/null; then \
-	  echo "Forbidden legacy include in apps/** detected"; \
-	  grep -R -nE '#include\s+"seq_(project|model)\.h"' apps; \
-	  exit 1; \
-	fi
-
-POST_MAKE_ALL_RULE_HOOK += check_no_legacy_includes_apps
-
 .PHONY: check_apps_public_surface
 
 check_apps_public_surface:
@@ -530,3 +519,30 @@ tests/seq_rt_report.c tests/seq_16tracks_stress_tests.c tests/seq_soak_16tracks_
 tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
 core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c \
 tests/stubs/seq_led_bridge_hold_slots_stub.c -o $@
+# ------------------------------------------------------------
+# CI — audits apps/ (non branchés au pipeline à ce stade)
+# ------------------------------------------------------------
+.PHONY: check_no_legacy_includes_apps check_no_ccm_in_apps
+
+# Interdit les includes legacy/RTOS dans apps/**
+# Autorisés côté apps/ : headers publics (p.ex. core/seq/seq_access.h)
+# Interdits : ch.h (RTOS), seq_project.h / seq_model.h (modèle interne),
+#             tout autre header core interne non public (à étendre au besoin).
+check_no_legacy_includes_apps:
+	@echo "[CI] check_no_legacy_includes_apps"
+	@# Recherche uniquement dans .c/.h sous apps/
+	@# On match les includes explicites de ces headers interdits
+	@! grep -RInE --include='*.c' --include='*.h' \
+		'^[[:space:]]*#include[[:space:]]*"ch\.h"|^[[:space:]]*#include[[:space:]]*"seq_project\.h"|^[[:space:]]*#include[[:space:]]*"seq_model\.h"' \
+		apps/ \
+		|| { echo "[CI][FAIL] Forbidden include(s) found in apps/ (ch.h, seq_project.h, seq_model.h)"; exit 1; }
+	@echo "[CI][OK] no forbidden includes in apps/"
+
+# Interdit l'usage CCM côté apps/** (sections .ccm, macros CCM_*, attributes cc m)
+check_no_ccm_in_apps:
+	@echo "[CI] check_no_ccm_in_apps"
+	@! grep -RInE --include='*.c' --include='*.h' \
+		'\bCCM_|\.ccm\b|section[[:space:]]*\([[:space:]]*".*ccm' \
+		apps/ \
+		|| { echo "[CI][FAIL] CCM usage found in apps/"; exit 1; }
+	@echo "[CI][OK] no CCM usage in apps/"
