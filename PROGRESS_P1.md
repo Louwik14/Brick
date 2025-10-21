@@ -324,3 +324,13 @@
 - make check-host : OK (`LED snapshot diffs: 0`).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+
+## [2025-11-05 15:00] MP13a — Stress host 16 tracks
+### Étapes réalisées
+- Nouveau banc host `tests/seq_16tracks_stress_tests.c` : pattern synthétique 16 pistes, boucle tick Reader→Scheduler→Player avec callbacks MIDI stub comptant NOTE_ON/OFF et résumé des statistiques.
+- Stubs ChibiOS enrichis (`tests/stubs/ch.h/.c`) pour fournir mutex, sémaphores binaires et horloge hôte requis par `seq_engine.c`.
+- Cible `seq_16tracks_stress_tests` ajoutée à `make check-host` (compilation + exécution dans la chaîne existante).
+### Tests
+- make check-host : OK (`16-track stress: ... silent_ticks=0`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.

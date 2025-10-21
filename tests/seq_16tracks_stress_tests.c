@@ -1,0 +1,184 @@
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "ch.h"
+#include "core/clock_manager.h"
+#include "core/seq/seq_engine.h"
+#include "core/seq/seq_model.h"
+
+#define STRESS_TRACK_COUNT 16U
+#define STRESS_TICK_COUNT (SEQ_MODEL_STEPS_PER_TRACK * 8U)
+#define STRESS_STEP_DURATION 24U
+
+static unsigned g_tick_events = 0U;
+static unsigned g_silent_ticks = 0U;
+static unsigned g_total_events = 0U;
+
+static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
+    (void)note_on;
+    (void)scheduled_time;
+    ++g_tick_events;
+    ++g_total_events;
+    return MSG_OK;
+}
+
+static msg_t host_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time) {
+    (void)note_off;
+    (void)scheduled_time;
+    ++g_tick_events;
+    ++g_total_events;
+    return MSG_OK;
+}
+
+static msg_t host_plock_cb(const seq_engine_plock_t *plock, systime_t scheduled_time) {
+    (void)plock;
+    (void)scheduled_time;
+    return MSG_OK;
+}
+
+typedef struct {
+    seq_model_track_t track;
+    seq_engine_t engine;
+} track_ctx_t;
+
+static void host_dispatch_event(seq_engine_t *engine, const seq_engine_event_t *event) {
+    if ((engine == NULL) || (event == NULL)) {
+        return;
+    }
+
+    switch (event->type) {
+    case SEQ_ENGINE_EVENT_NOTE_ON: {
+        const seq_engine_note_on_t *note_on = &event->data.note_on;
+        if (note_on->voice < SEQ_MODEL_VOICES_PER_STEP) {
+            engine->voice_active[note_on->voice] = true;
+            engine->voice_note[note_on->voice] = note_on->note;
+        }
+        if (engine->config.callbacks.note_on != NULL) {
+            engine->config.callbacks.note_on(note_on, event->scheduled_time);
+        }
+        break;
+    }
+    case SEQ_ENGINE_EVENT_NOTE_OFF: {
+        const seq_engine_note_off_t *note_off = &event->data.note_off;
+        if (note_off->voice < SEQ_MODEL_VOICES_PER_STEP) {
+            engine->voice_active[note_off->voice] = false;
+            engine->voice_note[note_off->voice] = note_off->note;
+        }
+        if (engine->config.callbacks.note_off != NULL) {
+            engine->config.callbacks.note_off(note_off, event->scheduled_time);
+        }
+        break;
+    }
+    case SEQ_ENGINE_EVENT_PLOCK: {
+        if (engine->config.callbacks.plock != NULL) {
+            engine->config.callbacks.plock(&event->data.plock, event->scheduled_time);
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+static void init_track_pattern(track_ctx_t *ctx, uint8_t track_index) {
+    seq_model_track_init(&ctx->track);
+
+    for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_TRACK; ++step) {
+        if ((step % 4U) != (track_index % 4U)) {
+            continue;
+        }
+
+        seq_model_step_t *slot = &ctx->track.steps[step];
+        seq_model_step_make_neutral(slot);
+        slot->voices[0].note = (uint8_t)(60U + track_index);
+        slot->voices[0].velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+        slot->voices[0].length = 1U;
+        slot->voices[0].state = SEQ_MODEL_VOICE_ENABLED;
+        seq_model_step_recompute_flags(slot);
+    }
+
+    seq_model_gen_bump(&ctx->track.generation);
+}
+
+int main(void) {
+    track_ctx_t ctx[STRESS_TRACK_COUNT];
+    memset(ctx, 0, sizeof(ctx));
+
+    seq_engine_callbacks_t callbacks = {
+        .note_on = host_note_on_cb,
+        .note_off = host_note_off_cb,
+        .plock = host_plock_cb,
+    };
+
+    for (uint8_t i = 0U; i < STRESS_TRACK_COUNT; ++i) {
+        init_track_pattern(&ctx[i], i);
+
+        seq_engine_config_t config = {
+            .track = &ctx[i].track,
+            .callbacks = callbacks,
+            .is_track_muted = NULL,
+        };
+
+        seq_engine_init(&ctx[i].engine, &config);
+        seq_engine_set_callbacks(&ctx[i].engine, &callbacks);
+        seq_engine_attach_track(&ctx[i].engine, &ctx[i].track);
+        ctx[i].engine.clock_attached = true;
+        ctx[i].engine.player.running = true;
+    }
+
+    systime_t current_time = 0U;
+    ch_stub_set_time(current_time);
+
+    for (uint32_t tick = 0U; tick < STRESS_TICK_COUNT; ++tick) {
+        g_tick_events = 0U;
+
+        clock_step_info_t info = {
+            .now = current_time,
+            .step_idx_abs = tick,
+            .bpm = 120.0f,
+            .tick_st = 1U,
+            .step_st = STRESS_STEP_DURATION,
+            .ext_clock = false,
+        };
+
+        for (uint8_t t = 0U; t < STRESS_TRACK_COUNT; ++t) {
+            seq_engine_process_step(&ctx[t].engine, &info);
+        }
+
+        current_time += STRESS_STEP_DURATION;
+        ch_stub_set_time(current_time);
+
+        for (uint8_t t = 0U; t < STRESS_TRACK_COUNT; ++t) {
+            seq_engine_event_t event;
+            while (seq_engine_scheduler_peek(&ctx[t].engine.scheduler, &event) &&
+                   (event.scheduled_time <= current_time)) {
+                (void)seq_engine_scheduler_pop(&ctx[t].engine.scheduler, &event);
+                host_dispatch_event(&ctx[t].engine, &event);
+            }
+        }
+
+        if (g_tick_events == 0U) {
+            ++g_silent_ticks;
+        }
+    }
+
+    double avg = (STRESS_TICK_COUNT > 0U)
+                     ? ((double)g_total_events / (double)STRESS_TICK_COUNT)
+                     : 0.0;
+
+    printf("16-track stress: ticks=%u total_events=%u silent_ticks=%u events_per_tick=%.2f\n",
+           (unsigned)STRESS_TICK_COUNT,
+           g_total_events,
+           g_silent_ticks,
+           avg);
+
+    if ((g_total_events == 0U) || (g_silent_ticks > 0U)) {
+        fprintf(stderr, "error: unexpected silent ticks while pattern emits events\n");
+        return EXIT_FAILURE;
+    }
+
+    return EXIT_SUCCESS;
+}
