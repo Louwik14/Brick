@@ -148,7 +148,37 @@ static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t schedul
         return MSG_OK;
     }
 
+#if SEQ_USE_HANDLES
+    // MP4b: single-site migration to Reader
+    seq_track_handle_t active = seq_reader_get_active_track_handle();
+    seq_track_handle_t h = seq_reader_make_handle(active.bank, active.pattern, active.track);
+    const uint8_t step_idx = (uint8_t)(s_engine.reader.step_index % SEQ_MODEL_STEPS_PER_TRACK);
+
+    uint8_t value = 0U;
+    bool have_value = false;
+
+    seq_step_view_t view;
+    if (seq_reader_get_step(h, step_idx, &view)) {
+        seq_plock_iter_t it;
+        if (seq_reader_plock_iter_open(h, step_idx, &it)) {
+            uint16_t pid;
+            int32_t val;
+            while (seq_reader_plock_iter_next(&it, &pid, &val)) {
+                if (pid == payload->parameter_id) {
+                    value = _runner_clamp_u8((int16_t)val);
+                    have_value = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if (!have_value) {
+        value = _runner_clamp_u8(payload->value);
+    }
+#else
     const uint8_t value = _runner_clamp_u8(payload->value);
+#endif
 
     switch (plock->action) {
     case SEQ_ENGINE_PLOCK_APPLY: {

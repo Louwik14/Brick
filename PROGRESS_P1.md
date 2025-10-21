@@ -106,3 +106,13 @@
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
 ### Notes
 - Prêt pour MP4b : opt-in ciblé + migration d’un premier site de lecture.
+
+## [2025-10-24 15:30] MP4b — Opt-in Reader partiel (runner)
+### Étapes réalisées
+- Migration de `_runner_plock_cb()` dans `apps/seq_engine_runner.c` : lecture du step via Reader (`seq_reader_get_step` + itérateur p-lock) sous `#if SEQ_USE_HANDLES` et fallback legacy intact.
+- Opt-in local activé (`apps/seq_engine_runner.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations`).
+- Garde-fou `check_no_legacy_includes_runner` encore commenté conformément au plan.
+### Tests
+- make check-host : OK.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
