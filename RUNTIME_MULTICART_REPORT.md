@@ -199,11 +199,11 @@ Sans refonte mémoire préalable (A–D), l’extension à 4 tracks violerait Ga
 
 | Étape | Objectif | Impact attendu | Risque | Dépendances clés | Estimation | Vérification |
 | :---- | :------- | :------------- | :----- | :--------------- | :--------- | :----------- |
-| **A1** | Introduire `seq_runtime_hot_t` / `seq_runtime_cold_t` sans déplacer les données (double wrapper + API). | 0 KiB (préparation) | Faible | `seq_runtime_init`, `seq_led_bridge`, `seq_engine_runner`, `seq_project` (pointeurs). | 1,5 j | Build release, `make check-host`, audits identiques (`audit_sections`). |
-| **A2** | Déporter `seq_project` + caches UI non-RT dans `seq_runtime_cold_t`. | ~10 KiB | Modéré | `seq_project_*`, `seq_led_bridge_*project`, sauvegarde/chargement projet. | 2 j | Build OK, audits verts (`audit_ram_top`), vérif UI (smoke). |
-| **A3** | Prototype bit-packing p-locks via structure parallèle + encodeur pilote. | 15–20 KiB | Fort | `seq_model_step_t`, `seq_project_track_steps_encode/decode`, tests codec, UI hold. | 4 j | `make check-host`, nouvel encodeur validé sur pattern de test, audits `sizeof`. |
-| **A4** | Manifest projet compact (charge 1 banque active). | ~10 KiB | Moyen | `seq_project_*descriptor`, `seq_project_load/save`, UI bank/pattern selectors. | 3 j | Migration flash manuelle, tests UI navigation, audits `.bss`. |
-| **A5** | Campagne `sizeof` + audits post-refactor pour Gate A. | 0 KiB | Aucun | Scripts audit (`tools/audit/*`), docs runtime. | 0,5 j | `make -j8 all`, `tools/audit`, check `.ram4 = 0 o`. |
+| **A1** | Introduire `seq_runtime_hot_t` / `seq_runtime_cold_t` sans déplacer les données (double wrapper + API). | 0 KiB (préparation) | Faible | `seq_runtime_init`, `seq_led_bridge`, `seq_engine_runner`, `seq_project` (pointeurs). |  | Build release, `make check-host`, audits identiques (`audit_sections`). |
+| **A2** | Déporter `seq_project` + caches UI non-RT dans `seq_runtime_cold_t`. | ~10 KiB | Modéré | `seq_project_*`, `seq_led_bridge_*project`, sauvegarde/chargement projet. |  | Build OK, audits verts (`audit_ram_top`), vérif UI (smoke). |
+| **A3** | Prototype bit-packing p-locks via structure parallèle + encodeur pilote. | 15–20 KiB | Fort | `seq_model_step_t`, `seq_project_track_steps_encode/decode`, tests codec, UI hold. | | `make check-host`, nouvel encodeur validé sur pattern de test, audits `sizeof`. |
+| **A4** | Manifest projet compact (charge 1 banque active). | ~10 KiB | Moyen | `seq_project_*descriptor`, `seq_project_load/save`, UI bank/pattern selectors. |  | Migration flash manuelle, tests UI navigation, audits `.bss`. |
+| **A5** | Campagne `sizeof` + audits post-refactor pour Gate A. | 0 KiB | Aucun | Scripts audit (`tools/audit/*`), docs runtime. |  | `make -j8 all`, `tools/audit`, check `.ram4 = 0 o`. |
 
 **Notes d’exécution.**
 
