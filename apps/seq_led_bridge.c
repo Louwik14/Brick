@@ -12,6 +12,7 @@
 #include "brick_config.h"
 
 #include "core/seq/runtime/seq_runtime_cold.h"
+#include "core/seq/runtime/seq_sections.h"
 #include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
 #include "seq_engine_runner.h"
@@ -96,9 +97,16 @@ typedef struct {
     bool mutated;
 } seq_led_bridge_hold_slot_t;
 
-CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+#if SEQ_EXPERIMENT_MOVE_ONE_BLOCK
+#define SEQ_LED_BRIDGE_HOLD_SLOTS_SEC SEQ_COLD_SEC
+#else
+#define SEQ_LED_BRIDGE_HOLD_SLOTS_SEC
+#endif
+
+SEQ_LED_BRIDGE_HOLD_SLOTS_SEC CCM_DATA seq_led_bridge_hold_slot_t g_hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
 UI_RAM_AUDIT(g_hold_slots);
 const size_t g_hold_slots_size = sizeof(g_hold_slots);
+#undef SEQ_LED_BRIDGE_HOLD_SLOTS_SEC
 
 #ifndef SEQ_LED_BRIDGE_MAX_CART_PARAMS
 #define SEQ_LED_BRIDGE_MAX_CART_PARAMS 32U

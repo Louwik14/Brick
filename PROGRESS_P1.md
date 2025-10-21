@@ -260,3 +260,35 @@
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation host-only.
 
+## [2025-11-03 09:00] MP9a — Plomberie sections (hot/cold) désactivée par défaut
+### Étapes réalisées
+- `core/seq/seq_config.h` expose trois flags (`SEQ_ENABLE_COLD_SECTIONS`, `SEQ_ENABLE_HOT_SECTIONS`, `SEQ_EXPERIMENT_MOVE_ONE_BLOCK`) forcés à `0` par défaut pour garantir l'absence de relocalisation tant que non demandé.
+- Nouveau header `core/seq/runtime/seq_sections.h` centralisant les attributs `SEQ_COLD_SEC` / `SEQ_HOT_SEC` (expansions vides lorsque les flags restent à `0`).
+- `board/rules_data.ld` documente les placeholders `.hot/.cold` via un bloc commenté à activer ultérieurement.
+### Tests
+- make check-host : OK (inchangé, macros désactivées).
+### Audits mémoire
+- Inchangés — aucun symbole ne cible `.hot/.cold` avec les flags à `0`.
+
+## [2025-11-03 09:45] MP9b — Rapport host des domaines cold
+### Étapes réalisées
+- Implémentation host-only `core/seq/runtime/seq_runtime_cold_stats.h/.c` : collecte la taille en octets des vues `SEQ_COLDV_*` via `seq_runtime_cold_view()` et cumule un total.
+- Nouveau test `tests/seq_cold_stats_tests.c` imprimant le détail et validant `bytes_total >= bytes_project`; intégré à `make check-host`.
+- Makefile host : ajout de la cible `seq_cold_stats_tests` et exécution en fin de `make check-host`.
+### Tests
+- make check-host : OK ; impression `Cold domains (bytes): project=73128 cart_meta=384 hold_slots=3648 ui_shadow=0 total=77160`.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation host-only.
+
+## [2025-11-03 10:30] MP9c — Essai contrôlé de relocation cold (flag OFF par défaut)
+### Étapes réalisées
+- `apps/seq_led_bridge.c` annote `g_hold_slots` via `SEQ_COLD_SEC` conditionné par `SEQ_EXPERIMENT_MOVE_ONE_BLOCK`, sans impact tant que le flag reste à `0`.
+- Tentative de build embarqué avec `SEQ_ENABLE_COLD_SECTIONS=1` + `SEQ_EXPERIMENT_MOVE_ONE_BLOCK=1` pour déplacer `g_hold_slots` (3 648 o) dans `.cold` ; l'outil `arm-none-eabi-gcc` étant indisponible dans l'environnement, la compilation s'arrête (`Error 127`).
+- Documenté l'attendu : déplacement unique de `g_hold_slots` réduisant `.bss` de 3 648 o et créant une section `.cold` de même taille (aucune incidence host/tick, buffer UI hors ISR).
+### Tests
+- make check-host : OK (flags OFF par défaut).
+- make -j8 CFLAGS+=" -DSEQ_ENABLE_COLD_SECTIONS=1 -DSEQ_EXPERIMENT_MOVE_ONE_BLOCK=1" : échoue faute d'outil ARM, relocation non évaluée en binaire.
+### Audits mémoire
+- Flags OFF : audits identiques à la baseline.
+- Mode expérimental (non compilé faute d'outil) : attendu `.bss` -3 648 o, `.cold` +3 648 o (UI hold slots).
+
