@@ -19,6 +19,16 @@ void bb_track_off(uint8_t track);
 unsigned bb_track_on_count(uint8_t track);
 unsigned bb_track_off_count(uint8_t track);
 
+// Pairing & invariants
+void bb_pair_reset(void);
+void bb_pair_on(uint8_t track, uint8_t note, uint32_t tick);
+void bb_pair_off(uint8_t track, uint8_t note, uint32_t tick);
+
+// Stats invariants
+unsigned bb_unmatched_on(void);
+unsigned bb_unmatched_off(void);
+uint32_t bb_max_note_len_ticks(void);
+
 #ifdef __cplusplus
 }
 #endif

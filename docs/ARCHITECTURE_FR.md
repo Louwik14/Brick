@@ -52,6 +52,7 @@ Principes structurants :
 > **P2/MP13a — Stress host 16 tracks** : banc host synthétique (16 pistes actives) exerçant Reader→Scheduler→Player avec un sink MIDI stub comptant NOTE_ON/OFF ; `make check-host` vérifie l’absence de ticks silencieux et trace `16-track stress: … silent_ticks=0`.
 > **P2/MP13b — Blackbox & watchdog silence** : anneau host 64 évènements + compteur `silent_ticks` intégrés au stress 16 tracks ; dump automatique des derniers évènements et échec test si silence inattendu.
 > **P2/MP13c — Histogramme & seuils de régression** : stress 16 tracks enrichi d’un histogramme NOTE_ON/OFF par piste et de seuils (0 tick silencieux, 16 pistes actives, minimum NOTE_ON/piste) afin de quantifier la régression côté host.
+> **P2/MP14 — Invariants MIDI & soak 16 pistes** : appariement NOTE_ON/OFF (table 16×128) avec longueur max contrôlée, checks intégrés au stress, et nouveau banc soak 10 000 ticks (`make check-host`, option `SKIP_SOAK=1`).
 
 ### P2 — État atteint (F429 sans SDRAM)
 

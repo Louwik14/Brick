@@ -354,3 +354,14 @@
 - make check-host : OK (histogramme 16 pistes, `silent_ticks=0`).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
+
+## [2025-11-06 09:00] MP14 — Invariants MIDI & soak 16 pistes (host)
+### Étapes réalisées
+- Paireur NOTE_ON/OFF host (`tests/support/rt_blackbox.{h,c}`) : table 16×128, compteur OFF orphelins, double ON, longueur max par note.
+- Stress 16 pistes (`tests/seq_16tracks_stress_tests.c`) enrichi : reset paireur, log des appariements, résumé `midi_invariants`, seuils (unmatched=0, longueur ≤64 ticks).
+- Nouveau banc soak 10 000 ticks (`tests/seq_soak_16tracks_tests.c`) intégré à `make check-host` avec option `SKIP_SOAK=1` pour CI lente.
+- Makefile host : cible soak + exécution conditionnelle, compilation partagée avec la blackbox, doc P2 actualisée.
+### Tests
+- make check-host : OK (`16-track stress` + `16-track soak` invariants MIDI, `max_len_ticks ≤ 64`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.

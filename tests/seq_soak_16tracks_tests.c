@@ -10,15 +10,17 @@
 #include "core/seq/seq_model.h"
 #include "tests/support/rt_blackbox.h"
 
-#define STRESS_TRACK_COUNT 16U
-#define STRESS_TICK_COUNT (SEQ_MODEL_STEPS_PER_TRACK * 8U)
-#define STRESS_STEP_DURATION 24U
+#define SOAK_TRACK_COUNT 16U
+#define SOAK_STEP_DURATION 24U
+#ifndef SOAK_TICKS
+#define SOAK_TICKS 10000U
+#endif
 
 static unsigned g_total_events = 0U;
 static uint32_t g_current_tick = 0U;
 static uint8_t g_dispatch_track = 0U;
 static uint8_t g_dispatch_step = 0U;
-static uint8_t g_step_index_per_track[STRESS_TRACK_COUNT];
+static uint8_t g_step_index_per_track[SOAK_TRACK_COUNT];
 
 static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
     (void)scheduled_time;
@@ -116,7 +118,7 @@ static void init_track_pattern(track_ctx_t *ctx, uint8_t track_index) {
 }
 
 int main(void) {
-    track_ctx_t ctx[STRESS_TRACK_COUNT];
+    track_ctx_t ctx[SOAK_TRACK_COUNT];
     memset(ctx, 0, sizeof(ctx));
 
     bb_reset();
@@ -129,7 +131,7 @@ int main(void) {
         .plock = host_plock_cb,
     };
 
-    for (uint8_t i = 0U; i < STRESS_TRACK_COUNT; ++i) {
+    for (uint8_t i = 0U; i < SOAK_TRACK_COUNT; ++i) {
         init_track_pattern(&ctx[i], i);
 
         seq_engine_config_t config = {
@@ -148,8 +150,7 @@ int main(void) {
     systime_t current_time = 0U;
     ch_stub_set_time(current_time);
 
-    for (uint32_t tick = 0U; tick < STRESS_TICK_COUNT; ++tick) {
-
+    for (uint32_t tick = 0U; tick < SOAK_TICKS; ++tick) {
         g_current_tick = tick;
         bb_tick_begin(g_current_tick);
 
@@ -158,19 +159,19 @@ int main(void) {
             .step_idx_abs = tick,
             .bpm = 120.0f,
             .tick_st = 1U,
-            .step_st = STRESS_STEP_DURATION,
+            .step_st = SOAK_STEP_DURATION,
             .ext_clock = false,
         };
 
-        for (uint8_t t = 0U; t < STRESS_TRACK_COUNT; ++t) {
+        for (uint8_t t = 0U; t < SOAK_TRACK_COUNT; ++t) {
             g_step_index_per_track[t] = (uint8_t)(tick % SEQ_MODEL_STEPS_PER_TRACK);
             seq_engine_process_step(&ctx[t].engine, &info);
         }
 
-        current_time += STRESS_STEP_DURATION;
+        current_time += SOAK_STEP_DURATION;
         ch_stub_set_time(current_time);
 
-        for (uint8_t t = 0U; t < STRESS_TRACK_COUNT; ++t) {
+        for (uint8_t t = 0U; t < SOAK_TRACK_COUNT; ++t) {
             seq_engine_event_t event;
             while (seq_engine_scheduler_peek(&ctx[t].engine.scheduler, &event) &&
                    (event.scheduled_time <= current_time)) {
@@ -182,26 +183,29 @@ int main(void) {
         bb_tick_end();
     }
 
-    double avg = (STRESS_TICK_COUNT > 0U)
-                     ? ((double)g_total_events / (double)STRESS_TICK_COUNT)
-                     : 0.0;
-
+    double avg = (SOAK_TICKS > 0U) ? ((double)g_total_events / (double)SOAK_TICKS) : 0.0;
     const unsigned silent = bb_silent_ticks();
+    unsigned u_on = bb_unmatched_on();
+    unsigned u_off = bb_unmatched_off();
+    uint32_t maxlen = bb_max_note_len_ticks();
 
-    printf("16-track stress: ticks=%u total_events=%u silent_ticks=%u events_per_tick=%.2f\n",
-           (unsigned)STRESS_TICK_COUNT,
+    printf("16-track soak: ticks=%u total_events=%u silent_ticks=%u unmatched_on=%u unmatched_off=%u max_len_ticks=%lu events_per_tick=%.2f\n",
+           (unsigned)SOAK_TICKS,
            g_total_events,
            silent,
+           u_on,
+           u_off,
+           (unsigned long)maxlen,
            avg);
 
     const unsigned MIN_TRACKS_ACTIVE = 16U;
-    const unsigned MIN_ON_PER_TRACK = 64U;
     const unsigned MAX_SILENT_TICKS = 0U;
+    const uint32_t MAX_REASONABLE_LEN = 64U;
 
     unsigned total_on = 0U;
     unsigned total_off = 0U;
     unsigned tracks_active = 0U;
-    for (int tr = 0; tr < (int)STRESS_TRACK_COUNT; ++tr) {
+    for (int tr = 0; tr < (int)SOAK_TRACK_COUNT; ++tr) {
         unsigned on = bb_track_on_count((uint8_t)tr);
         unsigned off = bb_track_off_count((uint8_t)tr);
         if ((on != 0U) || (off != 0U)) {
@@ -209,42 +213,12 @@ int main(void) {
         }
         total_on += on;
         total_off += off;
-        printf("trk%02d: ON=%u OFF=%u\n", tr, on, off);
     }
-    printf("tracks_active=%u total_on=%u total_off=%u\n", tracks_active, total_on, total_off);
 
-    unsigned u_on = bb_unmatched_on();
-    unsigned u_off = bb_unmatched_off();
-    uint32_t maxlen = bb_max_note_len_ticks();
-    printf("midi_invariants: unmatched_on=%u unmatched_off=%u max_len_ticks=%lu\n",
-           u_on,
-           u_off,
-           (unsigned long)maxlen);
+    printf("tracks_active=%u total_on=%u total_off=%u\n", tracks_active, total_on, total_off);
 
     if (silent > MAX_SILENT_TICKS) {
         fprintf(stderr, "Regression: silent ticks detected (%u > %u)\n", silent, MAX_SILENT_TICKS);
-        bb_dump();
-        return EXIT_FAILURE;
-    }
-
-    for (int tr = 0; tr < (int)STRESS_TRACK_COUNT; ++tr) {
-        unsigned on = bb_track_on_count((uint8_t)tr);
-        if (on < MIN_ON_PER_TRACK) {
-            fprintf(stderr,
-                    "Regression: track %d under threshold (ON=%u < %u)\n",
-                    tr,
-                    on,
-                    MIN_ON_PER_TRACK);
-            bb_dump();
-            return EXIT_FAILURE;
-        }
-    }
-
-    if (tracks_active < MIN_TRACKS_ACTIVE) {
-        fprintf(stderr,
-                "Regression: only %u tracks active (< %u)\n",
-                tracks_active,
-                MIN_TRACKS_ACTIVE);
         bb_dump();
         return EXIT_FAILURE;
     }
@@ -258,7 +232,6 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
-    const uint32_t MAX_REASONABLE_LEN = 64U;
     if (maxlen > MAX_REASONABLE_LEN) {
         fprintf(stderr,
                 "Regression: note length too large (%lu > %lu ticks)\n",
@@ -268,8 +241,17 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    if (tracks_active < MIN_TRACKS_ACTIVE) {
+        fprintf(stderr,
+                "Regression: only %u tracks active (< %u)\n",
+                tracks_active,
+                MIN_TRACKS_ACTIVE);
+        bb_dump();
+        return EXIT_FAILURE;
+    }
+
     if (g_total_events == 0U) {
-        fprintf(stderr, "Regression: no events captured during stress test\n");
+        fprintf(stderr, "Regression: no events captured during soak test\n");
         bb_dump();
         return EXIT_FAILURE;
     }
