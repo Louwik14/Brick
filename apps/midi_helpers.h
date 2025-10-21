@@ -1,80 +1,38 @@
-#ifndef APPS_MIDI_HELPERS_H
-#define APPS_MIDI_HELPERS_H
-
+#pragma once
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C" {
+/* Shim MIDI côté apps : mapping canal 1..16 -> status bytes, helpers NOTE ON/OFF et CC123.
+   Ne dépend d'aucun header RTOS/core ; émission via hook midi_tx3(b0,b1,b2).
+   Si l'appli ne fournit pas midi_tx3, un fallback no-op est utilisé (link OK côté host). */
+
+#ifndef MIDI_HELPERS_CLAMP
+#define MIDI_HELPERS_CLAMP(x,lo,hi) ((uint8_t)((x) < (lo) ? (lo) : ((x) > (hi) ? (hi) : (x))))
 #endif
 
-/*
- * Usage rapide:
- *   1. Inclure "apps/midi_helpers.h" dans le module qui doit émettre du MIDI.
- *   2. Fournir une implémentation forte de midi_tx3() pour router les octets vers l'I/O voulue.
- *   3. Appeler midi_note_on()/midi_note_off()/midi_all_notes_off() avec un canal 1..16.
- * Exemple: midi_note_on(3, 60, 100); // NOTE_ON (C4) sur le canal 3.
- */
-
-/*
- * Hook d'émission MIDI.
- * Fournir une implémentation forte dans l'application (UART, USB, stub host, ...).
- * Si absent, l'édition de liens fournit un symbole faible nul et les helpers deviennent no-op.
- */
-extern void midi_tx3(uint8_t status, uint8_t data1, uint8_t data2) __attribute__((weak));
-
-static inline uint8_t midi_helpers_channel_index(uint8_t ch1_16)
-{
-    if (ch1_16 <= 1U) {
-        return 0U;
-    }
-    if (ch1_16 >= 16U) {
-        return 15U;
-    }
-    return (uint8_t)(ch1_16 - 1U);
+/* Hook d'émission : 3 octets MIDI. L'app/firmware peut fournir sa propre implémentation.
+   Fallback no-op pour lier côté host si rien n’est fourni. */
+__attribute__((weak)) void midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2);
+static inline void midi_tx3_weak_impl(uint8_t b0, uint8_t b1, uint8_t b2) { (void)b0; (void)b1; (void)b2; }
+static inline void _midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2) {
+  if ((void*)&midi_tx3) midi_tx3(b0,b1,b2); else midi_tx3_weak_impl(b0,b1,b2);
 }
 
-static inline void midi_helpers_emit(uint8_t status, uint8_t data1, uint8_t data2)
-{
-    if (midi_tx3 != 0) {
-        midi_tx3(status, data1, data2);
-    }
+/* Helpers API (canal 1..16) */
+static inline void midi_note_on(uint8_t ch1_16, uint8_t note, uint8_t vel) {
+  uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  _midi_tx3((uint8_t)(0x90u | ch), note, vel);
+}
+static inline void midi_note_off(uint8_t ch1_16, uint8_t note, uint8_t vel) {
+  uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  _midi_tx3((uint8_t)(0x80u | ch), note, vel);
+}
+static inline void midi_all_notes_off(uint8_t ch1_16) {
+  uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  _midi_tx3((uint8_t)(0xB0u | ch), 123u, 0u); /* CC123 All Notes Off */
 }
 
-/*
- * Émet un message NOTE ON.
- * Paramètres: canal 1..16 (clampé), note 0..127, vélocité 0..127.
- */
-static inline void midi_note_on(uint8_t ch1_16, uint8_t note, uint8_t vel)
-{
-    const uint8_t channel = midi_helpers_channel_index(ch1_16);
-    const uint8_t status = (uint8_t)(0x90U | channel);
-    midi_helpers_emit(status, note, vel);
-}
-
-/*
- * Émet un message NOTE OFF.
- * Paramètres: canal 1..16 (clampé), note 0..127, vélocité 0..127.
- */
-static inline void midi_note_off(uint8_t ch1_16, uint8_t note, uint8_t vel)
-{
-    const uint8_t channel = midi_helpers_channel_index(ch1_16);
-    const uint8_t status = (uint8_t)(0x80U | channel);
-    midi_helpers_emit(status, note, vel);
-}
-
-/*
- * Émet Control Change 123 "All Notes Off".
- * Paramètres: canal 1..16 (clampé).
- */
-static inline void midi_all_notes_off(uint8_t ch1_16)
-{
-    const uint8_t channel = midi_helpers_channel_index(ch1_16);
-    const uint8_t status = (uint8_t)(0xB0U | channel);
-    midi_helpers_emit(status, 123U, 0U);
-}
-
-#ifdef __cplusplus
-}
-#endif
-
-#endif /* APPS_MIDI_HELPERS_H */
+/* Usage:
+   midi_note_on(3, 60, 100);
+   midi_note_off(3, 60, 64);
+   midi_all_notes_off(3);
+*/
