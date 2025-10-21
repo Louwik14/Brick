@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/seq/runtime/seq_runtime_cold.h"
 #include "core/seq/runtime/seq_runtime_layout.h"
 #include "core/seq/seq_runtime.h"
 #include "core/seq/seq_project.h"
@@ -171,13 +172,9 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
 
 seq_track_handle_t seq_reader_get_active_track_handle(void) {
     seq_track_handle_t h = (seq_track_handle_t){0U, 0U, 0U};
-    const seq_runtime_blocks_t *blocks = seq_runtime_blocks_get();
-    if ((blocks == NULL) || (blocks->hot_impl == NULL)) {
-        return h;
-    }
-
-    const seq_project_t *project = (const seq_project_t *)blocks->hot_impl;
-    if (project != NULL) {
+    seq_cold_view_t project_view = seq_runtime_cold_view(SEQ_COLDV_PROJECT);
+    const seq_project_t *project = (const seq_project_t *)project_view._p;
+    if ((project != NULL) && (project_view._bytes >= sizeof(*project))) {
         h.bank = seq_project_get_active_bank(project);
         h.pattern = seq_project_get_active_pattern_index(project);
         h.track = seq_project_get_active_track_index(project);

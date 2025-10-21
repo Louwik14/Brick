@@ -189,3 +189,13 @@
 - make -j all : ⚠️ KO (toolchain `arm-none-eabi-gcc` absente sur l'environnement, inchangé vs précédents jalons).
 ### Audits mémoire
 - Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o.
+
+## [2025-10-30 10:00] MP7b — Première vue cold branchée
+### Étapes réalisées
+- Création de la façade `seq_runtime_cold_view()` (`core/seq/runtime/seq_runtime_cold.{h,c}`) et branchement du domaine `SEQ_COLDV_PROJECT` sur l'alias legacy (`g_seq_runtime.project`).
+- Migration de `seq_reader_get_active_track_handle()` pour consommer la vue cold au lieu de caster directement `seq_runtime_blocks_get()->hot_impl`.
+- Nouveau test host `seq_runtime_cold_project_tests` vérifiant que la vue renvoie un pointeur non NULL et une taille cohérente, intégré à `make check-host`.
+### Tests
+- make check-host : OK (inclut le nouveau test runtime cold).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — alias uniquement, aucune relocalisation.

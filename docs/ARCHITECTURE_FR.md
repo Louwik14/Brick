@@ -38,6 +38,7 @@ Principes structurants :
 > **P2/MP6b — Reader** : les accès Reader → runtime passent par `seq_runtime_blocks_get()` (alias interne) pour préparer la barrière hot/cold, sans impact fonctionnel ni delta mémoire.
 >
 > **P2/MP6c — Init 2 phases** : `seq_runtime_layout_reset_aliases()` (Phase 1) neutralise les pointeurs avant l'init legacy, puis `seq_runtime_layout_attach_aliases()` (Phase 2) rattache `g_seq_runtime` en alias hot/cold. Aucune donnée n’est déplacée à ce stade ; prochaine étape P2/MP7 : extraction progressive du cold hors du chemin temps réel.
+> **P2/MP7b — Première vue cold** : `seq_runtime_cold_view()` expose une vue `(ptr, bytes)` en lecture seule pour `SEQ_COLDV_PROJECT`, renvoyant l'alias legacy `g_seq_runtime.project`. Le Reader consomme désormais cette façade plutôt que caster directement les alias hot/cold. Les audits `.data/.bss/.ram4` restent inchangés.
 
 ### État CCRAM
 
