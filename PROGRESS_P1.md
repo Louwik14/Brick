@@ -209,3 +209,24 @@
 - make check-host : OK (inclut les tests cold project + cart meta).
 ### Audits mémoire
 - Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o.
+
+## [2025-10-31 15:00] MP7d — Nettoyage cold ciblé (project/cart)
+### Étapes réalisées
+- `seq_project_save()` obtient désormais un pointeur const via `seq_runtime_cold_view(SEQ_COLDV_PROJECT)` avant d'appeler `update_directory()`.
+- `seq_pattern_save()` et `seq_pattern_load()` lisent les métadonnées (`track_count`, `tracks[]`) à partir de la vue cold projet (fallback sur le pointeur legacy si nécessaire), tout en conservant les écritures sur `s_active_project`.
+- Aucun déplacement mémoire : simple routage lecture-only sur trois sites core.
+### Tests
+- make check-host : OK (inclut tous les tests runtime cold + hot budget).【a76162†L1-L84】
+### Audits mémoire
+- Inchangés vs baseline (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+
+## [2025-10-31 15:30] MP8a — Garde budget hot (host)
+### Étapes réalisées
+- Nouveau test `tests/seq_hot_budget_tests.c` : calcule la somme `sizeof(seq_engine_t)` + scratch Reader + pile player (THD_WORKING_AREA 768 o) et vérifie `<= SEQ_RUNTIME_HOT_BUDGET_MAX`.
+- Intégration `Makefile` : compilation/exécution du binaire host via `make check-host` + echo dédié.
+- Stub `tests/stubs/ch.h` enrichi (`msg_t`, `binary_semaphore_t`) pour compiler `seq_engine.h` côté host.
+### Tests
+- make check-host : OK, impression `HOT estimate (host): 2184 bytes` (≤64 KiB).【a76162†L1-L84】
+### Audits mémoire
+- Inchangés (host-only, aucune section embarquée modifiée).
+

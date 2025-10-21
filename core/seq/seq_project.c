@@ -981,7 +981,13 @@ bool seq_project_save(uint8_t project_index) {
         return false;
     }
 
-    if (!update_directory(s_active_project, project_index)) {
+    const seq_project_t *project_ro = s_active_project;
+    seq_cold_view_t project_view = seq_runtime_cold_view(SEQ_COLDV_PROJECT);
+    if ((project_view._p != NULL) && (project_view._bytes >= sizeof(seq_project_t))) {
+        project_ro = (const seq_project_t *)project_view._p;
+    }
+
+    if (!update_directory(project_ro, project_index)) {
         return false;
     }
 
@@ -1044,21 +1050,27 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
     seq_project_t *project = s_active_project;
     seq_project_pattern_desc_t *desc = &project->banks[bank].patterns[pattern];
 
+    const seq_project_t *project_ro = project;
+    seq_cold_view_t project_view = seq_runtime_cold_view(SEQ_COLDV_PROJECT);
+    if ((project_view._p != NULL) && (project_view._bytes >= sizeof(seq_project_t))) {
+        project_ro = (const seq_project_t *)project_view._p;
+    }
+
     seq_cold_view_t cart_meta_view = seq_runtime_cold_view(SEQ_COLDV_CART_META);
-    const seq_project_track_t *tracks_meta = project->tracks;
-    size_t tracks_meta_capacity = project->track_count;
+    const seq_project_track_t *tracks_meta = project_ro->tracks;
+    size_t tracks_meta_capacity = project_ro->track_count;
 
     if ((cart_meta_view._p != NULL) && (cart_meta_view._bytes >= sizeof(seq_project_track_t))) {
         const size_t view_count = cart_meta_view._bytes / sizeof(seq_project_track_t);
-        if (view_count >= (size_t)project->track_count) {
+        if (view_count >= (size_t)project_ro->track_count) {
             tracks_meta = (const seq_project_track_t *)cart_meta_view._p;
             tracks_meta_capacity = view_count;
         }
     }
 
-    const size_t meta_limit = (tracks_meta_capacity < (size_t)project->track_count)
+    const size_t meta_limit = (tracks_meta_capacity < (size_t)project_ro->track_count)
                                   ? tracks_meta_capacity
-                                  : (size_t)project->track_count;
+                                  : (size_t)project_ro->track_count;
     uint8_t track_count = 0U;
     for (uint8_t i = 0U; i < (uint8_t)meta_limit; ++i) {
         if (tracks_meta[i].track != NULL) {
@@ -1117,7 +1129,7 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
         return false;
     }
 
-    const uint32_t offset = pattern_offset(project->project_index, bank, pattern);
+    const uint32_t offset = pattern_offset(project_ro->project_index, bank, pattern);
     if (!board_flash_erase(offset, SEQ_PROJECT_PATTERN_STORAGE_MAX)) {
         return false;
     }
@@ -1132,7 +1144,7 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
 
     for (uint8_t t = 0U; t < SEQ_PROJECT_MAX_TRACKS; ++t) {
         if (t < track_count) {
-            desc->tracks[t].cart = project->tracks[t].cart;
+            desc->tracks[t].cart = project_ro->tracks[t].cart;
             desc->tracks[t].valid = 1U;
         } else {
             memset(&desc->tracks[t].cart, 0, sizeof(desc->tracks[t].cart));
@@ -1141,7 +1153,7 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
     }
 
     seq_project_bump_generation(project);
-    return seq_project_save(project->project_index);
+    return seq_project_save(project_ro->project_index);
 }
 
 bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
@@ -1155,9 +1167,15 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
     seq_project_t *project = s_active_project;
     seq_project_pattern_desc_t *desc = &project->banks[bank].patterns[pattern];
 
+    const seq_project_t *project_ro = project;
+    seq_cold_view_t project_view = seq_runtime_cold_view(SEQ_COLDV_PROJECT);
+    if ((project_view._p != NULL) && (project_view._bytes >= sizeof(seq_project_t))) {
+        project_ro = (const seq_project_t *)project_view._p;
+    }
+
     if ((desc->storage_length == 0U) || (desc->storage_offset == 0U)) {
-        for (uint8_t t = 0U; t < project->track_count; ++t) {
-            seq_model_track_t *track_model = project->tracks[t].track;
+        for (uint8_t t = 0U; t < project_ro->track_count; ++t) {
+            seq_model_track_t *track_model = project_ro->tracks[t].track;
             if (track_model != NULL) {
                 seq_model_track_init(track_model);
             }
@@ -1229,8 +1247,8 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
             break;
         }
 
-        if (track < project->track_count) {
-            seq_model_track_t *track_model = project->tracks[track].track;
+        if (track < project_ro->track_count) {
+            seq_model_track_t *track_model = project_ro->tracks[track].track;
             if ((track_model != NULL) &&
                 !seq_project_track_steps_decode(track_model, cursor, track_header.payload_size, header.version, decode_policy)) {
                 return false;
@@ -1247,7 +1265,7 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
         remaining -= track_header.payload_size;
     }
 
-    if (stored_tracks > project->track_count) {
+    if (stored_tracks > project_ro->track_count) {
         project->track_count = stored_tracks;
     }
     desc->track_count = stored_tracks;

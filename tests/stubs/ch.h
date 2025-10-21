@@ -14,6 +14,8 @@ typedef struct { int dummy; } semaphore_t;
 typedef struct { int dummy; } mutex_t;
 typedef void thread_t;
 typedef void BaseSequentialStream;
+typedef int msg_t;
+typedef struct { int dummy; } binary_semaphore_t;
 
 systime_t chVTGetSystemTimeX(void);
 systime_t chVTGetSystemTime(void);
