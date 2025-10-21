@@ -50,6 +50,15 @@ Principes structurants :
 > **P2/MP10 — RT safety** : l’API `seq_rt_phase_*` marque `BOOT/IDLE/TICK`, la façade `seq_runtime_cold_view()` déclenche un assert host + compteur si appelée en phase TICK, une règle CI (`check_no_cold_in_rt_sources`) bloque l’inclusion directe de `seq_runtime_cold.h` dans Scheduler/Player, et `make check-host` trace `cold_view_calls_in_tick(host): <n>` pour tout accès anormal.
 > **P2/MP11 — Audit symboles RT** : la règle `audit_rt_symbols` (`nm` + `grep` sur les objets Player/Scheduler) est branchée sur `POST_MAKE_ALL_RULE_HOOK` pour empêcher toute référence à `seq_runtime_cold_*` dans le chemin TICK, et un smoke test host (`seq_rt_path_smoke`) valide la transition BOOT→IDLE→TICK→IDLE sans déclencher la façade cold.
 
+### P2 — État atteint (F429 sans SDRAM)
+
+* **Surface publique apps/** : toutes les applications consomment `core/seq/seq_access.h` (Reader + handles + vues) ; une règle CI `check_apps_public_surface` empêche tout include direct de `seq_project.h`, `seq_model.h` ou `seq_runtime.h` côté `apps/`.
+* **Barrière hot/cold** : le runtime expose `seq_runtime_blocks_get()` et `seq_runtime_layout_reset/attach_aliases()` (init en deux phases) pour maintenir les alias hot/cold cohérents sans déplacer `g_seq_runtime`.
+* **Façade cold** : `seq_runtime_cold_view()` fournit les domaines PROJECT, CART_META et HOLD_SLOTS en lecture seule ; son usage en TICK est interdit (API phase `seq_rt_phase_*`, assert host, règle grep et audit `nm`).
+* **Budget hot ≤ 64 KiB** : snapshot statique `seq_runtime_hot_budget.c` + `_Static_assert`, test host `seq_hot_budget_tests` et micro-bench Reader (`seq_rt_timing_tests`).
+* **Placement `.hot/.cold`** : plomberie prête dans le linker script, désactivée par défaut (`SEQ_ENABLE_{HOT,COLD}_SECTIONS=0`) sur F429 sans SDRAM ; l'essai contrôlé reste documenté.
+* **Tests host P2** : `seq_hot_budget_tests`, `seq_cold_stats_tests`, `seq_rt_timing_tests`, `seq_rt_path_smoke`, `seq_cold_tick_guard_tests`, `seq_led_snapshot_tests` (snapshot LED figé via Reader).
+
 ### État CCRAM
 
 * Région `.ram4` (alias CCM) : VMA `0x1000_0000`, section `NOLOAD` maintenue vide tant que l'opt-in n'est pas réactivé (budget 64 KiB). Les symboles historiquement placés en CCRAM (`waMidiUsbTx`, `s_ui_shadow`, `g_hold_slots`, etc.) résident temporairement en SRAM classique ; seuls les symboles de section (`__ram4_*`) subsistent dans `tools/audit/audit_ram4_symbols.txt` (aucune donnée réelle chargée).【F:tools/audit/audit_ram4_symbols.txt†L1-L8】
