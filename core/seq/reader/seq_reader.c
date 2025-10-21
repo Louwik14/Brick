@@ -151,3 +151,14 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
 
     return true;
 }
+
+seq_track_handle_t seq_reader_get_active_track_handle(void) {
+    seq_track_handle_t h = (seq_track_handle_t){0U, 0U, 0U};
+    const seq_project_t *project = seq_runtime_get_project();
+    if (project != NULL) {
+        h.bank = seq_project_get_active_bank(project);
+        h.pattern = seq_project_get_active_pattern_index(project);
+        h.track = seq_project_get_active_track_index(project);
+    }
+    return h;
+}
