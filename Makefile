@@ -378,6 +378,7 @@ $(HOST_SEQ_RUNTIME_CART_META_TEST): tests/seq_runtime_cold_cart_meta_tests.c cor
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
 	tests/seq_runtime_cold_cart_meta_tests.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c -o $@
 
-$(HOST_SEQ_HOT_BUDGET_TEST): tests/seq_hot_budget_tests.c
+$(HOST_SEQ_HOT_BUDGET_TEST): tests/seq_hot_budget_tests.c core/seq/runtime/seq_runtime_hot_budget.c core/seq/runtime/seq_runtime_hot_budget.h
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Icore -I. tests/seq_hot_budget_tests.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Icore -I. \
+		tests/seq_hot_budget_tests.c core/seq/runtime/seq_runtime_hot_budget.c -o $@

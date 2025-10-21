@@ -230,3 +230,13 @@
 ### Audits mémoire
 - Inchangés (host-only, aucune section embarquée modifiée).
 
+## [2025-11-01 10:00] MP8b — Snapshot hot + verrou compile-time
+### Étapes réalisées
+- Création de `core/seq/runtime/seq_runtime_hot_budget.h/.c` : snapshot structuré Reader/Scheduler/Player/files RT/scratch alimenté par des `sizeof` compilés et `_Static_assert` garantissant `<= SEQ_RUNTIME_HOT_BUDGET_MAX` côté host/tests.
+- `seq_hot_budget_tests` imprime désormais le détail du snapshot (reader/scheduler/player/queues/scratch) et force le lien de `__seq_runtime_hot_total_guard()`.
+- Makefile host : compilation du test avec `seq_runtime_hot_budget.c` pour vérifier le guard et maintenir l'exécution via `make check-host`.
+### Tests
+- make check-host : OK, log détaillé du snapshot hot ≤ 64 KiB.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — modifications host-only, aucun déplacement de RAM embarquée.
+

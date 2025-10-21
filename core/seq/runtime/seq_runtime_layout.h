@@ -33,6 +33,10 @@ const seq_runtime_blocks_t* seq_runtime_blocks_get(void);
 void seq_runtime_layout_reset_aliases(void);
 void seq_runtime_layout_attach_aliases(const void* hot_impl, const void* cold_impl);
 
+#if defined(HOST_BUILD) || defined(UNIT_TEST)
+size_t __seq_runtime_hot_total_guard(void);
+#endif
+
 #ifdef __cplusplus
 }
 #endif
