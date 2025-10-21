@@ -5,6 +5,7 @@
 
 #include "seq_engine_runner.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -14,6 +15,8 @@
 #include "cart_registry.h"
 #include "ch.h"
 #include "midi.h"
+#include "midi_helpers.h"
+#include "seq_led_bridge.h"
 #include "seq_engine.h"
 #include "ui_mute_backend.h"
 
@@ -42,7 +45,17 @@
 #define SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS 24U
 #endif
 
-static CCM_DATA seq_engine_t s_engine;
+typedef struct {
+    seq_engine_t engine;
+    uint8_t track_index;
+} seq_engine_runner_track_ctx_t;
+
+static CCM_DATA seq_engine_runner_track_ctx_t s_track_ctx[SEQ_MAX_ACTIVE_TRACKS];
+static CCM_DATA struct {
+    bool active;
+    uint8_t note;
+} s_active_notes[SEQ_MAX_ACTIVE_TRACKS];
+static uint8_t s_force_track_index = UINT8_MAX;
 
 typedef struct {
     bool active;
@@ -62,6 +75,8 @@ static uint8_t _runner_clamp_u8(int16_t value);
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id);
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
+static void _runner_refresh_tracks(void);
+static uint8_t _runner_resolve_track_index(void);
 
 void seq_engine_runner_init(seq_model_track_t *track) {
     seq_engine_callbacks_t callbacks = {
@@ -70,26 +85,49 @@ void seq_engine_runner_init(seq_model_track_t *track) {
         .plock = _runner_plock_cb
     };
 
-    seq_engine_config_t config = {
-        .track = track,
-        .callbacks = callbacks,
-        .is_track_muted = _runner_track_muted
-    };
+    for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+        seq_engine_config_t config = {
+            .track = NULL,
+            .callbacks = callbacks,
+            .is_track_muted = _runner_track_muted
+        };
+        seq_engine_init(&s_track_ctx[i].engine, &config);
+        s_track_ctx[i].track_index = i;
+    }
 
-    seq_engine_init(&s_engine, &config);
     memset(s_plock_state, 0, sizeof(s_plock_state));
+    memset(s_active_notes, 0, sizeof(s_active_notes));
+    (void)track;
+    _runner_refresh_tracks();
 }
 
 void seq_engine_runner_attach_track(seq_model_track_t *track) {
-    seq_engine_attach_track(&s_engine, track);
+    (void)track;
+    _runner_refresh_tracks();
 }
 
 void seq_engine_runner_on_transport_play(void) {
-    (void)seq_engine_start(&s_engine);
+    for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+        seq_engine_t *engine = &s_track_ctx[i].engine;
+        if (engine->config.track == NULL) {
+            continue;
+        }
+        (void)seq_engine_start(engine);
+    }
 }
 
 void seq_engine_runner_on_transport_stop(void) {
-    seq_engine_stop(&s_engine);
+    for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+        seq_engine_t *engine = &s_track_ctx[i].engine;
+        if (engine->config.track == NULL) {
+            continue;
+        }
+        s_force_track_index = i;
+        seq_engine_stop(engine);
+        s_force_track_index = UINT8_MAX;
+        s_active_notes[i].active = false;
+        s_active_notes[i].note = 0U;
+    }
     cart_id_t cart = cart_registry_get_active_id();
     if (cart < CART_COUNT) {
         for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS; ++i) {
@@ -116,7 +154,17 @@ void seq_engine_runner_on_transport_stop(void) {
 }
 
 void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
-    seq_engine_process_step(&s_engine, info);
+    if (info == NULL) {
+        return;
+    }
+
+    for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+        seq_engine_t *engine = &s_track_ctx[i].engine;
+        if (engine->config.track == NULL) {
+            continue;
+        }
+        seq_engine_process_step(engine, info);
+    }
 }
 
 static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
@@ -124,7 +172,11 @@ static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t s
     if (note_on == NULL) {
         return MSG_OK;
     }
-    midi_note_on(MIDI_DEST_BOTH, SEQ_ENGINE_RUNNER_MIDI_CHANNEL, note_on->note, note_on->velocity);
+    uint8_t track_index = _runner_resolve_track_index();
+    uint8_t channel = midi_channel_from_track_index(track_index);
+    s_active_notes[track_index].active = true;
+    s_active_notes[track_index].note = note_on->note;
+    midi_send_note_on(channel, note_on->note, note_on->velocity);
     return MSG_OK;
 }
 
@@ -133,7 +185,11 @@ static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_
     if (note_off == NULL) {
         return MSG_OK;
     }
-    midi_note_off(MIDI_DEST_BOTH, SEQ_ENGINE_RUNNER_MIDI_CHANNEL, note_off->note, 0U);
+    uint8_t track_index = _runner_resolve_track_index();
+    uint8_t channel = midi_channel_from_track_index(track_index);
+    s_active_notes[track_index].active = false;
+    s_active_notes[track_index].note = 0U;
+    midi_send_note_off(channel, note_off->note, 0U);
     return MSG_OK;
 }
 
@@ -270,4 +326,41 @@ static void _runner_plock_release(seq_engine_runner_plock_state_t *slot) {
     slot->param_id = 0U;
     slot->depth = 0U;
     slot->previous = 0U;
+}
+
+static void _runner_refresh_tracks(void) {
+    seq_project_t *project = seq_led_bridge_get_project();
+
+    if (project != NULL) {
+        const uint8_t project_count = seq_project_get_track_count(project);
+        const uint8_t limit = (project_count > SEQ_MAX_ACTIVE_TRACKS)
+                                  ? SEQ_MAX_ACTIVE_TRACKS
+                                  : project_count;
+
+        for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+            seq_model_track_t *track_model = (i < limit) ? seq_project_get_track(project, i) : NULL;
+            seq_engine_attach_track(&s_track_ctx[i].engine, track_model);
+            s_track_ctx[i].track_index = i;
+        }
+    } else {
+        for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+            seq_engine_attach_track(&s_track_ctx[i].engine, NULL);
+            s_track_ctx[i].track_index = i;
+        }
+    }
+}
+
+static uint8_t _runner_resolve_track_index(void) {
+    thread_t *self = chThdGetSelfX();
+    for (uint8_t i = 0U; i < SEQ_MAX_ACTIVE_TRACKS; ++i) {
+        if (s_track_ctx[i].engine.player.thread == self) {
+            return s_track_ctx[i].track_index;
+        }
+    }
+
+    if (s_force_track_index < SEQ_MAX_ACTIVE_TRACKS) {
+        return s_force_track_index;
+    }
+
+    return 0U;
 }
