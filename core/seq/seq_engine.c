@@ -4,6 +4,7 @@
  */
 
 #include "seq_engine.h"
+#include "core/seq/runtime/seq_rt_phase.h"
 #include "brick_config.h"
 
 #include <limits.h>
@@ -231,7 +232,10 @@ void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info
         return;
     }
 
+    seq_rt_phase_set(SEQ_RT_PHASE_TICK);
+
     if (!engine->clock_attached || (engine->config.track == NULL)) {
+        seq_rt_phase_set(SEQ_RT_PHASE_IDLE);
         return;
     }
 
@@ -243,6 +247,8 @@ void seq_engine_process_step(seq_engine_t *engine, const clock_step_info_t *info
     const seq_model_step_t *step = &engine->config.track->steps[reader->step_index];
     _seq_engine_handle_step(engine, step, info, reader->step_index);
     reader->last_generation = engine->config.track->generation;
+
+    seq_rt_phase_set(SEQ_RT_PHASE_IDLE);
 }
 
 static void _seq_engine_reader_init(seq_engine_reader_t *reader, const seq_model_track_t *track) {

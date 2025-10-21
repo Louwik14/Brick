@@ -292,3 +292,15 @@
 - Flags OFF : audits identiques à la baseline.
 - Mode expérimental (non compilé faute d'outil) : attendu `.bss` -3 648 o, `.cold` +3 648 o (UI hold slots).
 
+## [2025-11-04 09:30] MP10a/b/c — Gardes froides RT (phase API + CI + trace)
+### Étapes réalisées
+- Ajout de l’API de phase temps réel (`core/seq/runtime/seq_rt_phase.h/.c`) et injection `SEQ_RT_PHASE_TICK/IDLE` dans `seq_engine_process_step()`.
+- Façade `seq_runtime_cold_view()` instrumentée côté host : compteur `__cold_view_calls_in_tick` + assert bloquant hors `UNIT_TEST`.
+- Nouveau test host `tests/seq_cold_tick_guard_tests.c` : vérifie le compteur et force un accès cold en phase TICK.
+- Règle Makefile `check_no_cold_in_rt_sources` (grep bloquant) accrochée au hook `POST_MAKE_ALL_RULE_HOOK`.
+- `make check-host` enchaîne désormais la nouvelle binaire et reporte `cold_view_calls_in_tick(host): <n>`.
+### Tests
+- make check-host : OK (`cold_view_calls_in_tick(host): 1`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
+

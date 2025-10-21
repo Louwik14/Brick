@@ -5,6 +5,13 @@
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_runtime.h"
 
+#if defined(HOST_BUILD) || defined(UNIT_TEST)
+#include <assert.h>
+#include "core/seq/runtime/seq_rt_phase.h"
+
+unsigned __cold_view_calls_in_tick = 0u;
+#endif
+
 typedef struct {
     const void *_p;
     size_t _bytes;
@@ -54,6 +61,14 @@ static _cv _resolve(seq_cold_domain_t domain) {
 }
 
 seq_cold_view_t seq_runtime_cold_view(seq_cold_domain_t domain) {
+#if defined(HOST_BUILD) || defined(UNIT_TEST)
+    if (seq_rt_phase_get() == SEQ_RT_PHASE_TICK) {
+        __cold_view_calls_in_tick++;
+#if !defined(UNIT_TEST)
+        assert(0 && "cold view access during RT tick");
+#endif
+    }
+#endif
     _cv raw = _resolve(domain);
     seq_cold_view_t view = { raw._p, raw._bytes };
     return view;
