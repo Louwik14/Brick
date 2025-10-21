@@ -28,6 +28,17 @@ static _cv _resolve(seq_cold_domain_t domain) {
             return (_cv){ (const void *)&legacy->project,
                           sizeof(legacy->project) };
         }
+        case SEQ_COLDV_CART_META: {
+            const seq_runtime_blocks_t *blocks = seq_runtime_blocks_get();
+            if ((blocks == NULL) || (blocks->cold_impl == NULL)) {
+                return (_cv){ NULL, 0U };
+            }
+
+            const seq_runtime_legacy_t *legacy =
+                (const seq_runtime_legacy_t *)blocks->cold_impl;
+            return (_cv){ (const void *)legacy->project.tracks,
+                          sizeof(legacy->project.tracks) };
+        }
         case SEQ_COLDV_UI_SHADOW:
         case SEQ_COLDV_HOLD_SLOTS:
         default:

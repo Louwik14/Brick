@@ -199,3 +199,13 @@
 - make check-host : OK (inclut le nouveau test runtime cold).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — alias uniquement, aucune relocalisation.
+
+## [2025-10-31 09:15] MP7c — Deuxième domaine cold + appelant migré
+### Étapes réalisées
+- `SEQ_COLDV_CART_META` renvoie désormais l'alias legacy `g_seq_runtime.project.tracks` via `seq_runtime_cold_view()` (aucun déplacement mémoire, simples pointeurs).
+- `seq_pattern_save()` (core) lit les métadonnées cart via la vue cold plutôt que via `s_active_project->tracks[i]` directement.
+- Nouveau test host `seq_runtime_cold_cart_meta_tests` ajouté au `Makefile`, vérifie que la vue cart renvoie un pointeur non NULL et une taille non nulle.
+### Tests
+- make check-host : OK (inclut les tests cold project + cart meta).
+### Audits mémoire
+- Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o.

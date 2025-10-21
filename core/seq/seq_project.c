@@ -10,6 +10,7 @@
 #include "brick_config.h"
 #include "board/board_flash.h"
 #include "cart/cart_registry.h"
+#include "core/seq/runtime/seq_runtime_cold.h"
 #include "core/ram_audit.h"
 
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
@@ -1043,9 +1044,24 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
     seq_project_t *project = s_active_project;
     seq_project_pattern_desc_t *desc = &project->banks[bank].patterns[pattern];
 
+    seq_cold_view_t cart_meta_view = seq_runtime_cold_view(SEQ_COLDV_CART_META);
+    const seq_project_track_t *tracks_meta = project->tracks;
+    size_t tracks_meta_capacity = project->track_count;
+
+    if ((cart_meta_view._p != NULL) && (cart_meta_view._bytes >= sizeof(seq_project_track_t))) {
+        const size_t view_count = cart_meta_view._bytes / sizeof(seq_project_track_t);
+        if (view_count >= (size_t)project->track_count) {
+            tracks_meta = (const seq_project_track_t *)cart_meta_view._p;
+            tracks_meta_capacity = view_count;
+        }
+    }
+
+    const size_t meta_limit = (tracks_meta_capacity < (size_t)project->track_count)
+                                  ? tracks_meta_capacity
+                                  : (size_t)project->track_count;
     uint8_t track_count = 0U;
-    for (uint8_t i = 0U; i < project->track_count; ++i) {
-        if (project->tracks[i].track != NULL) {
+    for (uint8_t i = 0U; i < (uint8_t)meta_limit; ++i) {
+        if (tracks_meta[i].track != NULL) {
             track_count = (uint8_t)(i + 1U);
         }
     }
@@ -1065,13 +1081,14 @@ bool seq_pattern_save(uint8_t bank, uint8_t pattern) {
     }
 
     for (uint8_t track = 0U; track < track_count; ++track) {
-        const seq_model_track_t *track_ptr = project->tracks[track].track;
+        const seq_project_track_t *track_meta = &tracks_meta[track];
+        const seq_model_track_t *track_ptr = track_meta->track;
         track_payload_header_t track_header = {
-            .cart_id = project->tracks[track].cart.cart_id,
+            .cart_id = track_meta->cart.cart_id,
             .payload_size = 0U,
-            .slot_id = project->tracks[track].cart.slot_id,
-            .flags = project->tracks[track].cart.flags,
-            .capabilities = project->tracks[track].cart.capabilities
+            .slot_id = track_meta->cart.slot_id,
+            .flags = track_meta->cart.flags,
+            .capabilities = track_meta->cart.capabilities
         };
 
         const size_t header_pos = (size_t)(cursor - s_pattern_buffer);
