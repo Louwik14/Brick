@@ -154,6 +154,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard core/*.c) \
        $(wildcard core/arp/*.c) \
        $(wildcard core/seq/*.c) \
+       core/seq/runtime/seq_runtime_cold.c \
        core/seq/runtime/seq_runtime_layout.c \
        $(wildcard core/seq/reader/*.c) \
        
@@ -270,6 +271,7 @@ HOST_UI_TRACK_PMUTE_TEST := $(HOST_TEST_DIR)/ui_track_pmute_regression_tests
 HOST_SEQ_TRACK_CODEC_TEST := $(HOST_TEST_DIR)/seq_track_codec_tests
 HOST_SEQ_READER_TEST := $(HOST_TEST_DIR)/seq_reader_tests
 HOST_SEQ_RUNTIME_LAYOUT_TEST := $(HOST_TEST_DIR)/seq_runtime_layout_tests
+HOST_SEQ_RUNTIME_COLD_TEST := $(HOST_TEST_DIR)/seq_runtime_cold_project_tests
 
 ifeq ($(OS),Windows_NT)
 HOST_CC_AVAILABLE := $(strip $(shell where $(HOST_CC) >NUL 2>NUL && echo yes))
@@ -281,7 +283,7 @@ endif
 
 .PHONY: check-host
 ifeq ($(HOST_CC_AVAILABLE),yes)
-check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST)
+check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) $(HOST_SEQ_RUNTIME_COLD_TEST)
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
@@ -298,6 +300,8 @@ check-host: $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(
 	$(HOST_SEQ_READER_TEST)
 	@echo "Running runtime layout tests"
 	$(HOST_SEQ_RUNTIME_LAYOUT_TEST)
+	@echo "Running runtime cold view tests"
+	$(HOST_SEQ_RUNTIME_COLD_TEST)
 else
 check-host:
 	@echo "error: host compiler '$(HOST_CC)' introuvable pour make check-host."
@@ -348,12 +352,17 @@ $(HOST_SEQ_TRACK_CODEC_TEST): tests/seq_track_codec_tests.c core/seq/seq_model.c
 	$(HOST_CC) $(HOST_CFLAGS) -DBRICK_EXPERIMENTAL_PATTERN_CODEC_V2=1 -I. -Icore -Icart -Iboard \
 		tests/seq_track_codec_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c -o $@
 
-$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c
+$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_runtime_cold.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
-		tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c -o $@
+        tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_runtime_cold.c -o $@
 
 $(HOST_SEQ_RUNTIME_LAYOUT_TEST): tests/seq_runtime_layout_tests.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard -Iui \
-		tests/seq_runtime_layout_tests.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c -o $@
+                tests/seq_runtime_layout_tests.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c -o $@
+
+$(HOST_SEQ_RUNTIME_COLD_TEST): tests/seq_runtime_cold_project_tests.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
+        tests/seq_runtime_cold_project_tests.c core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c -o $@
