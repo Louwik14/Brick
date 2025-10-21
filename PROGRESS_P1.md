@@ -377,3 +377,15 @@
 - make check-host : OK (rapports timing p99 + queues, stress & soak sans overflow, invariants MIDI OK).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation confinée host, hooks cible OFF par défaut.
+
+## [2025-10-30 10:00] MP16 — Rapport RT agrégé + hook cible opt-in
+### Étapes réalisées
+- Nouveau binaire host `seq_rt_report` (tests/seq_rt_report.c) orchestre stress + soak 16 pistes, collecte p99/invariants/queues et écrit `out/host_rt_report.txt`.
+- `make check-host` compile/chaîne `seq_rt_report` après les bancs stress/soak avec création automatique de `out/`.
+- Ajout de `core/seq/runtime/seq_rt_debug.c` : compteurs `g_rt_tick_events_max`/`g_rt_event_queue_hwm` définis quand `SEQ_RT_DEBUG=1` + point d'entrée UART `seq_rt_debug_report_uart_once_per_sec()` (faible coût, OFF par défaut).
+### Tests
+- make check-host : OK (rapport généré et invariants vérifiés).
+### Audits mémoire
+- Inchangés (.data/.bss/.ram4 identiques tant que `SEQ_RT_DEBUG=0`).
+### Notes
+- Aucun changement fonctionnel ; l'option cible reste opt-in via `SEQ_RT_DEBUG=1`.

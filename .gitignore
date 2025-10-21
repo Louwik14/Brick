@@ -1,6 +1,7 @@
 # === Fichiers de build ===
 /build/
 .dep/
+/out/
 *.o
 *.d
 *.elf
