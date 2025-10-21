@@ -23,6 +23,7 @@ static uint8_t g_step_index_per_track[STRESS_TRACK_COUNT];
 static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
     (void)note_on;
     (void)scheduled_time;
+    bb_track_on(g_dispatch_track);
     bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 1U);
     ++g_total_events;
     return MSG_OK;
@@ -31,6 +32,7 @@ static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t sche
 static msg_t host_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time) {
     (void)note_off;
     (void)scheduled_time;
+    bb_track_off(g_dispatch_track);
     bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 2U);
     ++g_total_events;
     return MSG_OK;
@@ -114,6 +116,7 @@ int main(void) {
     memset(ctx, 0, sizeof(ctx));
 
     bb_reset();
+    bb_track_counters_reset();
 
     seq_engine_callbacks_t callbacks = {
         .note_on = host_note_on_cb,
@@ -186,11 +189,56 @@ int main(void) {
            silent,
            avg);
 
-    if ((g_total_events == 0U) || (silent > 0U)) {
-        fprintf(stderr, "error: unexpected silent ticks while pattern emits events\n");
-        if (silent > 0U) {
-            bb_dump();
+    const unsigned MIN_TRACKS_ACTIVE = 16U;
+    const unsigned MIN_ON_PER_TRACK = 64U;
+    const unsigned MAX_SILENT_TICKS = 0U;
+
+    unsigned total_on = 0U;
+    unsigned total_off = 0U;
+    unsigned tracks_active = 0U;
+    for (int tr = 0; tr < (int)STRESS_TRACK_COUNT; ++tr) {
+        unsigned on = bb_track_on_count((uint8_t)tr);
+        unsigned off = bb_track_off_count((uint8_t)tr);
+        if ((on != 0U) || (off != 0U)) {
+            ++tracks_active;
         }
+        total_on += on;
+        total_off += off;
+        printf("trk%02d: ON=%u OFF=%u\n", tr, on, off);
+    }
+    printf("tracks_active=%u total_on=%u total_off=%u\n", tracks_active, total_on, total_off);
+
+    if (silent > MAX_SILENT_TICKS) {
+        fprintf(stderr, "Regression: silent ticks detected (%u > %u)\n", silent, MAX_SILENT_TICKS);
+        bb_dump();
+        return EXIT_FAILURE;
+    }
+
+    for (int tr = 0; tr < (int)STRESS_TRACK_COUNT; ++tr) {
+        unsigned on = bb_track_on_count((uint8_t)tr);
+        if (on < MIN_ON_PER_TRACK) {
+            fprintf(stderr,
+                    "Regression: track %d under threshold (ON=%u < %u)\n",
+                    tr,
+                    on,
+                    MIN_ON_PER_TRACK);
+            bb_dump();
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (tracks_active < MIN_TRACKS_ACTIVE) {
+        fprintf(stderr,
+                "Regression: only %u tracks active (< %u)\n",
+                tracks_active,
+                MIN_TRACKS_ACTIVE);
+        bb_dump();
+        return EXIT_FAILURE;
+    }
+
+    if (g_total_events == 0U) {
+        fprintf(stderr, "Regression: no events captured during stress test\n");
+        bb_dump();
         return EXIT_FAILURE;
     }
 

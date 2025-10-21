@@ -9,8 +9,16 @@ static bb_ev_t   g_ring[BB_CAP];
 static unsigned  g_head = 0, g_size = 0;
 static unsigned  g_silent_ticks = 0;
 static unsigned  g_events_this_tick = 0;
+static unsigned  g_on[16];
+static unsigned  g_off[16];
 
-void bb_reset(void){ g_head=0; g_size=0; g_silent_ticks=0; g_events_this_tick=0; }
+void bb_reset(void){
+  g_head=0;
+  g_size=0;
+  g_silent_ticks=0;
+  g_events_this_tick=0;
+  bb_track_counters_reset();
+}
 static void _push(bb_ev_t ev){
   g_ring[(g_head + g_size) % BB_CAP] = ev;
   if (g_size < BB_CAP) g_size++; else g_head = (g_head + 1) % BB_CAP;
@@ -31,3 +39,15 @@ void bb_dump(void){
            (unsigned long)e->tick, e->track, e->step, e->type);
   }
 }
+
+void bb_track_counters_reset(void){
+  for (int i=0;i<16;i++){
+    g_on[i]=0;
+    g_off[i]=0;
+  }
+}
+
+void bb_track_on(uint8_t tr){ if (tr<16) g_on[tr]++; }
+void bb_track_off(uint8_t tr){ if (tr<16) g_off[tr]++; }
+unsigned bb_track_on_count(uint8_t tr){ return (tr<16)?g_on[tr]:0; }
+unsigned bb_track_off_count(uint8_t tr){ return (tr<16)?g_off[tr]:0; }
