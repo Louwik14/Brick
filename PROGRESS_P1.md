@@ -314,3 +314,13 @@
 - make check-host : OK (inclut `seq_rt_path_smoke`).
 ### Audits mémoire
 - Inchangés vs baseline (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+
+## [2025-11-05 11:00] MP12 — Surface apps, snapshot LED, docs P2
+### Étapes réalisées
+- Nouvelle règle Makefile `check_apps_public_surface` : bloque toute inclusion directe de `seq_project.h`, `seq_model.h` ou `seq_runtime.h` dans `apps/**` et branchée sur `POST_MAKE_ALL_RULE_HOOK`.
+- Ajout du test host `tests/seq_led_snapshot_tests.c` (pattern synthétique + Reader → snapshot LED) et exécution dans `make check-host`.
+- Documentation mise à jour (`docs/ARCHITECTURE_FR.md`) pour figer l'état P2 atteint sur F429 sans SDRAM (surface publique, barrière hot/cold, façade cold, budget hot, tests).
+### Tests
+- make check-host : OK (`LED snapshot diffs: 0`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
