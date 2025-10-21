@@ -13,6 +13,12 @@ unsigned bb_silent_ticks(void);
 unsigned bb_count(void);
 void bb_dump(void);
 
+void bb_track_counters_reset(void);
+void bb_track_on(uint8_t track);
+void bb_track_off(uint8_t track);
+unsigned bb_track_on_count(uint8_t track);
+unsigned bb_track_off_count(uint8_t track);
+
 #ifdef __cplusplus
 }
 #endif

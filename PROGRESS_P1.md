@@ -344,3 +344,13 @@
 - make check-host : OK (`16-track stress: ... silent_ticks=0`).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
+
+## [2025-11-05 20:00] MP13c — Histogramme & seuils de régression 16 pistes
+### Étapes réalisées
+- Extension `tests/support/rt_blackbox.{h,c}` : compteurs NOTE_ON/OFF par piste (16) avec reset automatique.
+- Stress host `tests/seq_16tracks_stress_tests.c` enrichi : histogramme par piste, résumé agrégé, seuils de régression (pistes actives, minimum NOTE_ON, silent_ticks).
+- Documentation P2 actualisée pour tracer le banc host chiffré.
+### Tests
+- make check-host : OK (histogramme 16 pistes, `silent_ticks=0`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
