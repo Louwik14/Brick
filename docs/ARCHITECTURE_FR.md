@@ -78,6 +78,13 @@ Principes structurants :
 * Routage attendu : 4 groupes XVA1 virtuels (tracks 1‑4, 5‑8, 9‑12, 13‑16) vers les canaux MIDI CH1..CH16, mute appliqué côté Reader pour éviter toute émission événementielle lors d'une désactivation de piste.【F:SEQ_BEHAVIOR.md†L80-L109】
 * Les détails d'implémentation (split hot/cold, organisation des buffers, absence d'allocation dynamique et blocages <20 µs) sont tracés dans `RUNTIME_MULTICART_REPORT.md` et serviront de guide pour la passe suivante.
 
+### P2 — MP17-guard : Runner Reader-only (16 pistes)
+
+* `apps/seq_engine_runner.c` boucle désormais sur 16 handles Reader (`seq_reader_make_handle()`) en phase **TICK**, mappe les tracks `t` vers les canaux MIDI `t+1` via `apps/midi_helpers.h` et maintient un compteur local de NOTE_OFF (zéro allocation, zéro mutex).【F:apps/seq_engine_runner.c†L1-L142】【F:apps/midi_helpers.h†L1-L23】
+* Le cache `runner_active_t` (banque/pattern) est mis à jour côté UI dans `_publish_runtime()` (`seq_led_bridge.c`) via `seq_runner_set_active_pattern()`, garantissant l'absence de façade cold dans le tick.【F:apps/seq_led_bridge.c†L835-L876】【F:apps/seq_engine_runner.c†L33-L44】
+* L'arrêt transporte vide d'abord les NOTE_OFF planifiés puis diffuse `midi_all_notes_off()` hors TICK, évitant toute suspension UI avant un redémarrage immédiat.【F:apps/seq_engine_runner.c†L46-L78】
+* Les garde-fous CI renforcés (`check_apps_public_surface`, `check_no_ccm_in_apps`) bloquent toute régression d'includes runtime/modèle ou d'attributs `.ccm/.hot` dans `apps/**`.【F:Makefile†L252-L310】
+
 ## 2. Arborescence commentée
 
 ### Racine
@@ -98,7 +105,7 @@ Principes structurants :
 * `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
 ### `apps/`
-* `seq_engine_runner.c` : instancie `seq_engine`, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
+* `seq_engine_runner.c` : runner Reader-only (pas d'engine embarqué) qui itère les 16 tracks via `seq_reader_make_handle()`, publie `midi_send_note_on/off` sur CH1..16 et planifie les NOTE_OFF locaux avant diffusion des CC123 au STOP.【F:apps/seq_engine_runner.c†L1-L142】
 * `seq_led_bridge.c` : conserve un snapshot `seq_model_track_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
 * `seq_recorder.c` : relie `ui_keyboard_bridge` au live capture, maintient les voix actives pour mesurer les longueurs de note.
 * `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---

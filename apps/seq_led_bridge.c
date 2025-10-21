@@ -812,6 +812,9 @@ static void _publish_runtime(void) {
         g.track_index = seq_project_get_active_track_index(project);
         g.track_count = seq_project_get_track_count(project);
         g.track = seq_project_get_active_track(project);
+        const uint8_t bank = seq_project_get_active_bank(project);
+        const uint8_t pattern = seq_project_get_active_pattern_index(project);
+        seq_runner_set_active_pattern(bank, pattern);
     } else {
         g.track_index = 0U;
         g.track_count = 0U;
@@ -1392,7 +1395,6 @@ bool seq_led_bridge_select_track(uint8_t track_index) {
 
     seq_model_track_t *track_model = _seq_led_bridge_track();
     if (track_model != NULL) {
-        seq_engine_runner_attach_track(track_model);
         seq_recorder_attach_track(track_model);
     }
 

@@ -389,3 +389,16 @@
 - Inchangés (.data/.bss/.ram4 identiques tant que `SEQ_RT_DEBUG=0`).
 ### Notes
 - Aucun changement fonctionnel ; l'option cible reste opt-in via `SEQ_RT_DEBUG=1`.
+
+## [2025-11-10 10:00] MP17-guard — Runner Reader-only + start/stop safe
+### Étapes réalisées
+- `apps/seq_engine_runner.c` réécrit Reader-only : boucle 16 handles Reader, mapping tracks→CH1..16 via `midi_helpers.h`, planification NOTE_OFF locale et flush CC123 au STOP (plus d’engine×16 ni pointeurs modèle côté apps). 
+- Nouveau shim `apps/midi_helpers.h` pour traduire les canaux 1-based vers `midi_note_on/off/all_notes_off`.
+- `apps/seq_led_bridge.c` relaie `seq_runner_set_active_pattern()` lors des mises à jour banque/pattern (cache non-RT), `ui/ui_task.c` n’injecte plus de pointeur track et le stub runner host est aligné.
+- Makefile : garde-fou `check_no_ccm_in_apps`, intégration de la cible host `seq_rt_start_stop_smoke` dans `make check-host`.
+- Test host `tests/seq_rt_start_stop_smoke.c` : séquence start→8 ticks→stop→restart avec blackbox, documentation `ARCHITECTURE_FR.md` enrichie et journal mis à jour.
+- `core/seq/seq_config.h` fixe `SEQ_MAX_ACTIVE_TRACKS` à 16 (définition unique).
+### Tests
+- make check-host : OK (inclut `seq_rt_start_stop_smoke`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — modifications confinées aux apps/UI/tests host.
