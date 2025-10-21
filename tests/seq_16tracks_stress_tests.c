@@ -8,19 +8,22 @@
 #include "core/clock_manager.h"
 #include "core/seq/seq_engine.h"
 #include "core/seq/seq_model.h"
+#include "tests/support/rt_blackbox.h"
 
 #define STRESS_TRACK_COUNT 16U
 #define STRESS_TICK_COUNT (SEQ_MODEL_STEPS_PER_TRACK * 8U)
 #define STRESS_STEP_DURATION 24U
 
-static unsigned g_tick_events = 0U;
-static unsigned g_silent_ticks = 0U;
 static unsigned g_total_events = 0U;
+static uint32_t g_current_tick = 0U;
+static uint8_t g_dispatch_track = 0U;
+static uint8_t g_dispatch_step = 0U;
+static uint8_t g_step_index_per_track[STRESS_TRACK_COUNT];
 
 static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
     (void)note_on;
     (void)scheduled_time;
-    ++g_tick_events;
+    bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 1U);
     ++g_total_events;
     return MSG_OK;
 }
@@ -28,7 +31,7 @@ static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t sche
 static msg_t host_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time) {
     (void)note_off;
     (void)scheduled_time;
-    ++g_tick_events;
+    bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 2U);
     ++g_total_events;
     return MSG_OK;
 }
@@ -44,10 +47,13 @@ typedef struct {
     seq_engine_t engine;
 } track_ctx_t;
 
-static void host_dispatch_event(seq_engine_t *engine, const seq_engine_event_t *event) {
+static void host_dispatch_event(uint8_t track_index, seq_engine_t *engine, const seq_engine_event_t *event) {
     if ((engine == NULL) || (event == NULL)) {
         return;
     }
+
+    g_dispatch_track = track_index;
+    g_dispatch_step = g_step_index_per_track[track_index];
 
     switch (event->type) {
     case SEQ_ENGINE_EVENT_NOTE_ON: {
@@ -107,6 +113,8 @@ int main(void) {
     track_ctx_t ctx[STRESS_TRACK_COUNT];
     memset(ctx, 0, sizeof(ctx));
 
+    bb_reset();
+
     seq_engine_callbacks_t callbacks = {
         .note_on = host_note_on_cb,
         .note_off = host_note_off_cb,
@@ -133,7 +141,9 @@ int main(void) {
     ch_stub_set_time(current_time);
 
     for (uint32_t tick = 0U; tick < STRESS_TICK_COUNT; ++tick) {
-        g_tick_events = 0U;
+
+        g_current_tick = tick;
+        bb_tick_begin(g_current_tick);
 
         clock_step_info_t info = {
             .now = current_time,
@@ -145,6 +155,7 @@ int main(void) {
         };
 
         for (uint8_t t = 0U; t < STRESS_TRACK_COUNT; ++t) {
+            g_step_index_per_track[t] = (uint8_t)(tick % SEQ_MODEL_STEPS_PER_TRACK);
             seq_engine_process_step(&ctx[t].engine, &info);
         }
 
@@ -156,27 +167,30 @@ int main(void) {
             while (seq_engine_scheduler_peek(&ctx[t].engine.scheduler, &event) &&
                    (event.scheduled_time <= current_time)) {
                 (void)seq_engine_scheduler_pop(&ctx[t].engine.scheduler, &event);
-                host_dispatch_event(&ctx[t].engine, &event);
+                host_dispatch_event(t, &ctx[t].engine, &event);
             }
         }
 
-        if (g_tick_events == 0U) {
-            ++g_silent_ticks;
-        }
+        bb_tick_end();
     }
 
     double avg = (STRESS_TICK_COUNT > 0U)
                      ? ((double)g_total_events / (double)STRESS_TICK_COUNT)
                      : 0.0;
 
+    const unsigned silent = bb_silent_ticks();
+
     printf("16-track stress: ticks=%u total_events=%u silent_ticks=%u events_per_tick=%.2f\n",
            (unsigned)STRESS_TICK_COUNT,
            g_total_events,
-           g_silent_ticks,
+           silent,
            avg);
 
-    if ((g_total_events == 0U) || (g_silent_ticks > 0U)) {
+    if ((g_total_events == 0U) || (silent > 0U)) {
         fprintf(stderr, "error: unexpected silent ticks while pattern emits events\n");
+        if (silent > 0U) {
+            bb_dump();
+        }
         return EXIT_FAILURE;
     }
 

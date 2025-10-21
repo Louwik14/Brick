@@ -334,3 +334,13 @@
 - make check-host : OK (`16-track stress: ... silent_ticks=0`).
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
+
+## [2025-11-05 18:00] MP13b — Blackbox host & watchdog silence
+### Étapes réalisées
+- Module support host `tests/support/rt_blackbox.{h,c}` : anneau 64 évènements, compteur `silent_ticks`, dump automatique.
+- Intégration complète dans `tests/seq_16tracks_stress_tests.c` (journalisation NOTE_ON/OFF, `bb_tick_begin/end`, fail avec dump en cas de silence).
+- Règle Makefile `seq_16tracks_stress_tests` mise à jour : compilation/lien du support et inclusion `-Itests/support` dans `make check-host`.
+### Tests
+- make check-host : OK (`16-track stress: ... silent_ticks=0`).
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o) — instrumentation purement host.
