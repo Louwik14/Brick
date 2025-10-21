@@ -12,8 +12,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "core/seq/seq_model.h"
-#include "core/seq/seq_project.h"
+#include "core/seq/seq_access.h"
 #include "ui_led_seq.h"
 #include "ui_seq_ids.h"
 

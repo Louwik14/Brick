@@ -10,10 +10,6 @@
 #include "ch.h"
 #include "brick_config.h"
 
-#include "core/seq/seq_model.h"
-#include "core/seq/seq_project.h"
-#include "core/seq/seq_runtime.h"
-// MP3a: prepare Reader include (no behavior change)
 #include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
 #include "seq_engine_runner.h"
@@ -736,22 +732,20 @@ static void _rebuild_runtime_from_track(void) {
         }
 
 #if SEQ_USE_HANDLES
-        // MP3b: single-site migration to Reader
-        enum {
-            k_seq_step_view_flag_automation = 1U << 1,
-            k_seq_step_view_flag_has_plock = 1U << 2,
-        };
         seq_step_view_t view;
         if (!seq_reader_get_step(handle, (uint8_t)absolute, &view)) {
             continue;
         }
-        const bool has_voice = view.vel > 0U;
-        const bool automation = (view.flags & k_seq_step_view_flag_automation) != 0U;
-        const bool has_seq_plock = ((view.flags & k_seq_step_view_flag_has_plock) != 0U) && !automation;
+        const uint8_t step_flags = view.flags;
+        const bool has_voice = (step_flags & SEQ_STEPF_HAS_VOICE) != 0U;
+        const bool has_seq_plock = (step_flags & SEQ_STEPF_HAS_SEQ_PLOCK) != 0U;
+        const bool has_cart_plock = (step_flags & SEQ_STEPF_HAS_CART_PLOCK) != 0U;
+        const bool automation = (step_flags & SEQ_STEPF_AUTOMATION_ONLY) != 0U;
         dst->active = has_voice || has_seq_plock;
-        dst->recorded = has_voice || has_seq_plock || automation;
+        dst->recorded = has_voice || has_seq_plock || has_cart_plock;
         dst->param_only = automation;
         dst->automation = automation;
+        dst->muted = false;
 #else
         const seq_model_step_t *src = &track->steps[absolute];
         const bool has_voice = seq_model_step_has_playable_voice(src);

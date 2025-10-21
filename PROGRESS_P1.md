@@ -80,3 +80,16 @@
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
 ### Décisions
 - Garde-fou legacy (`check_no_legacy_includes_led`) laissé commenté pour MP3b conformément au plan.
+
+## [2025-10-23 11:00] MP3c — Reader complet + garde-fou actif
+### Étapes réalisées
+- Flags publics `SEQ_STEPF_*` exposés dans `seq_views.h` et alimentés par `seq_reader_get_step()` (voix, p-locks seq/cart, automation, mute placeholder) pour supprimer les heuristiques côté apps.
+- Tous les accès lecture/flags du bridge migrés vers Reader dans `_rebuild_runtime_from_track()` (usage exclusif de `seq_access.h`).
+- Garde-fou bloquant `check_no_legacy_includes_led` activé sur la cible `apps/seq_led_bridge.o`.
+### Tests
+- make check-host : OK.
+- make check_no_legacy_includes_led : OK.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### Notes
+- Sous-étape A effectuée : exposition des flags Reader pour couvrir les besoins LED sans heuristiques locales.

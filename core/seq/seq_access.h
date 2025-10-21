@@ -5,8 +5,7 @@
 #include "seq_handles.h"
 #include "seq_views.h"
 #include "reader/seq_reader.h"
-#else
+#endif
 #include "seq_runtime.h"
 #include "seq_project.h"
 #include "seq_model.h"
-#endif

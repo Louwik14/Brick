@@ -9,9 +9,6 @@
 #include "core/seq/seq_model.h"
 
 enum {
-    k_seq_step_view_flag_active = 1U << 0,
-    k_seq_step_view_flag_automation = 1U << 1,
-    k_seq_step_view_flag_has_plock = 1U << 2,
     k_seq_reader_plock_internal_flag = 0x8000U,
     k_seq_reader_plock_internal_voice_shift = 8U,
 };
@@ -96,15 +93,29 @@ bool seq_reader_get_step(seq_track_handle_t h, uint8_t step, seq_step_view_t *ou
     }
 
     if (legacy_step != NULL) {
-        if (legacy_step->flags.active != 0U) {
-            out->flags |= k_seq_step_view_flag_active;
+        const bool has_voice = seq_model_step_has_playable_voice(legacy_step);
+        const bool has_seq_plock = seq_model_step_has_seq_plock(legacy_step);
+        const bool has_cart_plock = seq_model_step_has_cart_plock(legacy_step);
+        const bool has_any_plock = has_seq_plock || has_cart_plock;
+        const bool automation = seq_model_step_is_automation_only(legacy_step);
+
+        uint8_t flags = 0U;
+        if (has_voice) {
+            flags |= SEQ_STEPF_HAS_VOICE;
         }
-        if (legacy_step->flags.automation != 0U) {
-            out->flags |= k_seq_step_view_flag_automation;
+        if (has_any_plock) {
+            flags |= SEQ_STEPF_HAS_ANY_PLOCK;
         }
-        if (legacy_step->plock_count > 0U) {
-            out->flags |= k_seq_step_view_flag_has_plock;
+        if (has_seq_plock) {
+            flags |= SEQ_STEPF_HAS_SEQ_PLOCK;
         }
+        if (has_cart_plock) {
+            flags |= SEQ_STEPF_HAS_CART_PLOCK;
+        }
+        if (automation) {
+            flags |= SEQ_STEPF_AUTOMATION_ONLY;
+        }
+        out->flags = flags;
     }
 
     return true;
