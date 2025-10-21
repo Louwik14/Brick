@@ -19,3 +19,21 @@
 - Aucun changement comportemental ; Reader exposé mais inactif tant que `SEQ_USE_HANDLES` reste à 0.
 ### Blocages & TODO
 - Aucun.
+
+## [2025-10-21 16:45] MP1 — Reader façade legacy
+### Contexte lu
+- ARCHITECTURE_FR.md — rappel pipeline Reader → Scheduler → Player.
+- SEQ_BEHAVIOR.md — vérification des invariants voix/p-locks.
+- RUNTIME_MULTICART_REPORT.md — bornes mémoire .data/.bss/.ram4.
+### Étapes réalisées
+- Ajout des includes standard (`<stddef.h>`, `<string.h>`, etc.) et connexion aux APIs legacy (`seq_runtime`, `seq_project`, `seq_model`).
+- Implémentation de la résolution handle → track active (banque/pattern actifs) et copie `seq_step_view_t` sans fuite de pointeur.
+- Encodage d’un itérateur p-lock sans allocation (state statique) + encodage ID interne (flag 0x8000).
+- Ajout du test host `seq_reader_tests.c` + intégration `Makefile` (`make check-host`).
+### Tests
+- make -j : ⚠️ KO (toolchain arm-none-eabi-gcc absente sur l’environnement, comportement inchangé vs MP0).
+- make check-host : OK (inclut désormais `seq_reader_tests`).
+### Audits mémoire
+- Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o (state lecteur en statique négligeable).
+### Blocages & TODO
+- Aucun.
