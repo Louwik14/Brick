@@ -67,4 +67,16 @@
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
 ### TODO
-- MP3b : brancher les vraies lectures legacy dans `seq_reader_get_active_track_handle()`.
+- Aucun.
+
+## [2025-10-22 18:00] MP3b — Opt-in Reader partiel (LED bridge)
+### Étapes réalisées
+- `seq_reader_get_active_track_handle()` vérifie le projet actif et renvoie les indices legacy (bank/pattern/track).
+- Opt-in local activé (`apps/seq_led_bridge.o: CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations`).
+- Migration d’un site dans `_rebuild_runtime_from_track()` : lecture Reader sous `#if SEQ_USE_HANDLES`, fallback legacy intact.
+### Tests
+- make check-host : OK.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### Décisions
+- Garde-fou legacy (`check_no_legacy_includes_led`) laissé commenté pour MP3b conformément au plan.

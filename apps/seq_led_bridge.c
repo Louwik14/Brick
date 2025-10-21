@@ -716,23 +716,43 @@ static void _rebuild_runtime_from_track(void) {
     g.rt.steps_per_page = SEQ_LED_BRIDGE_STEPS_PER_PAGE;
     g.rt.plock_selected_mask = g.preview_mask;
 
-    const seq_model_track_t *track = _seq_led_bridge_track_const();
-    if (track == NULL) {
+    if (_seq_led_bridge_track_const() == NULL) {
         return;
     }
+#if SEQ_USE_HANDLES
+    const seq_track_handle_t handle = seq_reader_get_active_track_handle();
+#else
+    const seq_model_track_t *track = _seq_led_bridge_track_const();
+#endif
 
     const uint16_t base = _page_base(g.visible_page);
     for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
         const uint16_t absolute = base + (uint16_t)local;
         seq_step_state_t *dst = &g.rt.steps[local];
+        *dst = (seq_step_state_t){0};
 
         if (!_valid_step_index(absolute)) {
-            dst->active = false;
-            dst->recorded = false;
-            dst->param_only = false;
             continue;
         }
 
+#if SEQ_USE_HANDLES
+        // MP3b: single-site migration to Reader
+        enum {
+            k_seq_step_view_flag_automation = 1U << 1,
+            k_seq_step_view_flag_has_plock = 1U << 2,
+        };
+        seq_step_view_t view;
+        if (!seq_reader_get_step(handle, (uint8_t)absolute, &view)) {
+            continue;
+        }
+        const bool has_voice = view.vel > 0U;
+        const bool automation = (view.flags & k_seq_step_view_flag_automation) != 0U;
+        const bool has_seq_plock = ((view.flags & k_seq_step_view_flag_has_plock) != 0U) && !automation;
+        dst->active = has_voice || has_seq_plock;
+        dst->recorded = has_voice || has_seq_plock || automation;
+        dst->param_only = automation;
+        dst->automation = automation;
+#else
         const seq_model_step_t *src = &track->steps[absolute];
         const bool has_voice = seq_model_step_has_playable_voice(src);
         const bool has_seq_plock = seq_model_step_has_seq_plock(src);
@@ -748,6 +768,7 @@ static void _rebuild_runtime_from_track(void) {
         (void)muted; /* Track mute reflété uniquement en mode MUTE (pas en SEQ). */
         dst->muted = false;
         dst->track = voice;
+#endif
     }
 
     ui_led_seq_set_total_span(g.total_span);
