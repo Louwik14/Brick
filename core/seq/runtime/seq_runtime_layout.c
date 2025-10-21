@@ -3,12 +3,14 @@
 
 static seq_runtime_blocks_t s_blocks = {0};
 
+#if !defined(__arm__) && !defined(__thumb__)
 __attribute__((constructor)) static void _seq_runtime_blocks_bootstrap(void) {
     // Alias interne : on pointe vers les structures actuelles (ex: &g_seq_runtime)
     // sans modifier leur layout ni leur placement.
     s_blocks.hot_impl  = (const void*)&g_seq_runtime;  // alias provisoire
     s_blocks.cold_impl = (const void*)&g_seq_runtime;  // alias provisoire
 }
+#endif
 
 const seq_runtime_blocks_t* seq_runtime_blocks_get(void) {
     return &s_blocks;
