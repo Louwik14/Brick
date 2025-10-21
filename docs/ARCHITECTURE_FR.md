@@ -288,3 +288,7 @@ Impact sections :
 - `.rodata` : +~350 o | `.data` : 0 o | `.bss` : 0 o *(estimation en l'absence de build release ; la croissance correspond aux gabarits stockés en Flash, tandis que les duplications locales sont éliminées)*
 CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA ; `g_seq_runtime` reste en CCM).
 Prochain lot : migrer les tables MIDI communes (noms de notes, mappings cart) et les assets cart `XVA1` vers des modules `const` dédiés.
+
+---
+
+**Note P1 (MP0, 2025-10-21)** — Ajout des façades `core/seq/seq_access.h` et API Reader squelettique pour préparer la migration handles (voir PROGRESS_P1.md).

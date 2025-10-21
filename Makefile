@@ -152,6 +152,7 @@ CSRC = $(ALLCSRC) \
        $(wildcard core/*.c) \
        $(wildcard core/arp/*.c) \
        $(wildcard core/seq/*.c) \
+       $(wildcard core/seq/reader/*.c) \
        
        
        
