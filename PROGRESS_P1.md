@@ -116,3 +116,17 @@
 - make check-host : OK.
 ### Audits mémoire
 - Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+
+<a id="MP5"></a>
+## [2025-10-25 10:00] MP5 — Flip global des handles apps/** + garde-fou généralisé
+### Étapes réalisées
+- Bascule globale de `SEQ_USE_HANDLES` via `CFLAGS` (handles actifs par défaut + `-Werror=deprecated-declarations`).
+- Suppression des opt-ins ciblés `apps/seq_led_bridge.o` et `apps/seq_engine_runner.o` devenus inutiles.
+- Nouveau garde-fou bloquant `check_no_legacy_includes_apps` branché sur `POST_MAKE_ALL_RULE_HOOK` pour surveiller l’ensemble de `apps/**`.
+### Tests
+- make check-host : OK.
+- make check_no_legacy_includes_apps : OK.
+### Audits mémoire
+- Inchangés vs baseline (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+### Notes
+- Aucun changement fonctionnel : pipeline Reader → Scheduler → Player intact, mêmes gardes mémoires.
