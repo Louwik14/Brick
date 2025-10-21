@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/seq/runtime/seq_runtime_layout.h"
 #include "core/seq/seq_runtime.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_model.h"
@@ -28,7 +29,12 @@ static const seq_model_track_t *_resolve_legacy_track(seq_track_handle_t handle)
         return NULL;
     }
 
-    const seq_project_t *project = seq_runtime_get_project();
+    const seq_runtime_blocks_t *blocks = seq_runtime_blocks_get();
+    if ((blocks == NULL) || (blocks->hot_impl == NULL)) {
+        return NULL;
+    }
+
+    const seq_project_t *project = (const seq_project_t *)blocks->hot_impl;
     if (project == NULL) {
         return NULL;
     }
@@ -165,7 +171,12 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
 
 seq_track_handle_t seq_reader_get_active_track_handle(void) {
     seq_track_handle_t h = (seq_track_handle_t){0U, 0U, 0U};
-    const seq_project_t *project = seq_runtime_get_project();
+    const seq_runtime_blocks_t *blocks = seq_runtime_blocks_get();
+    if ((blocks == NULL) || (blocks->hot_impl == NULL)) {
+        return h;
+    }
+
+    const seq_project_t *project = (const seq_project_t *)blocks->hot_impl;
     if (project != NULL) {
         h.bank = seq_project_get_active_bank(project);
         h.pattern = seq_project_get_active_pattern_index(project);
