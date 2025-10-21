@@ -53,6 +53,7 @@ Principes structurants :
 > **P2/MP13b — Blackbox & watchdog silence** : anneau host 64 évènements + compteur `silent_ticks` intégrés au stress 16 tracks ; dump automatique des derniers évènements et échec test si silence inattendu.
 > **P2/MP13c — Histogramme & seuils de régression** : stress 16 tracks enrichi d’un histogramme NOTE_ON/OFF par piste et de seuils (0 tick silencieux, 16 pistes actives, minimum NOTE_ON/piste) afin de quantifier la régression côté host.
 > **P2/MP14 — Invariants MIDI & soak 16 pistes** : appariement NOTE_ON/OFF (table 16×128) avec longueur max contrôlée, checks intégrés au stress, et nouveau banc soak 10 000 ticks (`make check-host`, option `SKIP_SOAK=1`).
+> **P2/MP15 — Budget p99 & moniteurs RT** : mesures Reader→Scheduler→Player (rapport `min/avg/p95/p99/max`, seuil 2.0 ms) et watermarks des files évènements/player côté host (`rq_report`), hooks cible `SEQ_RT_DEBUG` OFF par défaut.
 
 ### P2 — État atteint (F429 sans SDRAM)
 
