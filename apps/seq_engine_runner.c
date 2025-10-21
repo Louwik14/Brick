@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/seq/seq_access.h"  // MP4a: prepare Reader include (no behavior change)
 #include "brick_config.h"
 #include "cart_link.h"
 #include "cart_registry.h"
