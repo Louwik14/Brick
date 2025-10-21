@@ -39,6 +39,7 @@ Principes structurants :
 >
 > **P2/MP6c — Init 2 phases** : `seq_runtime_layout_reset_aliases()` (Phase 1) neutralise les pointeurs avant l'init legacy, puis `seq_runtime_layout_attach_aliases()` (Phase 2) rattache `g_seq_runtime` en alias hot/cold. Aucune donnée n’est déplacée à ce stade ; prochaine étape P2/MP7 : extraction progressive du cold hors du chemin temps réel.
 > **P2/MP7b — Première vue cold** : `seq_runtime_cold_view()` expose une vue `(ptr, bytes)` en lecture seule pour `SEQ_COLDV_PROJECT`, renvoyant l'alias legacy `g_seq_runtime.project`. Le Reader consomme désormais cette façade plutôt que caster directement les alias hot/cold. Les audits `.data/.bss/.ram4` restent inchangés.
+> **P2/MP7c — Cart metadata** : second domaine cold (`SEQ_COLDV_CART_META`) exposé sur `g_seq_runtime.project.tracks`, `seq_pattern_save()` lit désormais ces métadonnées via la façade et un test host dédié verrouille `ptr != NULL` et `bytes > 0`.
 
 ### État CCRAM
 

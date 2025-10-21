@@ -16,6 +16,7 @@ extern "C" {
 typedef enum {
     SEQ_COLDV_UI_SHADOW = 0,
     SEQ_COLDV_HOLD_SLOTS,
+    SEQ_COLDV_CART_META,
     SEQ_COLDV_PROJECT, /**< Legacy seq_project_t stored inside g_seq_runtime. */
     SEQ_COLDV__COUNT
 } seq_cold_domain_t;
