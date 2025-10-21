@@ -177,3 +177,15 @@
 - Inchangés : alias uniquement, aucune nouvelle allocation.
 ### Notes
 - Prépare la future séparation physique hot/cold sans déplacer les données existantes.
+
+## [2025-10-29 08:30] MP7a-fix — Link ARM hot/cold + flag expérimental robuste
+### Étapes réalisées
+- Ajout explicite de `core/seq/runtime/seq_runtime_layout.c` dans `CSRC` pour le build ARM (`ch.elf`).
+- Garde `extern "C"` autour des prototypes dans `seq_runtime_layout.h` afin de garantir la résolution des symboles en C++.
+- Attribut `constructor` désormais compilé uniquement en host (`!__arm__ && !__thumb__`), l'embarqué s'appuie sur `seq_runtime_init()`.
+- Valeur par défaut `BRICK_EXPERIMENTAL_PATTERN_CODEC_V2=0` centralisée dans `seq_config.h` pour éliminer les warnings `-Wundef`.
+### Tests
+- make check-host : OK.
+- make -j all : ⚠️ KO (toolchain `arm-none-eabi-gcc` absente sur l'environnement, inchangé vs précédents jalons).
+### Audits mémoire
+- Inchangés vs baseline : .data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o.

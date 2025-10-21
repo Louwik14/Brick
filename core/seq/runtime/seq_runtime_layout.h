@@ -23,8 +23,16 @@ typedef struct {
 } seq_runtime_blocks_t;
 
 // API interne core-only (pas pour apps/**)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 const seq_runtime_blocks_t* seq_runtime_blocks_get(void);
 
 // API d'init interne (appelée depuis main/init runtime)
 void seq_runtime_layout_reset_aliases(void);
 void seq_runtime_layout_attach_aliases(const void* hot_impl, const void* cold_impl);
+
+#ifdef __cplusplus
+}
+#endif
