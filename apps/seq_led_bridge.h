@@ -31,6 +31,8 @@ void seq_led_bridge_page_next(void);
 void seq_led_bridge_page_prev(void);
 void seq_led_bridge_set_visible_page(uint8_t page);
 
+void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern);
+
 /** @brief Page visible courante (0..N-1). */
 uint8_t seq_led_bridge_get_visible_page(void);
 

@@ -11,7 +11,7 @@
 #include "apps/rtos_shim.h"
 #include "brick_config.h"
 
-#include "core/seq/runtime/seq_runtime_cold.h"
+#include "core/seq/reader/seq_reader.h"
 #include "core/seq/runtime/seq_sections.h"
 #include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
@@ -70,6 +70,67 @@ typedef struct {
 
 static CCM_DATA seq_led_bridge_state_t g;
 UI_RAM_AUDIT(g);
+
+typedef struct {
+    uint8_t hold_slots[SEQ_LED_BRIDGE_STEPS_PER_PAGE];
+    uint8_t active_bank;
+    uint8_t active_pattern;
+} seq_led_bridge_cache_t;
+
+static seq_led_bridge_cache_t g_cache;
+
+static void _cache_reset(void) {
+    memset(&g_cache, 0, sizeof(g_cache));
+}
+
+static inline const seq_model_track_t *_seq_led_bridge_track_const(void);
+static inline bool _valid_step_index(uint16_t absolute);
+
+static void _cache_refresh_hold_slots(uint16_t base_step) {
+    memset(g_cache.hold_slots, 0, sizeof(g_cache.hold_slots));
+
+#if SEQ_USE_HANDLES
+    seq_track_handle_t active = seq_reader_get_active_track_handle();
+    g_cache.active_bank = active.bank;
+    g_cache.active_pattern = active.pattern;
+    for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
+        const uint16_t absolute = base_step + (uint16_t)local;
+        if (!_valid_step_index(absolute)) {
+            break;
+        }
+        seq_step_view_t view;
+        if (seq_reader_get_step(active, (uint8_t)absolute, &view)) {
+            g_cache.hold_slots[local] = view.flags;
+        }
+    }
+#else
+    const seq_model_track_t *track = _seq_led_bridge_track_const();
+    if (track == NULL) {
+        return;
+    }
+    for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
+        const uint16_t absolute = base_step + (uint16_t)local;
+        if (!_valid_step_index(absolute)) {
+            break;
+        }
+        const seq_model_step_t *src = &track->steps[absolute];
+        uint8_t flags = 0U;
+        if (seq_model_step_has_playable_voice(src)) {
+            flags |= SEQ_STEPF_HAS_VOICE;
+        }
+        if (seq_model_step_has_seq_plock(src)) {
+            flags |= (SEQ_STEPF_HAS_SEQ_PLOCK | SEQ_STEPF_HAS_ANY_PLOCK);
+        }
+        if (seq_model_step_has_cart_plock(src)) {
+            flags |= (SEQ_STEPF_HAS_CART_PLOCK | SEQ_STEPF_HAS_ANY_PLOCK);
+        }
+        if (seq_model_step_is_automation_only(src)) {
+            flags |= SEQ_STEPF_AUTOMATION_ONLY;
+        }
+        g_cache.hold_slots[local] = flags;
+    }
+#endif
+}
 
 static inline seq_project_t *_seq_led_bridge_project(void) {
     return g.project;
@@ -153,19 +214,6 @@ static inline bool _valid_step_index(uint16_t absolute) {
 }
 
 static const seq_led_bridge_hold_slot_t *_hold_slots_view(size_t *out_count) {
-    const seq_cold_view_t view = seq_runtime_cold_view(SEQ_COLDV_HOLD_SLOTS);
-    const bool has_payload = (view._p != NULL) &&
-                             (view._bytes >= sizeof(seq_led_bridge_hold_slot_t));
-    if (has_payload) {
-        const size_t count = view._bytes / sizeof(seq_led_bridge_hold_slot_t);
-        if (count > 0U) {
-            if (out_count != NULL) {
-                *out_count = count;
-            }
-            return (const seq_led_bridge_hold_slot_t *)view._p;
-        }
-    }
-
     if (out_count != NULL) {
         *out_count = SEQ_LED_BRIDGE_STEPS_PER_PAGE;
     }
@@ -759,6 +807,7 @@ static void _rebuild_runtime_from_track(void) {
 #endif
 
     const uint16_t base = _page_base(g.visible_page);
+    _cache_refresh_hold_slots(base);
     for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
         const uint16_t absolute = base + (uint16_t)local;
         seq_step_state_t *dst = &g.rt.steps[local];
@@ -812,10 +861,13 @@ static void _publish_runtime(void) {
         g.track_index = seq_project_get_active_track_index(project);
         g.track_count = seq_project_get_track_count(project);
         g.track = seq_project_get_active_track(project);
+        seq_led_bridge_set_active(seq_project_get_active_bank(project),
+                                  seq_project_get_active_pattern_index(project));
     } else {
         g.track_index = 0U;
         g.track_count = 0U;
         g.track = NULL;
+        seq_led_bridge_set_active(0U, 0U);
     }
 
     g.visible_page = _clamp_page(g.visible_page);
@@ -850,8 +902,15 @@ static void _publish_runtime(void) {
 }
 
 /* ===== API =============================================================== */
+void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern) {
+    g_cache.active_bank = bank;
+    g_cache.active_pattern = pattern;
+    memset(g_cache.hold_slots, 0, sizeof(g_cache.hold_slots));
+}
+
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
+    _cache_reset();
     g.project = seq_runtime_access_project_mut();
     if (g.project != NULL) {
         g.track_index = seq_project_get_active_track_index(g.project);
@@ -872,6 +931,10 @@ void seq_led_bridge_init(void) {
     }
     g.visible_page = 0U;
 
+    if (g.project != NULL) {
+        seq_led_bridge_set_active(seq_project_get_active_bank(g.project),
+                                  seq_project_get_active_pattern_index(g.project));
+    }
     _publish_runtime();
 }
 
