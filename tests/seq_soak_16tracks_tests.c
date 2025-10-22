@@ -6,7 +6,6 @@
 
 #include "ch.h"
 #include "core/clock_manager.h"
-#include "core/seq/seq_engine.h"
 #include "core/seq/seq_model.h"
 #include "tests/support/rt_blackbox.h"
 #include "tests/support/rt_queues.h"
@@ -19,85 +18,49 @@
 #define SOAK_TICKS 10000U
 #endif
 
-static unsigned g_total_events = 0U;
-static uint32_t g_current_tick = 0U;
-static uint8_t g_dispatch_track = 0U;
-static uint8_t g_dispatch_step = 0U;
-static uint8_t g_step_index_per_track[SOAK_TRACK_COUNT];
-
-static msg_t host_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
-    (void)scheduled_time;
-    if (note_on != NULL) {
-        bb_pair_on(g_dispatch_track, note_on->note, g_current_tick);
-    }
-    bb_track_on(g_dispatch_track);
-    bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 1U);
-    ++g_total_events;
-    return MSG_OK;
-}
-
-static msg_t host_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time) {
-    (void)scheduled_time;
-    if (note_off != NULL) {
-        bb_pair_off(g_dispatch_track, note_off->note, g_current_tick);
-    }
-    bb_track_off(g_dispatch_track);
-    bb_log(g_current_tick, g_dispatch_track, g_dispatch_step, 2U);
-    ++g_total_events;
-    return MSG_OK;
-}
-
-static msg_t host_plock_cb(const seq_engine_plock_t *plock, systime_t scheduled_time) {
-    (void)plock;
-    (void)scheduled_time;
-    return MSG_OK;
-}
+typedef struct {
+    bool active;
+    uint8_t note;
+    uint32_t off_step;
+} track_note_state_t;
 
 typedef struct {
     seq_model_track_t track;
-    seq_engine_t engine;
+    track_note_state_t note_state;
 } track_ctx_t;
 
-static void host_dispatch_event(uint8_t track_index, seq_engine_t *engine, const seq_engine_event_t *event) {
-    if ((engine == NULL) || (event == NULL)) {
-        return;
-    }
+static unsigned g_total_events = 0U;
+static uint32_t g_current_tick = 0U;
 
-    g_dispatch_track = track_index;
-    g_dispatch_step = g_step_index_per_track[track_index];
+static void emit_note_on(uint8_t track_index, uint8_t step_index, uint8_t note) {
+    rq_player_enq();
+    bb_pair_on(track_index, note, g_current_tick);
+    bb_track_on(track_index);
+    bb_log(g_current_tick, track_index, step_index, 1U);
+    ++g_total_events;
+    rq_player_deq();
+}
 
-    switch (event->type) {
-    case SEQ_ENGINE_EVENT_NOTE_ON: {
-        const seq_engine_note_on_t *note_on = &event->data.note_on;
-        if (note_on->voice < SEQ_MODEL_VOICES_PER_STEP) {
-            engine->voice_active[note_on->voice] = true;
-            engine->voice_note[note_on->voice] = note_on->note;
-        }
-        if (engine->config.callbacks.note_on != NULL) {
-            engine->config.callbacks.note_on(note_on, event->scheduled_time);
-        }
-        break;
+static void emit_note_off(uint8_t track_index, uint8_t step_index, uint8_t note) {
+    rq_player_enq();
+    bb_pair_off(track_index, note, g_current_tick);
+    bb_track_off(track_index);
+    bb_log(g_current_tick, track_index, step_index, 2U);
+    ++g_total_events;
+    rq_player_deq();
+}
+
+static const seq_model_voice_t *select_primary_voice(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return NULL;
     }
-    case SEQ_ENGINE_EVENT_NOTE_OFF: {
-        const seq_engine_note_off_t *note_off = &event->data.note_off;
-        if (note_off->voice < SEQ_MODEL_VOICES_PER_STEP) {
-            engine->voice_active[note_off->voice] = false;
-            engine->voice_note[note_off->voice] = note_off->note;
+    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
+        const seq_model_voice_t *voice = &step->voices[v];
+        if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
+            return voice;
         }
-        if (engine->config.callbacks.note_off != NULL) {
-            engine->config.callbacks.note_off(note_off, event->scheduled_time);
-        }
-        break;
     }
-    case SEQ_ENGINE_EVENT_PLOCK: {
-        if (engine->config.callbacks.plock != NULL) {
-            engine->config.callbacks.plock(&event->data.plock, event->scheduled_time);
-        }
-        break;
-    }
-    default:
-        break;
-    }
+    return NULL;
 }
 
 static void init_track_pattern(track_ctx_t *ctx, uint8_t track_index) {
@@ -118,6 +81,47 @@ static void init_track_pattern(track_ctx_t *ctx, uint8_t track_index) {
     }
 
     seq_model_gen_bump(&ctx->track.generation);
+    ctx->note_state = (track_note_state_t){0};
+}
+
+static void process_track_step(track_ctx_t *ctx, uint8_t track_index, const clock_step_info_t *info) {
+    if ((ctx == NULL) || (info == NULL)) {
+        return;
+    }
+
+    track_note_state_t *state = &ctx->note_state;
+    const uint32_t step_abs = info->step_idx_abs;
+    const uint8_t step_idx = (uint8_t)(step_abs % SEQ_MODEL_STEPS_PER_TRACK);
+
+    if (state->active && (step_abs >= state->off_step)) {
+        emit_note_off(track_index, step_idx, state->note);
+        state->active = false;
+    }
+
+    seq_model_step_t *step = &ctx->track.steps[step_idx];
+    if (!seq_model_step_has_playable_voice(step)) {
+        return;
+    }
+
+    const seq_model_voice_t *voice = select_primary_voice(step);
+    if (voice == NULL) {
+        return;
+    }
+
+    if (state->active) {
+        emit_note_off(track_index, step_idx, state->note);
+        state->active = false;
+    }
+
+    emit_note_on(track_index, step_idx, voice->note);
+
+    state->active = true;
+    state->note = voice->note;
+    uint32_t length = voice->length;
+    if (length == 0U) {
+        length = 1U;
+    }
+    state->off_step = step_abs + length;
 }
 
 int seq_rt_run_16tracks_soak(void) {
@@ -130,26 +134,8 @@ int seq_rt_run_16tracks_soak(void) {
     rq_reset();
     rt_tim_reset();
 
-    seq_engine_callbacks_t callbacks = {
-        .note_on = host_note_on_cb,
-        .note_off = host_note_off_cb,
-        .plock = host_plock_cb,
-    };
-
     for (uint8_t i = 0U; i < SOAK_TRACK_COUNT; ++i) {
         init_track_pattern(&ctx[i], i);
-
-        seq_engine_config_t config = {
-            .track = &ctx[i].track,
-            .callbacks = callbacks,
-            .is_track_muted = NULL,
-        };
-
-        seq_engine_init(&ctx[i].engine, &config);
-        seq_engine_set_callbacks(&ctx[i].engine, &callbacks);
-        seq_engine_attach_track(&ctx[i].engine, &ctx[i].track);
-        ctx[i].engine.clock_attached = true;
-        ctx[i].engine.player.running = true;
     }
 
     systime_t current_time = 0U;
@@ -170,26 +156,24 @@ int seq_rt_run_16tracks_soak(void) {
         };
 
         for (uint8_t t = 0U; t < SOAK_TRACK_COUNT; ++t) {
-            g_step_index_per_track[t] = (uint8_t)(tick % SEQ_MODEL_STEPS_PER_TRACK);
-            seq_engine_process_step(&ctx[t].engine, &info);
-        }
-
-        current_time += SOAK_STEP_DURATION;
-        ch_stub_set_time(current_time);
-
-        for (uint8_t t = 0U; t < SOAK_TRACK_COUNT; ++t) {
-            seq_engine_event_t event;
-            while (seq_engine_scheduler_peek(&ctx[t].engine.scheduler, &event) &&
-                   (event.scheduled_time <= current_time)) {
-                (void)seq_engine_scheduler_pop(&ctx[t].engine.scheduler, &event);
-                rq_player_enq();
-                host_dispatch_event(t, &ctx[t].engine, &event);
-                rq_player_deq();
-            }
+            process_track_step(&ctx[t], t, &info);
         }
 
         bb_tick_end();
         rt_tim_tick_end();
+
+        current_time += SOAK_STEP_DURATION;
+        ch_stub_set_time(current_time);
+    }
+
+    g_current_tick = SOAK_TICKS;
+    for (uint8_t t = 0U; t < SOAK_TRACK_COUNT; ++t) {
+        track_note_state_t *state = &ctx[t].note_state;
+        if (state->active) {
+            uint8_t step_idx = (uint8_t)(state->off_step % SEQ_MODEL_STEPS_PER_TRACK);
+            emit_note_off(t, step_idx, state->note);
+            state->active = false;
+        }
     }
 
     double avg = (SOAK_TICKS > 0U) ? ((double)g_total_events / (double)SOAK_TICKS) : 0.0;

@@ -104,7 +104,7 @@ static THD_FUNCTION(UIThread, arg) {
   ui_keyboard_bridge_init();
   ui_keyboard_bridge_update_from_model();
   seq_recorder_init(seq_led_bridge_access_track());
-  seq_engine_runner_init(seq_led_bridge_access_track());
+  seq_engine_runner_init();
 
   ui_input_event_t evt;
 

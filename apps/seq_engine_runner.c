@@ -1,6 +1,6 @@
 /**
  * @file seq_engine_runner.c
- * @brief Bridge between the sequencer engine and runtime I/O backends.
+ * @brief Reader-driven bridge between the sequencer runtime and MIDI/cart I/O.
  */
 
 #include "seq_engine_runner.h"
@@ -8,13 +8,15 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "core/seq/seq_access.h"  // MP4a: prepare Reader include (no behavior change)
+#include "apps/midi_helpers.h"
+#include "apps/rtos_shim.h"
+#include "apps/seq_led_bridge.h"
 #include "brick_config.h"
 #include "cart_link.h"
 #include "cart_registry.h"
-#include "apps/rtos_shim.h"
-#include "midi.h"
-#include "seq_engine.h"
+#include "core/seq/reader/seq_reader.h"
+#include "core/seq/seq_config.h"
+#include "core/seq/seq_model.h"
 #include "ui_mute_backend.h"
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -34,15 +36,9 @@
     do { (void)(tag); (void)(param); (void)(value); (void)(time); } while (0)
 #endif
 
-#ifndef SEQ_ENGINE_RUNNER_MIDI_CHANNEL
-#define SEQ_ENGINE_RUNNER_MIDI_CHANNEL 0U
-#endif
-
 #ifndef SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS
 #define SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS 24U
 #endif
-
-static CCM_DATA seq_engine_t s_engine;
 
 typedef struct {
     bool active;
@@ -52,55 +48,53 @@ typedef struct {
     uint8_t previous;
 } seq_engine_runner_plock_state_t;
 
-static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
+typedef struct {
+    bool active;
+    uint8_t note;
+    uint32_t off_step;
+} seq_engine_runner_note_state_t;
 
-static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time);
-static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time);
-static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t scheduled_time);
-static bool _runner_track_muted(uint8_t track);
-static uint8_t _runner_clamp_u8(int16_t value);
+enum {
+    SEQ_ENGINE_RUNNER_TRACK_COUNT = 16U
+};
+
+static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
+static CCM_DATA seq_engine_runner_note_state_t s_note_state[SEQ_ENGINE_RUNNER_TRACK_COUNT];
+
+static void _runner_reset_notes(void);
+static void _runner_flush_active_notes(void);
+static void _runner_advance_plock_state(void);
+static void _runner_apply_plocks(seq_track_handle_t handle, uint8_t step_idx, cart_id_t cart);
+static void _runner_handle_step(uint8_t track, uint32_t step_abs, uint8_t step_idx, seq_track_handle_t handle);
+static uint8_t _runner_clamp_u8(int32_t value);
+static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity);
+static void _runner_send_note_off(uint8_t track, uint8_t note);
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id);
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
 
-void seq_engine_runner_init(seq_model_track_t *track) {
-    seq_engine_callbacks_t callbacks = {
-        .note_on = _runner_note_on_cb,
-        .note_off = _runner_note_off_cb,
-        .plock = _runner_plock_cb
-    };
-
-    seq_engine_config_t config = {
-        .track = track,
-        .callbacks = callbacks,
-        .is_track_muted = _runner_track_muted
-    };
-
-    seq_engine_init(&s_engine, &config);
+void seq_engine_runner_init(void) {
+    _runner_reset_notes();
     memset(s_plock_state, 0, sizeof(s_plock_state));
 }
 
-void seq_engine_runner_attach_track(seq_model_track_t *track) {
-    seq_engine_attach_track(&s_engine, track);
-}
-
 void seq_engine_runner_on_transport_play(void) {
-    (void)seq_engine_start(&s_engine);
+    _runner_flush_active_notes();
+    _runner_reset_notes();
+    _runner_advance_plock_state();
 }
 
 void seq_engine_runner_on_transport_stop(void) {
-    seq_engine_stop(&s_engine);
+    _runner_flush_active_notes();
+
     cart_id_t cart = cart_registry_get_active_id();
     if (cart < CART_COUNT) {
         for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS; ++i) {
             seq_engine_runner_plock_state_t *slot = &s_plock_state[i];
-            if (!slot->active) {
+            if (!slot->active || (slot->cart != cart)) {
                 continue;
             }
-            if (slot->cart == cart) {
-                BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_RESTORE", slot->param_id, slot->previous, chVTGetSystemTimeX());
-                cart_link_param_changed(slot->param_id, slot->previous, false, 0U);
-            }
+            cart_link_param_changed(slot->param_id, slot->previous, false, 0U);
             _runner_plock_release(slot);
         }
     } else {
@@ -109,118 +103,168 @@ void seq_engine_runner_on_transport_stop(void) {
         }
     }
 
-    // --- FIX: STOP doit forcer un All Notes Off immédiat sur tous les canaux actifs ---
-    for (uint8_t ch = 0U; ch < 16U; ++ch) {
-        midi_all_notes_off(MIDI_DEST_BOTH, ch);
+    for (uint8_t ch = 1U; ch <= SEQ_ENGINE_RUNNER_TRACK_COUNT; ++ch) {
+        midi_all_notes_off(ch);
     }
 }
 
 void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
-    seq_engine_process_step(&s_engine, info);
-}
-
-static msg_t _runner_note_on_cb(const seq_engine_note_on_t *note_on, systime_t scheduled_time) {
-    (void)scheduled_time;
-    if (note_on == NULL) {
-        return MSG_OK;
-    }
-    midi_note_on(MIDI_DEST_BOTH, SEQ_ENGINE_RUNNER_MIDI_CHANNEL, note_on->note, note_on->velocity);
-    return MSG_OK;
-}
-
-static msg_t _runner_note_off_cb(const seq_engine_note_off_t *note_off, systime_t scheduled_time) {
-    (void)scheduled_time;
-    if (note_off == NULL) {
-        return MSG_OK;
-    }
-    midi_note_off(MIDI_DEST_BOTH, SEQ_ENGINE_RUNNER_MIDI_CHANNEL, note_off->note, 0U);
-    return MSG_OK;
-}
-
-static msg_t _runner_plock_cb(const seq_engine_plock_t *plock, systime_t scheduled_time) {
-    if ((plock == NULL) || (plock->plock.domain != SEQ_MODEL_PLOCK_CART)) {
-        return MSG_OK;
+    if (info == NULL) {
+        return;
     }
 
-    const seq_model_plock_t *payload = &plock->plock;
+    _runner_advance_plock_state();
+
+    const uint32_t step_abs = info->step_idx_abs;
+    const uint8_t step_idx = (uint8_t)(step_abs % SEQ_MODEL_STEPS_PER_TRACK);
+    const cart_id_t cart = cart_registry_get_active_id();
+    uint8_t bank = 0U;
+    uint8_t pattern = 0U;
+    seq_led_bridge_get_active(&bank, &pattern);
+
+    for (uint8_t track = 0U; track < SEQ_ENGINE_RUNNER_TRACK_COUNT; ++track) {
+        seq_track_handle_t handle = seq_reader_make_handle(bank, pattern, track);
+        _runner_handle_step(track, step_abs, step_idx, handle);
+        _runner_apply_plocks(handle, step_idx, cart);
+    }
+}
+
+static void _runner_reset_notes(void) {
+    memset(s_note_state, 0, sizeof(s_note_state));
+}
+
+static void _runner_flush_active_notes(void) {
+    for (uint8_t track = 0U; track < SEQ_ENGINE_RUNNER_TRACK_COUNT; ++track) {
+        seq_engine_runner_note_state_t *state = &s_note_state[track];
+        if (state->active) {
+            _runner_send_note_off(track, state->note);
+            state->active = false;
+        }
+    }
+}
+
+static void _runner_advance_plock_state(void) {
     cart_id_t cart = cart_registry_get_active_id();
-    if (cart >= CART_COUNT) {
-        return MSG_OK;
+    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS; ++i) {
+        seq_engine_runner_plock_state_t *slot = &s_plock_state[i];
+        if (!slot->active) {
+            continue;
+        }
+        if (slot->depth > 0U) {
+            slot->depth--;
+        }
+        if ((slot->depth == 0U) && (cart < CART_COUNT) && (slot->cart == cart)) {
+            cart_link_param_changed(slot->param_id, slot->previous, false, 0U);
+            _runner_plock_release(slot);
+        } else if (cart >= CART_COUNT) {
+            _runner_plock_release(slot);
+        }
+    }
+}
+
+static bool _runner_step_has_voice(const seq_step_view_t *view) {
+    if (view == NULL) {
+        return false;
+    }
+    const uint8_t flags = view->flags;
+    const bool automation_only = (flags & SEQ_STEPF_AUTOMATION_ONLY) != 0U;
+    const bool has_voice = (flags & SEQ_STEPF_HAS_VOICE) != 0U;
+    return has_voice && !automation_only;
+}
+
+static void _runner_handle_step(uint8_t track,
+                                uint32_t step_abs,
+                                uint8_t step_idx,
+                                seq_track_handle_t handle) {
+    seq_engine_runner_note_state_t *state = &s_note_state[track];
+
+    if (state->active && (step_abs >= state->off_step)) {
+        _runner_send_note_off(track, state->note);
+        state->active = false;
     }
 
-#if SEQ_USE_HANDLES
-    // MP4c: Reader-backed lookup (no behavior change)
-    seq_track_handle_t active = seq_reader_get_active_track_handle();
-    seq_track_handle_t h = seq_reader_make_handle(active.bank, active.pattern, active.track);
-    const uint8_t step_idx = (uint8_t)(s_engine.reader.step_index % SEQ_MODEL_STEPS_PER_TRACK);
-
-    uint8_t value = 0U;
-    bool have_value = false;
+    if (ui_mute_backend_is_muted(track)) {
+        if (state->active) {
+            _runner_send_note_off(track, state->note);
+            state->active = false;
+        }
+        return;
+    }
 
     seq_step_view_t view;
-    if (seq_reader_get_step(h, step_idx, &view)) {
-        if ((view.flags & SEQ_STEPF_HAS_CART_PLOCK) != 0U) {
-            seq_plock_iter_t it;
-            if (seq_reader_plock_iter_open(h, step_idx, &it)) {
-                uint16_t pid;
-                int32_t val;
-                while (seq_reader_plock_iter_next(&it, &pid, &val)) {
-                    if (pid == payload->parameter_id) {
-                        value = _runner_clamp_u8((int16_t)val);
-                        have_value = true;
-                        break;
-                    }
-                }
-            }
-        }
+    if (!seq_reader_get_step(handle, step_idx, &view)) {
+        return;
     }
 
-    if (!have_value) {
-        value = _runner_clamp_u8(payload->value);
-    }
-#else
-    const uint8_t value = _runner_clamp_u8(payload->value);
-#endif
-
-    switch (plock->action) {
-    case SEQ_ENGINE_PLOCK_APPLY: {
-        seq_engine_runner_plock_state_t *slot = _runner_plock_acquire(cart, payload->parameter_id);
-        if (slot != NULL) {
-            if (slot->depth == 0U) {
-                slot->previous = cart_link_shadow_get(cart, payload->parameter_id);
-            }
-            if (slot->depth < UINT8_MAX) {
-                slot->depth++;
-            }
-        }
-        BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_APPLY", payload->parameter_id, value, scheduled_time);
-        cart_link_param_changed(payload->parameter_id, value, false, 0U);
-        break;
-    }
-    case SEQ_ENGINE_PLOCK_RESTORE: {
-        seq_engine_runner_plock_state_t *slot = _runner_plock_find(cart, payload->parameter_id);
-        if ((slot != NULL) && (slot->depth > 0U)) {
-            slot->depth--;
-            if (slot->depth == 0U) {
-                BRICK_DEBUG_PLOCK_LOG("RUNNER_PLOCK_RESTORE", payload->parameter_id, slot->previous, scheduled_time);
-                cart_link_param_changed(payload->parameter_id, slot->previous, false, 0U);
-                _runner_plock_release(slot);
-            }
-        }
-        break;
-    }
-    default:
-        break;
+    if (!_runner_step_has_voice(&view) || (view.vel == 0U)) {
+        return;
     }
 
-    return MSG_OK;
+    uint8_t note = _runner_clamp_u8((int32_t)view.note);
+    uint8_t velocity = _runner_clamp_u8((int32_t)view.vel);
+    if (velocity == 0U) {
+        return;
+    }
+
+    if (state->active) {
+        _runner_send_note_off(track, state->note);
+        state->active = false;
+    }
+
+    _runner_send_note_on(track, note, velocity);
+
+    state->active = true;
+    state->note = note;
+    uint32_t length = view.length;
+    if (length == 0U) {
+        length = 1U;
+    }
+    state->off_step = step_abs + length;
 }
 
-static bool _runner_track_muted(uint8_t track) {
-    return ui_mute_backend_is_muted(track);
+static bool _runner_is_cart_param(uint16_t param_id) {
+    return (param_id & 0x8000U) == 0U;
 }
 
-static uint8_t _runner_clamp_u8(int16_t value) {
+static void _runner_apply_plocks(seq_track_handle_t handle, uint8_t step_idx, cart_id_t cart) {
+    if (cart >= CART_COUNT) {
+        return;
+    }
+
+    seq_step_view_t view;
+    if (!seq_reader_get_step(handle, step_idx, &view)) {
+        return;
+    }
+
+    if ((view.flags & SEQ_STEPF_HAS_CART_PLOCK) == 0U) {
+        return;
+    }
+
+    seq_plock_iter_t it;
+    if (!seq_reader_plock_iter_open(handle, step_idx, &it)) {
+        return;
+    }
+
+    uint16_t param_id;
+    int32_t value;
+    while (seq_reader_plock_iter_next(&it, &param_id, &value)) {
+        if (!_runner_is_cart_param(param_id)) {
+            continue;
+        }
+        seq_engine_runner_plock_state_t *slot = _runner_plock_acquire(cart, param_id);
+        if (slot == NULL) {
+            continue;
+        }
+        if (slot->depth == 0U) {
+            slot->previous = cart_link_shadow_get(cart, param_id);
+        }
+        slot->depth = 1U;
+        const uint8_t clamped = _runner_clamp_u8(value);
+        cart_link_param_changed(param_id, clamped, false, 0U);
+    }
+}
+
+static uint8_t _runner_clamp_u8(int32_t value) {
     if (value < 0) {
         return 0U;
     }
@@ -228,6 +272,14 @@ static uint8_t _runner_clamp_u8(int16_t value) {
         return 127U;
     }
     return (uint8_t)value;
+}
+
+static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity) {
+    midi_note_on((uint8_t)(track + 1U), note, velocity);
+}
+
+static void _runner_send_note_off(uint8_t track, uint8_t note) {
+    midi_note_off((uint8_t)(track + 1U), note, 0U);
 }
 
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id) {
