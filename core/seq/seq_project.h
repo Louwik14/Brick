@@ -12,6 +12,7 @@
 
 #include "seq_model.h"
 #include "board/board_flash.h"
+#include "core/brick_config.h"
 
 #ifdef __cplusplus
 extern "C" {

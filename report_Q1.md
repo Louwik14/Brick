@@ -1,3 +1,50 @@
+## [2025-10-22 18:05] Q1.5-debug+toolchain (v2) — Toolchain ARM + garde Reader-only firmware
+
+Résumé
+- Scripts d'installation toolchain ARM (MSYS2 UCRT64 & CI Linux) + cible `make toolchain-check` pour tracer `arm-none-eabi-gcc`.
+- Makefile : déduplication des sources host runner, détection toolchain et CFLAGS firmware `-DSEQ_USE_HANDLES=1`.
+- `core/seq/seq_project.h` importe `core/brick_config.h` (défaut `BRICK_EXPERIMENTAL_PATTERN_CODEC_V2=0`).
+- Doc `ARCHITECTURE_FR.md` enrichie (toolchain check + garde codec v2) ; rapport mis à jour.
+
+Fichiers (créés/modifiés)
+- scripts/win_ucrt64_install_toolchain.sh (NOUVEAU)
+- scripts/ci_install_toolchain.sh (NOUVEAU)
+- Makefile
+- board/rules.mk
+- core/seq/seq_project.h
+- docs/ARCHITECTURE_FR.md
+
+Commandes exécutées
+- ./scripts/ci_install_toolchain.sh
+- make toolchain-check
+- make check_no_engine_anywhere
+- make build/host/seq_runner_smoke_tests
+- ./build/host/seq_runner_smoke_tests
+- make check-host
+- ./build/host/seq_16tracks_stress_tests
+- make -j8
+
+Logs utiles (extraits)
+- $ ./scripts/ci_install_toolchain.sh
+  … Setting up toolchain packages …
+  /usr/bin/arm-none-eabi-gcc【c64759†L1-L10】
+- $ make toolchain-check
+  [TOOLCHAIN] ARM_CC=arm-none-eabi-gcc HAVE_ARM=1
+  arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009【de2f3f†L1-L3】
+- $ make check_no_engine_anywhere
+  [CI] check_no_engine_anywhere
+  [CI][OK] no seq_engine remnants【74f558†L1-L3】
+- $ make build/host/seq_runner_smoke_tests
+  gcc … -o build/host/seq_runner_smoke_tests (warnings deprecated Reader runtime)【c2f35f†L1-L26】
+- $ ./build/host/seq_runner_smoke_tests
+  runner_smoke: events=127 silent_ticks=0 on=64 off=63【abd765†L1-L2】
+- $ make check-host
+  … runner_smoke events=127 / stress & soak OK, silent_ticks=0, ON/OFF équilibrés …【154552†L1-L102】
+- $ ./build/host/seq_16tracks_stress_tests
+  16-track stress: ticks=512 total_events=4096 silent_ticks=0 …【514cbe†L1-L19】
+- $ make -j8
+  … Linking build/ch.elf … Done【8cb677†L1-L13】
+
 ## [2025-10-22 16:00] Q1.5 — Suppression moteur seq_engine + runner Reader-only pur
 
 Résumé
