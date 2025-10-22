@@ -9,6 +9,7 @@
 #include <string.h>
 
 #include "apps/rtos_shim.h"
+#include "apps/seq_quickstep_cache.h"
 #include "brick_config.h"
 
 #include "core/seq/reader/seq_reader.h"
@@ -915,6 +916,7 @@ void seq_led_bridge_get_active(uint8_t *out_bank, uint8_t *out_pattern) {
 }
 
 void seq_led_bridge_init(void) {
+    seq_quickstep_cache_init();
     memset(&g, 0, sizeof(g));
     _cache_reset();
     g.project = NULL;
@@ -937,6 +939,9 @@ void seq_led_bridge_init(void) {
 void seq_led_bridge_bind_project(seq_project_t *project) {
     seq_project_t *previous = g.project;
     g.project = project;
+    if (project != previous) {
+        seq_quickstep_cache_init();
+    }
     if (project == NULL) {
         g.track = NULL;
         g.track_index = 0U;
@@ -1039,11 +1044,17 @@ void seq_led_bridge_step_clear(uint8_t i) {
     if (step == NULL) {
         return;
     }
+    const uint16_t absolute = _page_base(g.visible_page) + (uint16_t)i;
+    const uint8_t track_index = g.track_index;
+
     seq_model_step_init(step);
     _clear_step_voices(step);
     seq_model_step_clear_plocks(step);
     _seq_led_bridge_bump_generation();
     _hold_refresh_if_active();
+    for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+        seq_quickstep_cache_invalidate(track_index, (uint8_t)absolute, slot);
+    }
 }
 
 void seq_led_bridge_step_set_voice(uint8_t i, uint8_t voice_idx, uint8_t pitch, uint8_t velocity) {
@@ -1107,6 +1118,9 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         return;
     }
 
+    const uint16_t absolute = _page_base(g.visible_page) + (uint16_t)i;
+    const uint8_t track_index = g.track_index;
+
     const bool was_on = seq_model_step_has_playable_voice(step) ||
                         seq_model_step_is_automation_only(step) ||
                         seq_model_step_has_any_plock(step);
@@ -1114,10 +1128,19 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         seq_led_bridge_step_clear(i);
     } else {
         seq_model_step_init_default(step, g.last_note);
-        const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
-        if (voice != NULL) {
-            g.last_note = voice->note;
+        seq_model_voice_t voice = step->voices[0];
+        if (voice.velocity == 0U) {
+            voice.velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
         }
+        if (voice.length == 0U) {
+            voice.length = 1U;
+        }
+        voice.state = SEQ_MODEL_VOICE_ENABLED;
+        step->voices[0] = voice;
+        seq_model_step_recompute_flags(step);
+        g.last_note = voice.note;
+        seq_quickstep_cache_mark(track_index, (uint8_t)absolute, 0U,
+                                 voice.note, voice.velocity, voice.length);
         _seq_led_bridge_bump_generation();
         _hold_refresh_if_active();
         // --- FIX: suppression du step preview MIDI pour éviter les notes parasites ---

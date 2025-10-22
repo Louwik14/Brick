@@ -16,6 +16,7 @@
 #include "apps/midi_probe.h"
 #include "apps/rtos_shim.h"
 #include "apps/seq_led_bridge.h"
+#include "apps/seq_quickstep_cache.h"
 #include "brick_config.h"
 #include "cart_link.h"
 #include "cart_registry.h"
@@ -56,6 +57,9 @@ typedef struct {
 typedef struct {
     bool active;
     uint8_t note;
+    uint8_t velocity;
+    uint8_t last_note;
+    uint8_t last_velocity;
     uint32_t off_step;
 } seq_engine_runner_note_state_t;
 
@@ -79,6 +83,7 @@ static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, ui
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
 
 void seq_engine_runner_init(void) {
+    seq_quickstep_cache_init();
     _runner_reset_notes();
     memset(s_plock_state, 0, sizeof(s_plock_state));
 }
@@ -144,6 +149,9 @@ static void _runner_reset_notes(void) {
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
             state->active = false;
             state->note = 0U;
+            state->velocity = 0U;
+            state->last_note = 0U;
+            state->last_velocity = 0U;
             state->off_step = 0U;
         }
     }
@@ -157,6 +165,9 @@ static void _runner_flush_active_notes(void) {
                 _runner_send_note_off(track, state->note);
                 state->active = false;
                 state->note = 0U;
+                state->velocity = 0U;
+                state->last_note = 0U;
+                state->last_velocity = 0U;
                 state->off_step = 0U;
             }
         }
@@ -196,13 +207,17 @@ static void _runner_handle_step(uint8_t track,
                                 uint32_t step_abs,
                                 uint8_t step_idx,
                                 seq_track_handle_t handle) {
+    bool off_triggered[SEQ_MODEL_VOICES_PER_STEP] = {false};
+
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
         if (state->active && (step_abs >= state->off_step)) {
             _runner_send_note_off(track, state->note);
             state->active = false;
             state->note = 0U;
+            state->velocity = 0U;
             state->off_step = 0U;
+            off_triggered[slot] = true;
         }
     }
 
@@ -213,6 +228,7 @@ static void _runner_handle_step(uint8_t track,
                 _runner_send_note_off(track, state->note);
                 state->active = false;
                 state->note = 0U;
+                state->velocity = 0U;
                 state->off_step = 0U;
             }
         }
@@ -220,28 +236,55 @@ static void _runner_handle_step(uint8_t track,
     }
 
     seq_step_view_t view;
-    if (!seq_reader_get_step(handle, step_idx, &view)) {
-        return;
-    }
-
-    if (!_runner_step_has_voice(&view)) {
-        return;
-    }
+    const bool have_view = seq_reader_get_step(handle, step_idx, &view);
+    const bool step_has_voice = have_view && _runner_step_has_voice(&view);
 
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
-        seq_step_voice_view_t voice_view;
-        if (!seq_reader_get_step_voice(handle, step_idx, slot, &voice_view)) {
-            continue;
-        }
-        if (!voice_view.enabled) {
-            continue;
-        }
-
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+        uint8_t note = 0U;
+        uint8_t velocity = 0U;
+        uint8_t length = 0U;
+        bool trigger = false;
 
-        uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
-        uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
-        if (velocity == 0U) {
+        if (step_has_voice) {
+            seq_step_voice_view_t voice_view;
+            if (seq_reader_get_step_voice(handle, step_idx, slot, &voice_view) && voice_view.enabled) {
+                note = _runner_clamp_u8((int32_t)voice_view.note);
+                velocity = _runner_clamp_u8((int32_t)voice_view.vel);
+                length = voice_view.length;
+                trigger = (velocity > 0U);
+            }
+        }
+
+        seq_quickstep_cache_entry_t qs_entry;
+        if (!trigger && seq_quickstep_cache_consume(track, step_idx, slot, &qs_entry)) {
+            uint8_t qs_note = _runner_clamp_u8(qs_entry.note);
+            uint8_t qs_velocity = _runner_clamp_u8(qs_entry.velocity);
+            uint8_t qs_length = qs_entry.length;
+            if (qs_note == 0U) {
+                qs_note = state->last_note;
+            }
+            if (qs_velocity == 0U) {
+                qs_velocity = (state->last_velocity > 0U) ? state->last_velocity : SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+            }
+            if (qs_length == 0U) {
+                qs_length = 1U;
+            }
+            if ((qs_note > 0U) && (qs_velocity > 0U)) {
+                bool allow_forced = true;
+                if (state->last_note != 0U) {
+                    allow_forced = off_triggered[slot] || (state->last_note == qs_note);
+                }
+                if (allow_forced) {
+                    note = qs_note;
+                    velocity = qs_velocity;
+                    length = qs_length;
+                    trigger = true;
+                }
+            }
+        }
+
+        if (!trigger || (velocity == 0U)) {
             continue;
         }
 
@@ -249,6 +292,7 @@ static void _runner_handle_step(uint8_t track,
             _runner_send_note_off(track, state->note);
             state->active = false;
             state->note = 0U;
+            state->velocity = 0U;
             state->off_step = 0U;
         }
 
@@ -256,11 +300,14 @@ static void _runner_handle_step(uint8_t track,
 
         state->active = true;
         state->note = note;
-        uint32_t length = (uint32_t)voice_view.length;
-        if (length == 0U) {
-            length = 1U;
+        state->velocity = velocity;
+        state->last_note = note;
+        state->last_velocity = velocity;
+        uint32_t run_length = (uint32_t)length;
+        if (run_length == 0U) {
+            run_length = 1U;
         }
-        state->off_step = step_abs + length;
+        state->off_step = step_abs + run_length;
     }
 }
 

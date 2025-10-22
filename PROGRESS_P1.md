@@ -389,3 +389,23 @@
 - Inchangés (.data/.bss/.ram4 identiques tant que `SEQ_RT_DEBUG=0`).
 ### Notes
 - Aucun changement fonctionnel ; l'option cible reste opt-in via `SEQ_RT_DEBUG=1`.
+## [2025-11-07 15:30] MP17 — QuickStep boundary retrigger (Q1.8e)
+### Contexte lu
+- report_Q1_8e_quickstep_fix.md — synthèse des écarts QuickStep et exigences de retrigger OFF→ON.
+- ARCHITECTURE_FR.md — rappel barrière hot/cold et interdiction d'accès modèle côté runner.
+- SEQ_BEHAVIOR.md — invariants NOTE_ON/OFF et mapping MIDI 1..16.
+### Étapes réalisées
+- Ajout du cache QuickStep hot (`apps/seq_quickstep_cache.{c,h}`) pour marquer les steps édités depuis la façade froide sans casser la barrière.
+- Mise à jour de `apps/seq_led_bridge.c` pour initialiser/invalider le cache, garantir des voix jouables lors d'un toggle QuickStep et publier les hints note/vélocité/longueur.
+- Durcissement du runner (`apps/seq_engine_runner.c`) : conservation last note/vel par slot, consommation du cache QuickStep et retrigger forcé quand la vue est silencieuse à la frontière N→N+1.
+- Intégration Makefile du nouveau test host QuickStep et ajout de la suite `tests/seq_quickstep_boundary_tests.c` (rafales, vue vel=0) adossée à MIDI probe.
+### Tests
+- make check_no_engine_anywhere
+- make check_no_legacy_includes_apps
+- make check_no_cold_refs_in_apps
+- make build/host/seq_quickstep_boundary_tests && ./build/host/seq_quickstep_boundary_tests
+- make build/host/seq_runner_smoke_tests && ./build/host/seq_runner_smoke_tests
+### Audits mémoire
+- .data/.bss/.ram4 inchangés : cache QuickStep statique CCM_DATA << 1 Ko, aucun nouvel alloc/runtime.
+### Notes
+- Aucun reliquat QuickStep : retrigger garanti pour deux steps consécutifs même note, live rec/accords inchangés.
