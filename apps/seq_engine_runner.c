@@ -15,6 +15,7 @@
 #include "apps/midi_helpers.h"
 #include "apps/midi_probe.h"
 #include "apps/rtos_shim.h"
+#include "apps/runner_trace.h"
 #include "apps/seq_led_bridge.h"
 #include "brick_config.h"
 #include "cart_link.h"
@@ -83,12 +84,14 @@ static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
 void seq_engine_runner_init(void) {
     _runner_reset_notes();
     memset(s_plock_state, 0, sizeof(s_plock_state));
+    runner_trace_reset();
 }
 
 void seq_engine_runner_on_transport_play(void) {
     _runner_flush_active_notes();
     _runner_reset_notes();
     _runner_advance_plock_state();
+    runner_trace_reset();
 }
 
 void seq_engine_runner_on_transport_stop(void) {
@@ -197,8 +200,12 @@ static void _runner_handle_step(uint8_t track,
     bool any_off_this_tick = false;
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+        if (state->active && (step_abs == state->off_step)) {
+            runner_trace_log(step_abs, track, slot, state->note, 1U);
+        }
         if (state->active && (step_abs >= state->off_step)) {
             _runner_send_note_off(track, state->note);
+            runner_trace_log(step_abs, track, slot, state->note, 2U);
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
@@ -250,51 +257,55 @@ static void _runner_handle_step(uint8_t track,
         bool playable = voice_view.enabled;
         uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
         uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
-        const uint8_t raw_velocity = velocity;
+        uint32_t length = (uint32_t)voice_view.length;
+        if (length == 0U) {
+            length = 1U;
+        }
 
         if (playable && (velocity == 0U)) {
             playable = false;
         }
 
-        if (!playable && off_fired_this_tick[slot]) {
-            if ((raw_velocity == 0U) && (note == state->last_note) &&
-                (state->last_velocity > 0U)) {
-                if (velocity == 0U) {
-                    velocity = state->last_velocity;
-                }
-                if (velocity == 0U) {
-                    velocity = 1U;
-                }
-                playable = (velocity > 0U);
+        if (playable) {
+            if (state->active) {
+                _runner_send_note_off(track, state->note);
+                runner_trace_log(step_abs, track, slot, state->note, 2U);
+                state->active = false;
+                state->note = 0U;
+                state->off_step = 0U;
+                off_fired_this_tick[slot] = true;
             }
-        }
 
-        if (!playable) {
+            if (!state->active) {
+                if (velocity == 0U) {
+                    velocity = (state->last_velocity > 0U) ? state->last_velocity : 1U;
+                }
+                _runner_send_note_on(track, note, velocity);
+                runner_trace_log(step_abs, track, slot, note, 3U);
+                state->active = true;
+            }
+
+            if (state->active) {
+                state->note = note;
+                state->last_note = note;
+                state->last_velocity = velocity;
+                state->off_step = step_abs + length;
+            }
             continue;
         }
 
-        if (state->active) {
-            _runner_send_note_off(track, state->note);
-            state->active = false;
-            state->note = 0U;
-            state->off_step = 0U;
+        if (!playable && off_fired_this_tick[slot]) {
+            if ((voice_view.vel == 0U) && (note == state->last_note) && (state->last_velocity > 0U)) {
+                uint8_t retrig_velocity = state->last_velocity;
+                _runner_send_note_on(track, note, retrig_velocity);
+                runner_trace_log(step_abs, track, slot, note, 4U);
+                state->active = true;
+                state->note = note;
+                state->off_step = step_abs + length;
+                state->last_note = note;
+                state->last_velocity = retrig_velocity;
+            }
         }
-
-        if (velocity == 0U) {
-            velocity = (state->last_velocity > 0U) ? state->last_velocity : 1U;
-        }
-
-        _runner_send_note_on(track, note, velocity);
-
-        state->active = true;
-        state->note = note;
-        state->last_note = note;
-        state->last_velocity = velocity;
-        uint32_t length = (uint32_t)voice_view.length;
-        if (length == 0U) {
-            length = 1U;
-        }
-        state->off_step = step_abs + length;
     }
 }
 

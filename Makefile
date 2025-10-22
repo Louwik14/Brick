@@ -498,15 +498,15 @@ $(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/seq_runti
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
 	        tests/seq_led_snapshot_tests.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
-$(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
-        core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
+$(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c apps/runner_trace.c \
+	core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
-	        tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
-                core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-                $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	        -o $@
+		tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c apps/runner_trace.c \
+		core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+		$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+		-o $@
 
 
 

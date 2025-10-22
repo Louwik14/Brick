@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "apps/midi_probe.h"
+#include "apps/runner_trace.h"
 #include "apps/seq_engine_runner.h"
 #include "cart/cart_bus.h"
 #include "cart/cart_registry.h"
@@ -244,6 +245,60 @@ static void prepare_same_note_retrigger_no_hit_pattern(void) {
     seq_led_bridge_set_active(0U, 0U);
 }
 
+static void prepare_same_note_burst_pattern(void) {
+    seq_runtime_init();
+
+    seq_project_t *project = seq_runtime_access_project_mut();
+    assert(project != NULL);
+    (void)seq_project_set_active_slot(project, 0U, 0U);
+    (void)seq_project_set_active_track(project, 0U);
+
+    seq_model_track_t *track = seq_runtime_access_track_mut(0U);
+    assert(track != NULL);
+
+    for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_TRACK; ++step) {
+        seq_model_step_init(&track->steps[step]);
+    }
+
+    const uint8_t note = 60U;
+    for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_TRACK; ++step) {
+        seq_model_step_t *s = &track->steps[step];
+        s->voices[0].note = note;
+        s->voices[0].length = 1U;
+        s->voices[0].velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+        s->voices[0].state = SEQ_MODEL_VOICE_ENABLED;
+
+        switch (step & 0x03U) {
+        case 0U:
+            s->voices[0].length = 2U;
+            s->voices[0].velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+            s->voices[0].state = SEQ_MODEL_VOICE_ENABLED;
+            break;
+        case 1U:
+            s->voices[0].length = 1U;
+            s->voices[0].velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+            s->voices[0].state = SEQ_MODEL_VOICE_ENABLED;
+            break;
+        case 2U:
+            s->voices[0].length = 1U;
+            s->voices[0].velocity = SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY;
+            s->voices[0].state = SEQ_MODEL_VOICE_ENABLED;
+            break;
+        default:
+            s->voices[0].length = 1U;
+            s->voices[0].velocity = 0U;
+            s->voices[0].state = SEQ_MODEL_VOICE_DISABLED;
+            break;
+        }
+
+        seq_model_step_recompute_flags(s);
+    }
+
+    seq_model_gen_bump(&track->generation);
+
+    seq_led_bridge_set_active(0U, 0U);
+}
+
 static clock_step_info_t make_tick(uint32_t tick) {
     clock_step_info_t info = {
         .now = 0U,
@@ -262,6 +317,7 @@ static clock_step_info_t make_tick(uint32_t tick) {
 
 int main(void) {
     midi_probe_reset();
+    runner_trace_reset();
     prepare_pattern();
     seq_engine_runner_init();
 
@@ -294,6 +350,7 @@ int main(void) {
     assert(silent == 0U);
 
     midi_probe_reset();
+    runner_trace_reset();
     prepare_same_note_nominal_pattern();
     seq_engine_runner_init();
 
@@ -317,7 +374,23 @@ int main(void) {
     assert(nominal_events[2].ty == 1U);
     assert(nominal_events[3].ty == 2U);
 
+    size_t nominal_trace_count = runner_trace_count();
+    assert(nominal_trace_count == 6U);
+    const runner_trace_ev_t *ev0 = runner_trace_get(0U);
+    const runner_trace_ev_t *ev1 = runner_trace_get(1U);
+    const runner_trace_ev_t *ev2 = runner_trace_get(2U);
+    const runner_trace_ev_t *ev3 = runner_trace_get(3U);
+    const runner_trace_ev_t *ev4 = runner_trace_get(4U);
+    const runner_trace_ev_t *ev5 = runner_trace_get(5U);
+    assert(ev0 != NULL && ev0->type == 3U && ev0->step_abs == 0U);
+    assert(ev1 != NULL && ev1->type == 1U && ev1->step_abs == 1U);
+    assert(ev2 != NULL && ev2->type == 2U && ev2->step_abs == 1U);
+    assert(ev3 != NULL && ev3->type == 3U && ev3->step_abs == 1U);
+    assert(ev4 != NULL && ev4->type == 1U && ev4->step_abs == 2U);
+    assert(ev5 != NULL && ev5->type == 2U && ev5->step_abs == 2U);
+
     midi_probe_reset();
+    runner_trace_reset();
     prepare_same_note_retrigger_pattern();
     seq_engine_runner_init();
 
@@ -338,9 +411,22 @@ int main(void) {
     assert(retrigger_silent == 0U);
 
     assert(retrigger_events[0].ty == 1U); /* NOTE_ON step 0 */
-    assert(retrigger_events[1].ty == 2U); /* Forced NOTE_OFF at step 1 */
+    assert(retrigger_events[1].ty == 2U); /* NOTE_OFF step 1 */
     assert(retrigger_events[2].ty == 1U); /* NOTE_ON step 1 */
     assert(retrigger_events[3].ty == 2U); /* NOTE_OFF step 2 */
+
+    size_t retrigger_trace_count = runner_trace_count();
+    assert(retrigger_trace_count == 5U);
+    const runner_trace_ev_t *rt0 = runner_trace_get(0U);
+    const runner_trace_ev_t *rt1 = runner_trace_get(1U);
+    const runner_trace_ev_t *rt2 = runner_trace_get(2U);
+    const runner_trace_ev_t *rt3 = runner_trace_get(3U);
+    const runner_trace_ev_t *rt4 = runner_trace_get(4U);
+    assert(rt0 != NULL && rt0->type == 3U && rt0->step_abs == 0U);
+    assert(rt1 != NULL && rt1->type == 2U && rt1->step_abs == 1U);
+    assert(rt2 != NULL && rt2->type == 3U && rt2->step_abs == 1U);
+    assert(rt3 != NULL && rt3->type == 1U && rt3->step_abs == 2U);
+    assert(rt4 != NULL && rt4->type == 2U && rt4->step_abs == 2U);
 
     for (unsigned i = 0U; i < retrigger_captured; ++i) {
         assert(retrigger_events[i].ch == 1U);
@@ -348,6 +434,7 @@ int main(void) {
     }
 
     midi_probe_reset();
+    runner_trace_reset();
     prepare_same_note_retrigger_no_hit_pattern();
     seq_engine_runner_init();
 
@@ -370,6 +457,67 @@ int main(void) {
     assert(edge_events[1].ty == 2U);
     assert(edge_events[2].ty == 1U);
     assert(edge_events[3].ty == 2U);
+
+    size_t edge_trace_count = runner_trace_count();
+    assert(edge_trace_count == 6U);
+    const runner_trace_ev_t *et0 = runner_trace_get(0U);
+    const runner_trace_ev_t *et1 = runner_trace_get(1U);
+    const runner_trace_ev_t *et2 = runner_trace_get(2U);
+    const runner_trace_ev_t *et3 = runner_trace_get(3U);
+    const runner_trace_ev_t *et4 = runner_trace_get(4U);
+    const runner_trace_ev_t *et5 = runner_trace_get(5U);
+    assert(et0 != NULL && et0->type == 3U && et0->step_abs == 0U);
+    assert(et1 != NULL && et1->type == 1U && et1->step_abs == 1U);
+    assert(et2 != NULL && et2->type == 2U && et2->step_abs == 1U);
+    assert(et3 != NULL && et3->type == 4U && et3->step_abs == 1U);
+    assert(et4 != NULL && et4->type == 1U && et4->step_abs == 2U);
+    assert(et5 != NULL && et5->type == 2U && et5->step_abs == 2U);
+
+    /* Burst test: mix explicit and implicit retriggers over 512 steps. */
+    midi_probe_reset();
+    runner_trace_reset();
+    prepare_same_note_burst_pattern();
+    seq_engine_runner_init();
+
+    for (uint32_t t = 0U; t < 512U; ++t) {
+        clock_step_info_t info = make_tick(t);
+        seq_engine_runner_on_clock_step(&info);
+    }
+
+    unsigned burst_total = midi_probe_count();
+    unsigned burst_silent = midi_probe_silent_ticks();
+    unsigned burst_captured = 0U;
+    const midi_probe_ev_t *burst_events = midi_probe_snapshot(&burst_captured);
+
+    printf("runner_same_note_burst: events=%u silent_ticks=%u\n", burst_total, burst_silent);
+
+    assert(burst_silent == 0U);
+    unsigned burst_on = 0U;
+    unsigned burst_off = 0U;
+    for (unsigned i = 0U; i < burst_captured; ++i) {
+        if (burst_events[i].ty == 1U) {
+            ++burst_on;
+        } else if (burst_events[i].ty == 2U) {
+            ++burst_off;
+        }
+    }
+    assert(burst_on == burst_off);
+
+    size_t burst_trace = runner_trace_count();
+    assert(burst_trace == 256U);
+    bool seen_forced = false;
+    bool seen_standard = false;
+    for (size_t i = 0U; i < burst_trace; ++i) {
+        const runner_trace_ev_t *ev = runner_trace_get(i);
+        assert(ev != NULL);
+        if (ev->type == 3U) {
+            seen_standard = true;
+        } else if (ev->type == 4U) {
+            seen_forced = true;
+        }
+    }
+    assert(seen_standard);
+    assert(seen_forced);
 
     for (unsigned i = 0U; i < edge_captured; ++i) {
         assert(edge_events[i].ch == 1U);

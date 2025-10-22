@@ -404,3 +404,22 @@
 - make -j8 : ⚠️ KO (toolchain arm-none-eabi-gcc absente dans l'environnement host).
 ### Audits mémoire
 - Inchangés (.data/.bss/.ram4) — modifications confinées au runner hot et aux tests host.
+
+## [2025-11-07 11:00] Q1.8c — Trace RAM du runner + durcissement retrigger
+### Étapes réalisées
+- Nouveau module `apps/runner_trace.{h,c}` : anneau de 256 événements (step_abs/track/slot/note/type) et API hot-safe pour instrumenter `_runner_handle_step()`.
+- Refactor `_runner_handle_step()` : planification NOTE_OFF strictement ordonnée, log `OFF_PLAN` à l’égalité, `OFF_SENT`/`ON_SENT` systématiques et retrigger implicite (type `EDGE_FORCED_ON`) conditionné à `vel==0` + note identique.
+- Exploitation du champ `vel` exposé par la vue Reader pour filtrer les retriggers implicites et maintien des états note/vélocité côté runner pour un re-hit déterministe.
+- Tests host enrichis (`tests/seq_runner_smoke_tests.c`) : scénarios nominal, edge explicite, edge implicite (vel=0) et rafale 512 ticks vérifiant trace RAM (types 1..4) et absence de silent ticks.
+- Makefile host : lien de `apps/runner_trace.c` pour les binaires runner et propagation de la trace aux tests.
+### Tests
+- make check_no_engine_anywhere : OK
+- make check_no_legacy_includes_apps : OK
+- make check_no_cold_refs_in_apps : OK
+- make build/host/seq_runner_smoke_tests && ./build/host/seq_runner_smoke_tests : OK (rafale 512 ticks, silent_ticks=0)
+- make check-host : OK (stress 16 pistes + micro-bench Reader)【6548d6†L1-L90】
+- ./build/host/seq_16tracks_stress_tests : OK (ON/OFF pairés, silent_ticks=0)【dde18c†L1-L19】
+- make -j8 : ⚠️ KO (toolchain `arm-none-eabi-gcc` absente dans l’environnement, inchangé)
+### Notes
+- La trace `runner_trace` occupe ~4 KiB (256×16 o) en SRAM principale, sans I/O ; instrumentation désactivable à chaud via reset.
+- Retrigger implicite limité aux cas `vel==0` pour éviter les faux positifs sur steps neutres issus du gabarit `k_seq_model_step_default`.
