@@ -66,11 +66,24 @@ enum {
 static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
 static CCM_DATA seq_engine_runner_note_state_t s_note_state[SEQ_ENGINE_RUNNER_TRACK_COUNT][SEQ_MODEL_VOICES_PER_STEP];
 
+typedef struct {
+    uint8_t ch;
+    uint8_t note;
+    uint8_t vel;
+} midi_event_t;
+
+static midi_event_t s_off_events[SEQ_ENGINE_RUNNER_TRACK_COUNT * SEQ_MODEL_VOICES_PER_STEP];
+static midi_event_t s_on_events[SEQ_ENGINE_RUNNER_TRACK_COUNT * SEQ_MODEL_VOICES_PER_STEP];
+static uint8_t s_off_count = 0U;
+static uint8_t s_on_count = 0U;
+
 static void _runner_reset_notes(void);
 static void _runner_flush_active_notes(void);
 static void _runner_advance_plock_state(void);
 static void _runner_apply_plocks(seq_track_handle_t handle, uint8_t step_idx, cart_id_t cart);
 static void _runner_handle_step(uint8_t track, uint32_t step_abs, uint8_t step_idx, seq_track_handle_t handle);
+static void _runner_queue_event(uint8_t ch, uint8_t note, uint8_t velocity, bool is_on);
+static void _runner_flush_queued_events(void);
 static uint8_t _runner_clamp_u8(int32_t value);
 static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity);
 static void _runner_send_note_off(uint8_t track, uint8_t note);
@@ -134,6 +147,8 @@ void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
         _runner_handle_step(track, step_abs, step_idx, handle);
         _runner_apply_plocks(handle, step_idx, cart);
     }
+
+    _runner_flush_queued_events();
 
     midi_probe_tick_end();
 }
@@ -199,7 +214,7 @@ static void _runner_handle_step(uint8_t track,
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
         if (state->active && (step_abs >= state->off_step)) {
-            _runner_send_note_off(track, state->note);
+            _runner_queue_event((uint8_t)(track + 1U), state->note, 0U, false);
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
@@ -210,7 +225,7 @@ static void _runner_handle_step(uint8_t track,
         for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
             if (state->active) {
-                _runner_send_note_off(track, state->note);
+                _runner_queue_event((uint8_t)(track + 1U), state->note, 0U, false);
                 state->active = false;
                 state->note = 0U;
                 state->off_step = 0U;
@@ -246,13 +261,13 @@ static void _runner_handle_step(uint8_t track,
         }
 
         if (state->active) {
-            _runner_send_note_off(track, state->note);
+            _runner_queue_event((uint8_t)(track + 1U), state->note, 0U, false);
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
         }
 
-        _runner_send_note_on(track, note, velocity);
+        _runner_queue_event((uint8_t)(track + 1U), note, velocity, true);
 
         state->active = true;
         state->note = note;
@@ -262,6 +277,37 @@ static void _runner_handle_step(uint8_t track,
         }
         state->off_step = step_abs + length;
     }
+}
+
+static void _runner_queue_event(uint8_t ch, uint8_t note, uint8_t velocity, bool is_on) {
+    midi_event_t *events = is_on ? s_on_events : s_off_events;
+    uint8_t *count = is_on ? &s_on_count : &s_off_count;
+    const uint8_t capacity = (uint8_t)(SEQ_ENGINE_RUNNER_TRACK_COUNT * SEQ_MODEL_VOICES_PER_STEP);
+
+    if (*count >= capacity) {
+        return;
+    }
+
+    midi_event_t *slot = &events[*count];
+    slot->ch = ch;
+    slot->note = note;
+    slot->vel = velocity;
+    (*count)++;
+}
+
+static void _runner_flush_queued_events(void) {
+    for (uint8_t i = 0U; i < s_off_count; ++i) {
+        const midi_event_t *event = &s_off_events[i];
+        midi_note_off(event->ch, event->note, event->vel);
+    }
+
+    for (uint8_t i = 0U; i < s_on_count; ++i) {
+        const midi_event_t *event = &s_on_events[i];
+        midi_note_on(event->ch, event->note, event->vel);
+    }
+
+    s_off_count = 0U;
+    s_on_count = 0U;
 }
 
 static bool _runner_is_cart_param(uint16_t param_id) {
