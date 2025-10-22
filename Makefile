@@ -283,10 +283,11 @@ POST_MAKE_ALL_RULE_HOOK += audit_rt_symbols
 
 HOST_CC ?= gcc
 HOST_CFLAGS ?= -std=c11 -Wall -Wextra -Wpedantic -g \
-	       -DUI_DEBUG_TRACE_MODE_TRANSITION \
-	       -DUI_DEBUG_TRACE_LED_BACKEND \
-	       -DUI_LED_BACKEND_TESTING \
-	       -DUNIT_TEST
+               -DUI_DEBUG_TRACE_MODE_TRANSITION \
+               -DUI_DEBUG_TRACE_LED_BACKEND \
+               -DUI_LED_BACKEND_TESTING \
+               -DSEQ_USE_HANDLES=1 \
+               -DUNIT_TEST
 HOST_TEST_DIR := $(BUILDDIR)/host
 HOST_SEQ_MODEL_TEST := $(HOST_TEST_DIR)/seq_model_tests
 HOST_SEQ_HOLD_TEST  := $(HOST_TEST_DIR)/seq_hold_runtime_tests
@@ -305,16 +306,17 @@ HOST_SEQ_COLD_STATS_TEST := $(HOST_TEST_DIR)/seq_cold_stats_tests
 HOST_SEQ_COLD_TICK_GUARD_TEST := $(HOST_TEST_DIR)/seq_cold_tick_guard_tests
 HOST_SEQ_RT_PATH_SMOKE_TEST := $(HOST_TEST_DIR)/seq_rt_path_smoke
 HOST_SEQ_LED_SNAPSHOT_TEST := $(HOST_TEST_DIR)/seq_led_snapshot_tests
+HOST_SEQ_RUNNER_SMOKE_TEST := $(HOST_TEST_DIR)/seq_runner_smoke_tests
 HOST_SEQ_16TRACKS_STRESS_TEST := $(HOST_TEST_DIR)/seq_16tracks_stress_tests
 HOST_SEQ_16TRACKS_SOAK_TEST := $(HOST_TEST_DIR)/seq_soak_16tracks_tests
 HOST_SEQ_RT_REPORT := $(HOST_TEST_DIR)/seq_rt_report
 
 CHECK_HOST_TARGETS := $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) \
-	$(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
-	$(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
-	$(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
-	$(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
-	$(HOST_SEQ_16TRACKS_STRESS_TEST)
+    $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
+    $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
+    $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
+    $(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
+    $(HOST_SEQ_RUNNER_SMOKE_TEST) $(HOST_SEQ_16TRACKS_STRESS_TEST)
 
 ifeq ($(SKIP_SOAK),1)
 RUN_SOAK_TEST :=
@@ -328,7 +330,7 @@ define RUN_SOAK_TEST
 endef
 endif
 
-HOST_SEQ_RUNTIME_SRCS := core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c
+HOST_SEQ_RUNTIME_SRCS := core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c core/seq/reader/seq_reader.c
 
 SEQ_LED_BRIDGE_HOLD_SLOTS_STUB := tests/stubs/seq_led_bridge_hold_slots_stub.c
 
@@ -378,6 +380,8 @@ check-host: $(CHECK_HOST_TARGETS)
 	$(HOST_SEQ_RT_PATH_SMOKE_TEST)
 	@echo "Running LED snapshot test"
 	$(HOST_SEQ_LED_SNAPSHOT_TEST)
+	@echo "Running runner smoke test"
+	$(HOST_SEQ_RUNNER_SMOKE_TEST)
 	@echo "Running 16-track stress test"
 	$(HOST_SEQ_16TRACKS_STRESS_TEST)
 	$(RUN_SOAK_TEST)
@@ -431,10 +435,10 @@ $(HOST_SEQ_TRACK_CODEC_TEST): tests/seq_track_codec_tests.c core/seq/seq_model.c
 	$(HOST_CC) $(HOST_CFLAGS) -DBRICK_EXPERIMENTAL_PATTERN_CODEC_V2=1 -I. -Icore -Icart -Iboard \
 	tests/seq_track_codec_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
-$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
+$(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
-	tests/seq_reader_tests.c core/seq/reader/seq_reader.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+	tests/seq_reader_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
 $(HOST_SEQ_RUNTIME_LAYOUT_TEST): tests/seq_runtime_layout_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
@@ -461,10 +465,10 @@ $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST): tests/seq_runtime_cold_hold_slots_tests.c $
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
 	tests/seq_runtime_cold_hold_slots_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
-$(HOST_SEQ_RT_TIMING_TEST): tests/seq_rt_timing_tests.c core/seq/reader/seq_reader.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
+$(HOST_SEQ_RT_TIMING_TEST): tests/seq_rt_timing_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
-	tests/seq_rt_timing_tests.c core/seq/reader/seq_reader.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+	tests/seq_rt_timing_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
 $(HOST_SEQ_COLD_STATS_TEST): tests/seq_cold_stats_tests.c core/seq/runtime/seq_runtime_cold_stats.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
@@ -481,10 +485,20 @@ $(HOST_SEQ_RT_PATH_SMOKE_TEST): tests/seq_rt_path_smoke.c core/seq/runtime/seq_r
 	$(HOST_CC) $(HOST_CFLAGS) -Icore -I. \
 	        tests/seq_rt_path_smoke.c core/seq/runtime/seq_rt_phase.c -o $@
 
-$(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
+$(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -I. -Icore -Icart -Iboard \
-	        tests/seq_led_snapshot_tests.c core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+	        tests/seq_led_snapshot_tests.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+
+$(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
+        core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
+	        tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
+	        core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+	        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+	        -o $@
 
 
 

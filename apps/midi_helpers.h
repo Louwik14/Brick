@@ -1,6 +1,8 @@
 #pragma once
 #include <stdint.h>
 
+#include "apps/midi_probe.h"
+
 /* Shim MIDI côté apps : mapping canal 1..16 -> status bytes, helpers NOTE ON/OFF et CC123.
    Ne dépend d'aucun header RTOS/core ; émission via hook midi_tx3(b0,b1,b2).
    Si l'appli ne fournit pas midi_tx3, un fallback no-op est utilisé (link OK côté host). */
@@ -20,14 +22,17 @@ static inline void _midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2) {
 /* Helpers API (canal 1..16) */
 static inline void midi_note_on(uint8_t ch1_16, uint8_t note, uint8_t vel) {
   uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  midi_probe_log(0U, (uint8_t)(ch + 1U), note, vel, 1U);
   _midi_tx3((uint8_t)(0x90u | ch), note, vel);
 }
 static inline void midi_note_off(uint8_t ch1_16, uint8_t note, uint8_t vel) {
   uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  midi_probe_log(0U, (uint8_t)(ch + 1U), note, vel, 2U);
   _midi_tx3((uint8_t)(0x80u | ch), note, vel);
 }
 static inline void midi_all_notes_off(uint8_t ch1_16) {
   uint8_t ch = MIDI_HELPERS_CLAMP(ch1_16, 1, 16) - 1;
+  midi_probe_log(0U, (uint8_t)(ch + 1U), 0U, 0U, 3U);
   _midi_tx3((uint8_t)(0xB0u | ch), 123u, 0u); /* CC123 All Notes Off */
 }
 

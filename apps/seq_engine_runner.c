@@ -5,10 +5,15 @@
 
 #include "seq_engine_runner.h"
 
+#ifndef SEQ_USE_HANDLES
+#error "SEQ_USE_HANDLES must be defined (firmware & host) for Reader-only runner"
+#endif
+
 #include <stdint.h>
 #include <string.h>
 
 #include "apps/midi_helpers.h"
+#include "apps/midi_probe.h"
 #include "apps/rtos_shim.h"
 #include "apps/seq_led_bridge.h"
 #include "brick_config.h"
@@ -113,6 +118,8 @@ void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
         return;
     }
 
+    midi_probe_tick_begin(info->step_idx_abs);
+
     _runner_advance_plock_state();
 
     const uint32_t step_abs = info->step_idx_abs;
@@ -127,6 +134,8 @@ void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
         _runner_handle_step(track, step_abs, step_idx, handle);
         _runner_apply_plocks(handle, step_idx, cart);
     }
+
+    midi_probe_tick_end();
 }
 
 static void _runner_reset_notes(void) {

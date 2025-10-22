@@ -104,6 +104,12 @@ Principes structurants :
 * `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---
 * `kbd_*` : dictionnaire d'accords et mapper clavier.
 
+#### Instrumentation sans UART (MIDI probe)
+
+* `apps/midi_probe.h/.c` maintiennent un anneau de 128 événements en RAM (tick, canal, note, vélocité, type) consultable sans UART, aussi bien sur cible que lors des tests host.【F:apps/midi_probe.c†L1-L58】
+* `apps/seq_engine_runner.c` appelle `midi_probe_tick_begin()/midi_probe_tick_end()` à chaque tick Reader-only, tandis que `apps/midi_helpers.h` enregistre les NOTE_ON/OFF/CC123 via `midi_probe_log()` juste avant l'émission réelle.【F:apps/seq_engine_runner.c†L100-L143】【F:apps/midi_helpers.h†L3-L36】
+* Un garde-fou compile-time (`#error` si `SEQ_USE_HANDLES` n'est pas défini) maintient l'alignement host/cible sur le runner Reader-only et verrouille l'utilisation systématique du Reader.【F:apps/seq_engine_runner.c†L7-L17】
+
 ### `ui/`
 * `ui_task.c` : thread principal. Initialise `clock_manager`, enregistre `_on_clock_step`, démarre backend/clavier/runner, boucle sur `ui_backend_process_input()` puis `ui_led_backend_refresh()` et `ui_render()`.
 * `ui_backend.c` : coeur de traitement des entrées. Route les encoders/boutons vers cart (`cart_link_param_changed`), UI, ou MIDI. Pendant un hold (`s_mode_ctx.seq.held_mask`), appelle `seq_led_bridge_apply_plock_param` ou `seq_led_bridge_apply_cart_param` pour stocker des p-locks sur les steps maintenus. Depuis l'étape 7, il orchestre également `ui_track_mode_enter/exit()` et `ui_track_select_from_bs()` (SHIFT+BS11) et publie `ui_led_refresh_state_on_mode_change()` pour synchroniser les LEDs lors des transitions PMute/Track/SEQ.

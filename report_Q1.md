@@ -158,6 +158,49 @@ Fichiers
 - apps/seq_engine_runner.c
 - apps/seq_recorder.c
 - apps/seq_recorder.h
+
+## [2025-10-22 15:40] Q1.5-debug — MIDI RAM probe + runner smoke
+
+Résumé
+- Instrumentation RAM sans UART via `apps/midi_probe.h/.c` (anneau 128 événements) et branchement dans `seq_engine_runner`/`midi_helpers` pour tracer NOTE_ON/OFF/CC123 sur cible et host.
+- Ajout d'un smoke test host `seq_runner_smoke_tests` qui drive le runner Reader-only (64 ticks) et vérifie que la probe observe des événements sans tick silencieux ; intégration dans `make check-host`.
+- Renforcement du garde `SEQ_USE_HANDLES=1` côté firmware/host (HOST_CFLAGS) avec `#error` dans `seq_engine_runner.c` pour éviter les divergences Reader-only.
+- Mise à jour du Makefile (compilation probe + test, include `seq_reader` partout), documentation (`ARCHITECTURE_FR.md`) et rapport de tests.
+
+Fichiers (créés/modifiés)
+- apps/midi_probe.h (NOUVEAU)
+- apps/midi_probe.c (NOUVEAU)
+- apps/midi_helpers.h
+- apps/seq_engine_runner.c
+- tests/seq_runner_smoke_tests.c (NOUVEAU)
+- Makefile
+- docs/ARCHITECTURE_FR.md
+
+Commandes exécutées
+- make check_no_engine_anywhere
+- make build/host/seq_runner_smoke_tests
+- ./build/host/seq_runner_smoke_tests
+- make check-host
+- ./build/host/seq_16tracks_stress_tests
+
+Logs utiles (extraits)
+- $ make check_no_engine_anywhere
+  [CI] check_no_engine_anywhere
+  [CI][OK] no seq_engine remnants【464382†L1-L3】
+- $ make build/host/seq_runner_smoke_tests
+  gcc … -o build/host/seq_runner_smoke_tests
+  … warning: ‘seq_runtime_access_track_mut’ is deprecated …【167b8d†L1-L26】
+- $ ./build/host/seq_runner_smoke_tests
+  runner_smoke: events=127 silent_ticks=0 on=64 off=63【09a5d2†L1-L2】
+- $ make check-host
+  … runner_smoke: events=127 silent_ticks=0 on=64 off=63
+  … 16-track soak: ticks=10000 … total_on=40000 total_off=40000【343c4f†L1-L118】
+- $ ./build/host/seq_16tracks_stress_tests
+  16-track stress: ticks=512 total_events=4096 silent_ticks=0 … total_off=2048【0c0eba†L1-L19】
+
+Impact binaire/RAM
+- Ajout d’un anneau probe (128 * 8 octets ≈ 1 Ko) côté apps ; pas d’allocation dynamique ni d’I/O.
+- Host et firmware compilent désormais avec `SEQ_USE_HANDLES=1` garanti, alignant toutes les cibles sur le chemin Reader-only.
 - apps/ui_keyboard_bridge.h
 - Makefile
 - docs/ARCHITECTURE_FR.md
