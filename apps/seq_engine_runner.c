@@ -64,7 +64,7 @@ enum {
 };
 
 static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];
-static CCM_DATA seq_engine_runner_note_state_t s_note_state[SEQ_ENGINE_RUNNER_TRACK_COUNT];
+static CCM_DATA seq_engine_runner_note_state_t s_note_state[SEQ_ENGINE_RUNNER_TRACK_COUNT][SEQ_MODEL_VOICES_PER_STEP];
 
 static void _runner_reset_notes(void);
 static void _runner_flush_active_notes(void);
@@ -139,15 +139,26 @@ void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
 }
 
 static void _runner_reset_notes(void) {
-    memset(s_note_state, 0, sizeof(s_note_state));
+    for (uint8_t track = 0U; track < SEQ_ENGINE_RUNNER_TRACK_COUNT; ++track) {
+        for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+            seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+            state->active = false;
+            state->note = 0U;
+            state->off_step = 0U;
+        }
+    }
 }
 
 static void _runner_flush_active_notes(void) {
     for (uint8_t track = 0U; track < SEQ_ENGINE_RUNNER_TRACK_COUNT; ++track) {
-        seq_engine_runner_note_state_t *state = &s_note_state[track];
-        if (state->active) {
-            _runner_send_note_off(track, state->note);
-            state->active = false;
+        for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+            seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+            if (state->active) {
+                _runner_send_note_off(track, state->note);
+                state->active = false;
+                state->note = 0U;
+                state->off_step = 0U;
+            }
         }
     }
 }
@@ -185,17 +196,25 @@ static void _runner_handle_step(uint8_t track,
                                 uint32_t step_abs,
                                 uint8_t step_idx,
                                 seq_track_handle_t handle) {
-    seq_engine_runner_note_state_t *state = &s_note_state[track];
-
-    if (state->active && (step_abs >= state->off_step)) {
-        _runner_send_note_off(track, state->note);
-        state->active = false;
+    for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+        seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+        if (state->active && (step_abs >= state->off_step)) {
+            _runner_send_note_off(track, state->note);
+            state->active = false;
+            state->note = 0U;
+            state->off_step = 0U;
+        }
     }
 
     if (ui_mute_backend_is_muted(track)) {
-        if (state->active) {
-            _runner_send_note_off(track, state->note);
-            state->active = false;
+        for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+            seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
+            if (state->active) {
+                _runner_send_note_off(track, state->note);
+                state->active = false;
+                state->note = 0U;
+                state->off_step = 0U;
+            }
         }
         return;
     }
@@ -205,30 +224,44 @@ static void _runner_handle_step(uint8_t track,
         return;
     }
 
-    if (!_runner_step_has_voice(&view) || (view.vel == 0U)) {
+    if (!_runner_step_has_voice(&view)) {
         return;
     }
 
-    uint8_t note = _runner_clamp_u8((int32_t)view.note);
-    uint8_t velocity = _runner_clamp_u8((int32_t)view.vel);
-    if (velocity == 0U) {
-        return;
-    }
+    for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
+        seq_step_voice_view_t voice_view;
+        if (!seq_reader_get_step_voice(handle, step_idx, slot, &voice_view)) {
+            continue;
+        }
+        if (!voice_view.enabled) {
+            continue;
+        }
 
-    if (state->active) {
-        _runner_send_note_off(track, state->note);
-        state->active = false;
-    }
+        seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
 
-    _runner_send_note_on(track, note, velocity);
+        uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
+        uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
+        if (velocity == 0U) {
+            continue;
+        }
 
-    state->active = true;
-    state->note = note;
-    uint32_t length = view.length;
-    if (length == 0U) {
-        length = 1U;
+        if (state->active) {
+            _runner_send_note_off(track, state->note);
+            state->active = false;
+            state->note = 0U;
+            state->off_step = 0U;
+        }
+
+        _runner_send_note_on(track, note, velocity);
+
+        state->active = true;
+        state->note = note;
+        uint32_t length = (uint32_t)voice_view.length;
+        if (length == 0U) {
+            length = 1U;
+        }
+        state->off_step = step_abs + length;
     }
-    state->off_step = step_abs + length;
 }
 
 static bool _runner_is_cart_param(uint16_t param_id) {
