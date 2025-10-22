@@ -240,7 +240,6 @@ void ui_track_mode_enter(void) {
 }
 
 void ui_track_mode_exit(void) {
-  (void)s_mode_ctx.track.active; // pas utilisé ici
     s_mode_ctx.track.active = false;
     s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
 
@@ -254,10 +253,10 @@ void ui_track_mode_exit(void) {
         _reset_overlay_banner_tags();
     }
 
-    UI_MODE_TRACE("track_exit was_active=%d keyboard=%d overlay=%d label=%s",
-                  was_active ? 1 : 0,
+    UI_MODE_TRACE("track_exit keyboard=%d overlay=%d shift=%d label=%s",
                   s_mode_ctx.keyboard.active ? 1 : 0,
                   s_mode_ctx.overlay_active ? 1 : 0,
+                  s_mode_ctx.track.shift_latched ? 1 : 0,
                   ui_backend_get_mode_label());
     ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT);
     ui_mark_dirty();

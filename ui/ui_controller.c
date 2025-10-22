@@ -31,6 +31,13 @@
 #include "core/seq/seq_access.h"
 #include "ui_overlay.h"   /* <-- ajoute ceci */
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+static inline seq_project_t *_ui_controller_access_project_mut(void) {
+    return seq_runtime_access_project_mut();
+}
+#pragma GCC diagnostic pop
+
 /* ============================================================================
  * État & dirty
  * ==========================================================================*/
@@ -219,7 +226,7 @@ void ui_init(const ui_cart_spec_t *spec) {
     /* === Activation SEQ au boot === */
     ui_led_backend_set_mode(UI_LED_MODE_SEQ);
     seq_led_bridge_init();
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = _ui_controller_access_project_mut();
     if (project != NULL) {
         uint8_t active_bank = seq_project_get_active_bank(project);
         uint8_t active_pattern = seq_project_get_active_pattern_index(project);
