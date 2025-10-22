@@ -6,7 +6,7 @@
 
 #include "ui/ui_shortcuts.h"
 #include "apps/seq_led_bridge.h"
-#include "core/seq/seq_runtime.h"
+#include "core/seq/seq_access.h"
 #include "ui/ui_led_backend.h"
 #include "ui/ui_input.h"
 #include "tests/stubs/ch.h"
@@ -86,6 +86,15 @@ static void test_track_metadata_initialisation(void)
     reset_led_state();
     seq_runtime_init();
     seq_led_bridge_init();
+    seq_project_t *project = seq_runtime_access_project_mut();
+    if (project != NULL) {
+        uint8_t active_bank = seq_project_get_active_bank(project);
+        uint8_t active_pattern = seq_project_get_active_pattern_index(project);
+        seq_led_bridge_set_active(active_bank, active_pattern);
+    } else {
+        seq_led_bridge_set_active(0U, 0U);
+    }
+    seq_led_bridge_bind_project(project);
 
     /* After init the first tracks (capacity) are available, others off. */
     assert(g_stub_track_present[0] == true);
@@ -111,6 +120,15 @@ static void test_track_select_focus_updates(void)
     reset_led_state();
     seq_runtime_init();
     seq_led_bridge_init();
+    seq_project_t *project = seq_runtime_access_project_mut();
+    if (project != NULL) {
+        uint8_t active_bank = seq_project_get_active_bank(project);
+        uint8_t active_pattern = seq_project_get_active_pattern_index(project);
+        seq_led_bridge_set_active(active_bank, active_pattern);
+    } else {
+        seq_led_bridge_set_active(0U, 0U);
+    }
+    seq_led_bridge_bind_project(project);
     g_stub_track_focus = 0xFFU;
 
     assert(seq_led_bridge_select_track(0U) == true);
