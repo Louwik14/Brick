@@ -3,17 +3,19 @@
 
 /**
  * @file seq_engine_runner.h
- * @brief Application-level bridge wiring the sequencer engine to MIDI/cart I/O.
+ * @brief Application-level bridge wiring the Reader-only runner to MIDI/cart I/O.
  */
 
 #include <stdbool.h>
 
 #include "clock_manager.h"
-#include "core/seq/seq_model.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+struct seq_model_track;
+typedef struct seq_model_track seq_model_track_t;
 
 void seq_engine_runner_init(seq_model_track_t *track);
 void seq_engine_runner_attach_track(seq_model_track_t *track);

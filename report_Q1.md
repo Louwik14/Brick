@@ -1,3 +1,30 @@
+## [2025-10-22 16:00] Q1.5 — Suppression moteur seq_engine + runner Reader-only pur
+
+Résumé
+- Retrait complet de core/seq/seq_engine.{c,h} et seq_engine_tables.c.
+- Runner apps Reader-only : boucle 16 handles + NOTE_OFF local + CC123 au STOP.
+- Makefile nettoyé (plus de lien engine) + garde CI anti-engine.
+- make check-host OK, 16 tracks stables (silent_ticks=0).
+
+Fichiers (créés/modifiés/supprimés)
+- (SUPPR) core/seq/seq_engine.c, core/seq/seq_engine.h, core/seq/seq_engine_tables.c
+- (MOD) apps/seq_engine_runner.c
+- (MOD) Makefile
+- (MOD) docs/ARCHITECTURE_FR.md
+
+Commandes exécutées
+- grep -RIn 'seq_engine' .
+- make check_no_engine_anywhere
+- make check-host
+
+Résultats attendus
+- [CI][OK] no seq_engine remnants
+- 16-track stress: silent_ticks=0 ; counters ON/OFF équilibrés
+
+Impact binaire/RAM
+- Neutre (suppression code legacy non référencé au runtime)
+
+
 ## [2025-10-21 23:40] Q1.1 — MIDI helpers (apps header-only)
 
 Résumé

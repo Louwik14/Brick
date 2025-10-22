@@ -1,7 +1,7 @@
 #include "core/seq/runtime/seq_runtime_hot_budget.h"
 
 #include "core/seq/runtime/seq_runtime_layout.h"
-#include "core/seq/seq_engine.h"
+#include "core/seq/seq_model.h"
 
 // Local replica of the private Reader scratch state declared in seq_reader.c.
 typedef struct {
@@ -11,17 +11,14 @@ typedef struct {
 } seq_reader_plock_iter_state_sizeof_t;
 
 enum {
-    k_hot_reader_core = sizeof(seq_engine_reader_t),
-    k_hot_scheduler_total = sizeof(seq_engine_scheduler_t),
-    k_hot_scheduler_queue = sizeof(((seq_engine_scheduler_t *)0)->buffer),
-    k_hot_scheduler_core = k_hot_scheduler_total - k_hot_scheduler_queue,
-    k_hot_player_core = sizeof(seq_engine_player_t),
-    k_hot_engine_total = sizeof(seq_engine_t),
-    k_hot_engine_overhead = k_hot_engine_total -
-                            (k_hot_reader_core + k_hot_scheduler_total + k_hot_player_core),
+    k_hot_reader_core = sizeof(seq_reader_plock_iter_state_sizeof_t),
+    k_hot_scheduler_total = 0U,
+    k_hot_scheduler_queue = 0U,
+    k_hot_scheduler_core = 0U,
+    k_hot_player_core = 0U,
     k_hot_reader_plock_iter = sizeof(seq_reader_plock_iter_state_sizeof_t),
-    k_hot_player_stack_bytes = 768U, // Mirrors SEQ_ENGINE_PLAYER_STACK_SIZE in seq_engine.c.
-    k_hot_rt_scratch = k_hot_engine_overhead + k_hot_reader_plock_iter + k_hot_player_stack_bytes,
+    k_hot_player_stack_bytes = 0U,
+    k_hot_rt_scratch = k_hot_reader_plock_iter,
     k_hot_total = k_hot_reader_core + k_hot_scheduler_core + k_hot_player_core +
                   k_hot_scheduler_queue + k_hot_rt_scratch
 };
