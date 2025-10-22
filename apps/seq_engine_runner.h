@@ -14,11 +14,7 @@
 extern "C" {
 #endif
 
-struct seq_model_track;
-typedef struct seq_model_track seq_model_track_t;
-
-void seq_engine_runner_init(seq_model_track_t *track);
-void seq_engine_runner_attach_track(seq_model_track_t *track);
+void seq_engine_runner_init(void);
 void seq_engine_runner_on_transport_play(void);
 void seq_engine_runner_on_transport_stop(void);
 void seq_engine_runner_on_clock_step(const clock_step_info_t *info);

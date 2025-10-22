@@ -908,6 +908,15 @@ void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern) {
     memset(g_cache.hold_slots, 0, sizeof(g_cache.hold_slots));
 }
 
+void seq_led_bridge_get_active(uint8_t *out_bank, uint8_t *out_pattern) {
+    if (out_bank != NULL) {
+        *out_bank = g_cache.active_bank;
+    }
+    if (out_pattern != NULL) {
+        *out_pattern = g_cache.active_pattern;
+    }
+}
+
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
     _cache_reset();
@@ -1455,7 +1464,6 @@ bool seq_led_bridge_select_track(uint8_t track_index) {
 
     seq_model_track_t *track_model = _seq_led_bridge_track();
     if (track_model != NULL) {
-        seq_engine_runner_attach_track(track_model);
         seq_recorder_attach_track(track_model);
     }
 

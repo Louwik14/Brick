@@ -10,10 +10,13 @@
 
 #include "apps/midi_helpers.h"
 #include "apps/rtos_shim.h"
+#include "apps/seq_led_bridge.h"
 #include "brick_config.h"
 #include "cart_link.h"
 #include "cart_registry.h"
-#include "core/seq/seq_access.h"
+#include "core/seq/reader/seq_reader.h"
+#include "core/seq/seq_config.h"
+#include "core/seq/seq_model.h"
 #include "ui_mute_backend.h"
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -70,20 +73,9 @@ static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint1
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
 
-void seq_engine_runner_init(seq_model_track_t *track) {
-    (void)track;
+void seq_engine_runner_init(void) {
     _runner_reset_notes();
     memset(s_plock_state, 0, sizeof(s_plock_state));
-}
-
-void seq_engine_runner_attach_track(seq_model_track_t *track) {
-    (void)track;
-    _runner_flush_active_notes();
-    _runner_reset_notes();
-    _runner_advance_plock_state();
-    for (size_t i = 0U; i < SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS; ++i) {
-        _runner_plock_release(&s_plock_state[i]);
-    }
 }
 
 void seq_engine_runner_on_transport_play(void) {
@@ -125,11 +117,13 @@ void seq_engine_runner_on_clock_step(const clock_step_info_t *info) {
 
     const uint32_t step_abs = info->step_idx_abs;
     const uint8_t step_idx = (uint8_t)(step_abs % SEQ_MODEL_STEPS_PER_TRACK);
-    const seq_track_handle_t active = seq_reader_get_active_track_handle();
     const cart_id_t cart = cart_registry_get_active_id();
+    uint8_t bank = 0U;
+    uint8_t pattern = 0U;
+    seq_led_bridge_get_active(&bank, &pattern);
 
     for (uint8_t track = 0U; track < SEQ_ENGINE_RUNNER_TRACK_COUNT; ++track) {
-        seq_track_handle_t handle = seq_reader_make_handle(active.bank, active.pattern, track);
+        seq_track_handle_t handle = seq_reader_make_handle(bank, pattern, track);
         _runner_handle_step(track, step_abs, step_idx, handle);
         _runner_apply_plocks(handle, step_idx, cart);
     }
