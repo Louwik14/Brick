@@ -28,6 +28,9 @@ USE_COPT += $(WARNINGS_FLAGS)
 # P1/MP5 — handles flipped ON globally for apps/** (deprecated APIs now error).
 CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
 
+ARM_CC ?= arm-none-eabi-gcc
+HAVE_ARM := $(shell which $(ARM_CC) >/dev/null 2>&1 && echo 1 || echo 0)
+
 # C++ specific options here (added to USE_OPT).
 ifeq ($(USE_CPPOPT),)
   USE_CPPOPT = -fno-rtti
@@ -230,6 +233,11 @@ endif
 
 CPPCHECK ?= cppcheck
 CPPCHECK_FLAGS ?= --enable=warning,style,performance --std=c11
+
+.PHONY: toolchain-check
+toolchain-check:
+	@echo "[TOOLCHAIN] ARM_CC=$(ARM_CC) HAVE_ARM=$(HAVE_ARM)"; \
+	if [ "$(HAVE_ARM)" = "1" ]; then $(ARM_CC) --version | head -n 1; else echo "[WARN] arm-none-eabi-gcc introuvable"; fi
 
 .PHONY: lint-cppcheck
 lint-cppcheck:
@@ -491,13 +499,13 @@ $(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/seq_runti
 	        tests/seq_led_snapshot_tests.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/board_flash_stub.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
 
 $(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
-        core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
         $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
 	        tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
-	        core/seq/reader/seq_reader.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-	        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+                core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+                $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
 	        -o $@
 
 
