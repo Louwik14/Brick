@@ -147,11 +147,12 @@ bool seq_reader_get_step_voice(seq_track_handle_t h,
 
     const seq_model_step_t *legacy_step = &track->steps[step];
     const seq_model_voice_t *voice = &legacy_step->voices[voice_slot];
+    out->note = voice->note;
+    out->vel = voice->velocity;
+    out->length = voice->length;
+    out->micro = voice->micro_offset;
+
     if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
-        out->note = voice->note;
-        out->vel = voice->velocity;
-        out->length = voice->length;
-        out->micro = voice->micro_offset;
         out->enabled = true;
     }
 
