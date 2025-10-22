@@ -72,8 +72,16 @@ static void _set_mode_label(const char *label) {
     if (!label || label[0] == '\0') {
         label = "SEQ";
     }
-    (void)snprintf(s_mode_label, sizeof(s_mode_label), "%s", label);
+
+    // Copie sûre et bornée : empêche toute troncature ou dépassement
+    (void)snprintf(s_mode_label,
+                   sizeof(s_mode_label),
+                   "%.*s",
+                   (int)sizeof(s_mode_label) - 1,
+                   label ? label : "");
+
     s_mode_label[sizeof(s_mode_label) - 1U] = '\0';
+
     ui_model_set_active_overlay_tag(s_mode_label);
     UI_MODE_TRACE("mode_label=%s", s_mode_label);
 }
@@ -232,8 +240,7 @@ void ui_track_mode_enter(void) {
 }
 
 void ui_track_mode_exit(void) {
-    const bool was_active = s_mode_ctx.track.active;
-
+  (void)s_mode_ctx.track.active; // pas utilisé ici
     s_mode_ctx.track.active = false;
     s_mode_ctx.track.shift_latched = ui_input_shift_is_pressed();
 
