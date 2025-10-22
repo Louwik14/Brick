@@ -310,21 +310,21 @@ HOST_SEQ_16TRACKS_SOAK_TEST := $(HOST_TEST_DIR)/seq_soak_16tracks_tests
 HOST_SEQ_RT_REPORT := $(HOST_TEST_DIR)/seq_rt_report
 
 CHECK_HOST_TARGETS := $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) \
-        $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
-        $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
-        $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
-        $(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
-        $(HOST_SEQ_16TRACKS_STRESS_TEST)
+	$(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
+	$(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
+	$(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
+	$(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
+	$(HOST_SEQ_16TRACKS_STRESS_TEST)
 
 ifeq ($(SKIP_SOAK),1)
 RUN_SOAK_TEST :=
 else
 CHECK_HOST_TARGETS += $(HOST_SEQ_16TRACKS_SOAK_TEST) $(HOST_SEQ_RT_REPORT)
 define RUN_SOAK_TEST
-        @echo "Running 16-track soak test"
-        $(HOST_SEQ_16TRACKS_SOAK_TEST)
-        @echo "Running host RT report aggregator"
-        $(HOST_SEQ_RT_REPORT)
+	@echo "Running 16-track soak test"
+	$(HOST_SEQ_16TRACKS_SOAK_TEST)
+	@echo "Running host RT report aggregator"
+	$(HOST_SEQ_RT_REPORT)
 endef
 endif
 
@@ -343,6 +343,7 @@ endif
 .PHONY: check-host
 ifeq ($(HOST_CC_AVAILABLE),yes)
 check-host: $(CHECK_HOST_TARGETS)
+	$(MAKE) check_no_engine_anywhere
 	@echo "Running host sequencer model tests"
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running host hold/runtime bridge tests"
@@ -488,41 +489,40 @@ $(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/reader/se
 
 
 $(HOST_SEQ_16TRACKS_STRESS_TEST): tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-        core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
+        core/seq/seq_model.c core/seq/seq_model_consts.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
-	tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
-                core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-	core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
-	cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	-o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -I. \
+        tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c \
+                core/seq/seq_model.c core/seq/seq_model_consts.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+        -o $@
 
 $(HOST_SEQ_16TRACKS_SOAK_TEST): tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-        core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
+        core/seq/seq_model.c core/seq/seq_model_consts.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
-        tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c \
-                core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-        core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c \
-        cart/cart_registry.c board/board_flash.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -I. \
+        tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c \
+                core/seq/seq_model.c core/seq/seq_model_consts.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
         -o $@
 
 $(HOST_SEQ_RT_REPORT): tests/seq_rt_report.c tests/seq_16tracks_stress_tests.c tests/seq_soak_16tracks_tests.c \
 tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c
+core/seq/seq_model.c core/seq/seq_model_consts.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -DSEQ_RT_TEST_LIBRARY=1 -Itests/stubs -Itests/support -Icore -Icart -Iboard -I. \
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -DSEQ_RT_TEST_LIBRARY=1 -Itests/stubs -Itests/support -Icore -I. \
 tests/seq_rt_report.c tests/seq_16tracks_stress_tests.c tests/seq_soak_16tracks_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c \
-tests/stubs/ch.c core/seq/seq_engine.c core/seq/seq_engine_tables.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_runtime.c core/seq/seq_project.c \
-core/seq/runtime/seq_runtime_cold.c core/seq/runtime/seq_runtime_layout.c core/seq/runtime/seq_rt_phase.c cart/cart_registry.c board/board_flash.c \
-tests/stubs/seq_led_bridge_hold_slots_stub.c -o $@
+tests/stubs/ch.c core/seq/seq_model.c core/seq/seq_model_consts.c tests/stubs/seq_led_bridge_hold_slots_stub.c -o $@
 # ------------------------------------------------------------
 # CI — audits apps/ (non branchés au pipeline à ce stade)
 # ------------------------------------------------------------
-.PHONY: check_no_legacy_includes_apps check_no_ccm_in_apps check_no_cold_refs_in_apps
+.PHONY: check_no_engine_anywhere check_no_legacy_includes_apps check_no_ccm_in_apps check_no_cold_refs_in_apps
+
+check_no_engine_anywhere:
+	@echo "[CI] check_no_engine_anywhere"
+	@if rg -P --no-heading --line-number -g '*.c' -g '*.h' 'seq_engine(?!_runner)' .; then \
+		echo "[CI][FAIL] seq_engine remnants found"; exit 1; \
+	else \
+		echo "[CI][OK] no seq_engine remnants"; \
+	fi
 
 # Interdit les includes legacy/RTOS dans apps/**
 # Autorisés côté apps/ : headers publics (p.ex. core/seq/seq_access.h)

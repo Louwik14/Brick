@@ -6,7 +6,7 @@ Brick est un firmware séquenceur pour **STM32F429 + ChibiOS 21.11.x**. Il pilot
 Principes structurants :
 
 * Le **modèle de séquenceur** (`core/seq/seq_model.c`) contient l'état sérialisable d'une **track 64 steps** : 4 voix par pas, p-locks internes (note, vélocité, longueur, micro, offsets "All") et p-locks cart.【F:core/seq/seq_model.h†L17-L174】
-* Le **moteur** (`core/seq/seq_engine.c`) lit le modèle à chaque tick 1/16, ordonne note on/off et p-locks via `seq_engine_runner.c`, et ne change jamais le modèle directement.
+* Le **runner Reader-only** (`apps/seq_engine_runner.c`) parcourt les 16 handles actifs à chaque tick 1/16 via `seq_reader_get_step()`, émet NOTE_ON/OFF par `apps/midi_helpers.h`, applique les p-locks cart locaux et ne modifie jamais le modèle directement.
 * L'**UI** (répartition `ui/` + ponts `apps/`) capte boutons/encodeurs/clavier, applique les modifications via `ui_backend.c`, tient à jour les LED via `seq_led_bridge.c` et `ui_led_backend.c`, et publie les événements MIDI en direct pour le mode clavier.
 * Les **cartouches** (`cart/`) reçoivent leurs p-locks via `cart_link.c` qui manipule un shadow de paramètres et sérialise les trames UART.
 * La couche **MIDI** (`midi/midi.c`) fournit les primitives note on/off/CC utilisées par l'UI, le runner et la clock.
@@ -18,7 +18,7 @@ Principes structurants :
 * Build `make -j8 all` régénéré avec la toolchain GNU Arm Embedded `arm-none-eabi-gcc 13.2.1` (container CI) ; la distribution Windows (ChibiStudio) doit rester alignée sur 10.3‑2021.10 pour refléter la cible officielle.【2b76ba†L1-L6】
 * Audit sections (`tools/audit/audit_sections.txt`) : `.data` **1 792 o**, `.bss` **130 220 o**, soit **~129,0 KiB** de RAM statique. Sur les 192 KiB de SRAM F429, il reste ~**63 KiB** de marge avant les piles système, satisfaisant le garde‑fou ≥35 KiB.【F:tools/audit/audit_sections.txt†L1-L28】
 * La section `.ram4` (CCRAM) reste neutralisée : taille **0 o**, VMA `0x1000_0000`, et attribut `NOLOAD` confirmé dans l'audit post‑link.【F:tools/audit/audit_map_ram4.txt†L1-L19】
-* Répartition BSS : `g_seq_runtime` occupe **101 448 o** (≈99,1 KiB), suivi par les buffers UI/cart (`g_hold_slots` 3 648 o, `waCartTx` 3 200 o, `g_shadow_params` 2 048 o, `s_ui_shadow` 2 048 o). Le reste de la BSS est dominé par les work areas RTOS (`waUI`, `s_seq_engine_player_wa`) et les objets ChibiOS (`SDx`, `USBD1`).【F:tools/audit/audit_bss_top.txt†L1-L10】【F:tools/audit/audit_ram_top.txt†L1-L30】
+* Répartition BSS : `g_seq_runtime` occupe **101 448 o** (≈99,1 KiB), suivi par les buffers UI/cart (`g_hold_slots` 3 648 o, `waCartTx` 3 200 o, `g_shadow_params` 2 048 o, `s_ui_shadow` 2 048 o). Le reste de la BSS est dominé par les work areas RTOS (`waUI`) et les objets ChibiOS (`SDx`, `USBD1`).【F:tools/audit/audit_bss_top.txt†L1-L10】【F:tools/audit/audit_ram_top.txt†L1-L30】
 * `.data` est quasi exclusivement occupée par la glibc embarquée (`__malloc_av_`, `_impure_data`, locale) ; aucune constante SEQ/UI ne retombe en RAM initialisée depuis la dernière passe.【F:tools/audit/audit_data_top.txt†L1-L7】
 
 > **Terminologie** : `seq_model_track_t` représente une **track de 64 steps**, et un pattern complet agrège 16 tracks synchronisées, conformément à `SEQ_BEHAVIOR.md` (§1). Le renommage de l'ancienne structure `seq_model_pattern_t` a été appliqué dans cette passe pour lever toute ambiguïté avec la définition canonique du pattern (agrégat de 16 tracks).【F:SEQ_BEHAVIOR.md†L10-L43】
@@ -93,13 +93,12 @@ Principes structurants :
 * `cart_link.c` : shadow des paramètres cart, notifications vers UART.
 * `usb_device.c` : démarrage USB Device / MIDI.
 * `seq/seq_model.c` : modèle de track 64 steps + helpers (`seq_model_step_make_neutral`, `seq_model_step_recompute_flags`, etc.).【F:core/seq/seq_model.c†L1-L384】
-* `seq/seq_engine.c` : moteur Reader/Scheduler/Player, callbacks `note_on`, `note_off`, `plock`.
 * `seq/seq_project.c` : conteneur multi-pistes `seq_project_t`, métadonnées banque/pattern, sérialisation vers la flash externe (16 Mo) et remapping automatique des cartouches via `cart_registry`.
 * `seq/seq_live_capture.c` : planifie les événements live (note on/off) en utilisant la clock et enregistre note, vélocité, longueur et micro sous forme de p-locks internes.
 * `arp/arp_engine.c` : moteur d'arpégiateur temps réel (pattern, swing, strum, repeat, LFO) piloté par le mode clavier. // --- ARP: nouveau moteur ---
 
 ### `apps/`
-* `seq_engine_runner.c` : instancie `seq_engine`, traduit les callbacks en messages MIDI (`midi_note_on/off`) ou cart (`cart_link_param_changed`).
+* `seq_engine_runner.c` : boucle Reader-only qui itère les 16 tracks via handles, planifie NOTE_ON/OFF locaux et applique/restaure les p-locks cart en direct via `cart_link_param_changed()`.
 * `seq_led_bridge.c` : conserve un snapshot `seq_model_track_t` pour le rendu LED, gère le mode hold, applique les p-locks SEQ/cart sur les steps maintenus, et recalcule les drapeaux.
 * `seq_recorder.c` : relie `ui_keyboard_bridge` au live capture, maintient les voix actives pour mesurer les longueurs de note.
 * `ui_keyboard_bridge.c` : convertit l'état UI keyboard vers des notes MIDI en direct ou via `arp_engine` (quand activé) tout en relayant les événements vers `seq_recorder`. // --- ARP: intégration moteur ---
@@ -151,7 +150,7 @@ SEQ
 ## 3. Dépendances clés et interfaces
 
 * `ui_task.c` dépend de `clock_manager.h`, `seq_engine_runner.h`, `seq_recorder.h`, `ui_led_backend.h`, `seq_led_bridge.h` et assure la synchronisation temps réel.
-* `seq_engine_runner.c` dépend de `seq_engine.h`, `midi.h`, `cart_link.h`, `cart_registry.h`, `ui_mute_backend.h` pour router les callbacks.
+* `seq_engine_runner.c` dépend de `apps/midi_helpers.h`, `cart_link.h`, `cart_registry.h`, `core/seq/seq_access.h` et `ui_mute_backend.h` pour piloter MIDI/cart depuis la boucle Reader.
 * `seq_led_bridge.c` inclut `core/seq/seq_model.h` pour manipuler le pattern local, et `ui_led_seq.h` pour pousser le snapshot vers le renderer.
 * `ui_backend.c` s'appuie sur `ui_model.h` (shadow UI), `ui_led_backend.h` (changement de mode), `seq_led_bridge.h` (hold) et `cart_link.h`.
 * `seq_recorder.c` et `ui_keyboard_bridge.c` partagent `seq_live_capture.h` et les APIs directes de `ui_backend` (`ui_backend_note_on/off`).
@@ -166,9 +165,9 @@ SEQ
 3. `_on_clock_step()` alimente :
    * `ui_led_backend_post_event_i(UI_LED_EVENT_CLOCK_TICK, step_abs, true)` ⇒ `ui_led_seq_on_clock_tick()` (via la file) pour déplacer le playhead.
    * `seq_recorder_on_clock_step(info)` ⇒ `seq_live_capture_update_clock()` maintient les timestamps pour mesurer les longueurs de note.
-   * `seq_engine_runner_on_clock_step(info)` ⇒ `seq_engine_process_step()` lit le modèle, planifie note on/off et p-locks, puis les callbacks runner envoient `midi_note_on/off` ou `cart_link_param_changed`.
-4. `seq_engine_process_step()` trie les évènements planifiés par `scheduled_time` afin de déclencher toutes les voix d'un step simultanément quand leurs micro-offsets sont identiques.
-5. Lors d'un STOP, `seq_engine_stop()` vide la scheduler avant de rejoindre le thread joueur et appelle `_seq_engine_all_notes_off()` pour couper immédiatement toutes les voix encore actives.
+   * `seq_engine_runner_on_clock_step(info)` itère les 16 handles (`seq_reader_make_handle()`), appelle `seq_reader_get_step()` et déclenche NOTE_ON/OFF immédiats (avec planification locale des NOTE_OFF) ainsi que les p-locks cart via `cart_link_param_changed()`.
+4. La planification des NOTE_OFF est purement locale : chaque piste maintient `off_step` et relâche ses notes lorsque `step_idx_abs` atteint la durée programmée.
+5. Lors d'un STOP, `seq_engine_runner_on_transport_stop()` force les NOTE_OFF restants avant d'émettre le CC123 global décrit plus haut.
 
 ### 4.2 Édition SEQ hold & p-locks
 1. `ui_backend_process_input()` détecte un appui sur un pad SEQ, met à jour `s_mode_ctx.seq.held_mask` et appelle `seq_led_bridge_begin_plock_preview()`.
@@ -223,7 +222,7 @@ SEQ
 
 ## 5. Politique MIDI et cartouches
 
-* `seq_engine_runner_on_transport_stop()` diffuse désormais un CC123 “All Notes Off” sur les 16 canaux avant de relayer les NOTE_OFF individuels via `_runner_note_off_cb()` et de restaurer les paramètres cart p-lockés ; hors STOP, aucune commande globale n'est émise.
+* `seq_engine_runner_on_transport_stop()` diffuse un CC123 “All Notes Off” sur les 16 canaux, force les NOTE_OFF locaux restants puis restaure les paramètres cart p-lockés ; hors STOP, aucune commande globale n'est émise.
 
 ## 6. Validation & perfs — phase «1 pattern / 16 tracks»
 
@@ -257,7 +256,7 @@ SEQ
 
 ## 9. Résumé des invariants comportementaux
 
-* Aucun `All Notes Off` implicite : seules `ui_backend_all_notes_off()` (action utilisateur) et le bouton STOP (via `seq_engine_runner_on_transport_stop()`) diffusent CC123 global, tandis que le moteur continue d'émettre des NOTE_OFF individuels.
+* Aucun `All Notes Off` implicite : seules `ui_backend_all_notes_off()` (action utilisateur) et le bouton STOP (via `seq_engine_runner_on_transport_stop()`) diffusent CC123 global, tandis que le runner Reader-only émet les NOTE_OFF individuels.
 * Le STOP invoque désormais `ui_keyboard_bridge_on_transport_stop()` pour purger `arp_engine` avant le CC123 global, garantissant qu'aucune voix arpégiateur ne reste suspendue. // --- ARP: flush STOP ---
 * Un step contenant au moins un p-lock SEQ reste musical (LED verte, vélocité de la voix 1 conservée).
 * `seq_live_capture` enregistre note, vélocité, longueur et micro-timing à partir des timestamps `clock_manager`.
@@ -272,7 +271,7 @@ Cette documentation reflète l'état réel du dépôt actuel et sert de base à 
 | --- | --- | --- |
 | Phase A — Audit RAM UI | ✅ | Instrumentation `UI_RAM_AUDIT(sym)` sur les buffers UI/LED/OLED (`seq_led_bridge`, `ui_led_backend`, drivers) et script `tools/ui_ram_audit.py` pour extraire les symboles depuis un build `arm-none-eabi`. |
 | Phase B — Runtime partagé | ✅ | `core/seq/seq_runtime.*` centralise `seq_project_t` + patterns actifs ; `seq_led_bridge.c` consomme `seq_runtime_get_*` et ne duplique plus `g_project` / `g_project_patterns`. |
-| Phase C — Lots 2→3 | ✅ | Tables LED/UI partagées en Flash (`ui/ui_led_layout.c`), gabarits du modèle séquenceur externalisés (`core/seq/seq_model_consts.c`) et masques d'échelle moteur unifiés (`core/seq/seq_engine_tables.c`). |
+| Phase C — Lots 2→3 | ✅ | Tables LED/UI partagées en Flash (`ui/ui_led_layout.c`) et gabarits du modèle séquenceur externalisés (`core/seq/seq_model_consts.c`). |
 
 ### Snapshot mémoire (avant refactor)
 
@@ -328,11 +327,11 @@ CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA).
 Prochain lot : isoler les tables MIDI (notes, mappings) et les assets cart `XVA1` vers Flash dédiée.
 
 ### [2024-06-14] – Constantes → Flash (Lot 3)
-Modules : `ui/ui_led_layout.c`, `ui/ui_led_backend.c`, `ui/ui_led_seq.c`, `core/seq/seq_model.c`, `core/seq/seq_model_consts.c`, `core/seq/seq_engine_tables.c`
+Modules : `ui/ui_led_layout.c`, `ui/ui_led_backend.c`, `ui/ui_led_seq.c`, `core/seq/seq_model.c`, `core/seq/seq_model_consts.c`
 Changements majeurs :
 - Table de correspondance SEQ→LED (`k_ui_led_seq_step_to_index`) factorisée dans un module dédié et partagée entre backend et renderer LED.
 - Gabarits du modèle séquenceur (`k_seq_model_step_default`, `k_seq_model_track_config_default`) externalisés en Flash, copiés lors des initialisations au lieu de boucles structurées.
-- Masques d'échelle du moteur (`k_seq_engine_scale_masks`) consolidés dans une table Flash unique, consommée par `_seq_engine_apply_scale()`.
+- Masques d'échelle du moteur (`k_seq_engine_scale_masks`) initialement consolidés dans `seq_engine_tables.c` (module supprimé en Q1.5) ; la conversion d'échelle sera réintroduite côté Reader au besoin.
 Impact sections :
 - `.rodata` : +~350 o | `.data` : 0 o | `.bss` : 0 o *(estimation en l'absence de build release ; la croissance correspond aux gabarits stockés en Flash, tandis que les duplications locales sont éliminées)*
 CCRAM : inchangé (64 KiB @0x1000_0000, section `NOLOAD`, aucun buffer DMA ; `g_seq_runtime` reste en CCM).

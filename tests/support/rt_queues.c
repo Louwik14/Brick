@@ -4,14 +4,12 @@
 
 #include <stdio.h>
 
-#include "core/seq/seq_engine.h"
-
 #ifndef RQ_EVENT_CAPACITY
-#define RQ_EVENT_CAPACITY SEQ_ENGINE_SCHEDULER_CAPACITY
+#define RQ_EVENT_CAPACITY 64U
 #endif
 
 #ifndef RQ_PLAYER_CAPACITY
-#define RQ_PLAYER_CAPACITY SEQ_ENGINE_SCHEDULER_CAPACITY
+#define RQ_PLAYER_CAPACITY 64U
 #endif
 
 static uint32_t s_event_depth = 0U;
