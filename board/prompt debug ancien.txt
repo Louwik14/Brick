@@ -1,0 +1,68 @@
+### 🧠 Prompt Codex – Debug séquenceur (version prête à copier)
+
+> Tu es un assistant technique spécialisé en firmware temps réel et architecture logicielle embarquée.
+>
+> Contexte : le projet est un séquenceur matériel complet tournant sous **ChibiOS** sur **STM32F429**, avec une architecture proprement modulaire (UI, Core, Sequencer, MIDI, Cart, Drivers). Le dépôt contient notamment :
+>
+> * `README.md` et `ARCHITECTURE_FR.md` décrivant l’état actuel et les objectifs,
+> * `SEQ_BEHAVIOR.md` détaillant le comportement attendu du séquenceur.
+>
+> Tu dois **corriger et stabiliser le séquenceur** en suivant les points suivants :
+>
+> ---
+>
+> ### 🎯 Objectifs de debug
+>
+> 1. **Mode Step classique (Quick-Step) instable :**
+>
+>    * Si on place deux quick-steps consécutifs, le **deuxième ne se joue pas**.
+>    * Corrige la logique d’enregistrement / exécution pour que **toutes les notes de pas consécutifs se jouent normalement**.
+>    * L’origine probable est une **mauvaise gestion du mode Quick-Step** qui pollue la séquence interne (mauvais état ou timing).
+> 2. **Mode Rec Live :**
+>
+>    * Lorsqu’un pas est vide (aucune note enregistrée) et qu’on rejoue par-dessus, **le séquenceur crée parfois automatiquement une note parasite** sur ce pas.
+>    * Corrige pour que **rien ne soit écrit** si aucune note n’est réellement jouée.
+>    * Hypothèse : bug lié à une mauvaise initialisation ou propagation d’état de note entre frames.
+> 3. **Gestion multi-tracks :**
+>
+>    * Le **mode Track** est bien implémenté, mais lorsqu’on change de “track active”, la **seconde track devient muette**, alors qu’elle doit continuer à jouer en parallèle (comme un vrai séquenceur).
+>    * Le changement de track active **ne doit pas arrêter les autres**, seul le **mute** doit les rendre silencieuses.
+>    * Investiguer la cause possible :
+>
+>      * Peut-être liée au fait que sur la spec `cart`, le `xva1` n’a qu’une seule track, et ici on en a deux.
+>      * Vérifier si la “spécification cartouche” annonce 2 tracks par erreur, ou si la gestion dynamique des tracks est mal synchronisée.
+>      * Si ce n’est pas ça, creuser la logique du `sequencer engine` ou `track manager`.
+>
+> ---
+>
+> ### ⚙️ Contraintes
+>
+> * Le code doit **compiler sans erreur** avant envoi.
+> * Il doit **garder la cohérence avec l’état actuel du projet** décrit dans `README.md` et `ARCHITECTURE_FR.md`.
+> * Ces deux fichiers doivent être **mis à jour automatiquement à la fin** pour refléter les modifications (par ex. sections “Known issues”, “Audio engine roadmap”, “Séquenceur corrigé”).
+> * **Ne pas inventer de fichiers ni modifier la structure du projet** — tout doit se baser sur ce qui existe.
+> * Respecter les conventions de style et de nommage actuelles du projet.
+> * Ne pas injecter de code inutile : se limiter aux corrections nécessaires.
+> * **Ne pas inclure de code ou de structure inventée dans ta réponse**, mais appliquer les changements directement dans le dépôt.
+>
+> ---
+>
+> ### 🧩 Références à lire avant de coder
+>
+> * `README.md` — état actuel et objectif général.
+> * `ARCHITECTURE_FR.md` — logique modulaire (UI / Sequencer / Carts / MIDI / Threads).
+> * `SEQ_BEHAVIOR.md` — comportement attendu du séquenceur en mode step, live, quick-step, track, etc.
+>
+> ---
+>
+> ### ✅ Résultat attendu
+>
+> * Le séquenceur est **stabilisé** :
+>
+>   * Quick-Step fonctionne même sur des pas consécutifs.
+>   * Enregistrement Live ne crée pas de note fantôme.
+>   * Changer de track active **n’interrompt plus** les autres tracks.
+> * Le projet **compile sans erreur**.
+> * Les fichiers **README.md** et **ARCHITECTURE_FR.md** sont mis à jour pour refléter les corrections apportées.
+>
+> Fournis ensuite le code corrigé, les commits logiques correspondants et les deux fichiers docs mis à jour à la fin.
