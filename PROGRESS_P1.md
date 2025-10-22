@@ -389,3 +389,18 @@
 - Inchangés (.data/.bss/.ram4 identiques tant que `SEQ_RT_DEBUG=0`).
 ### Notes
 - Aucun changement fonctionnel ; l'option cible reste opt-in via `SEQ_RT_DEBUG=1`.
+
+## [2025-11-07 08:30] Q1.8 — Same-note retrigger fix (runner Reader-only)
+### Étapes réalisées
+- `_runner_handle_step()` forçait déjà un NOTE_OFF sur expiration ; la passe Q1.8 impose désormais la séquence NOTE_OFF → NOTE_ON pour chaque slot déclenché, avec prise en compte explicite du flag `AUTOMATION_ONLY` et du mute piste avant tout nouveau trigger.
+- Ajout d'un scénario host dans `tests/seq_runner_smoke_tests.c` (note identique sur deux steps, longueur 2 puis 1) pour verrouiller le re-trigger quand la note précédente est encore active.
+- Rapport Q1.8 documentant la modification et les tests associés.
+### Tests
+- make check_no_engine_anywhere : OK.
+- make check_no_legacy_includes_apps : OK.
+- make check_no_cold_refs_in_apps : OK.
+- make build/host/seq_runner_smoke_tests && ./build/host/seq_runner_smoke_tests : OK (séquence NOTE_ON/OFF conforme, silent_ticks=0).
+- make check-host && ./build/host/seq_16tracks_stress_tests : OK.
+- make -j8 : ⚠️ KO (toolchain arm-none-eabi-gcc absente dans l'environnement host).
+### Audits mémoire
+- Inchangés (.data/.bss/.ram4) — modifications confinées au runner hot et aux tests host.
