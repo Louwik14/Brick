@@ -439,35 +439,31 @@ static size_t _seq_live_capture_wrap_step(int64_t base_step, int64_t delta) {
 static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
                                                  uint8_t requested,
                                                  uint8_t note) {
-    if (step == NULL) {
+  (void)requested; // pour éviter le warning
+  if (step == NULL) {
         return 0U;
     }
 
-    if (requested < SEQ_MODEL_VOICES_PER_STEP) {
-        const seq_model_voice_t *voice = seq_model_step_get_voice(step, requested);
-        if ((voice == NULL) ||
-            (voice->state != SEQ_MODEL_VOICE_ENABLED) ||
-            (voice->velocity == 0U) ||
-            (voice->note == note)) {
-            return requested;
-        }
-    }
-
+    // 1️⃣ Si la note existe déjà dans ce step → on la réutilise (NOTE OFF cohérent)
     for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
-        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
-        if ((voice != NULL) && (voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->note == note)) {
+        const seq_model_voice_t *v = seq_model_step_get_voice(step, i);
+        if ((v != NULL) && (v->state == SEQ_MODEL_VOICE_ENABLED) && (v->note == note)) {
             return i;
         }
     }
 
+    // 2️⃣ Sinon, cherche un slot vide / désactivé
     for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
-        const seq_model_voice_t *voice = seq_model_step_get_voice(step, i);
-        if ((voice == NULL) || (voice->state != SEQ_MODEL_VOICE_ENABLED) || (voice->velocity == 0U)) {
+        const seq_model_voice_t *v = seq_model_step_get_voice(step, i);
+        if ((v == NULL) || (v->state != SEQ_MODEL_VOICE_ENABLED) || (v->velocity == 0U)) {
             return i;
         }
     }
 
-    return 0U;
+    // 3️⃣ Si tout est plein (accord massif) → round robin (ou dernier slot)
+    static uint8_t rr = 0;
+    rr = (uint8_t)((rr + 1U) % SEQ_MODEL_VOICES_PER_STEP);
+    return rr;
 }
 
 static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture) {
