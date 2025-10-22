@@ -204,10 +204,15 @@ SEQ
 4. Les combinaisons **SHIFT + BSX** (overlays SEQ/ARP, Keyboard, Mute) appellent `_disarm_track_mode_if_active()` avant le changement de mode, ce qui garantit une transition fluide identique à SEQ/KEYBOARD : le label "TRACK" tombe, les LEDs repassent en mode cible et la trace `UI_MODE_TRACE()` capture la sortie. 【F:ui/ui_backend.c†L494-L575】
 5. SHIFT + BS11 (ou tout autre mode) déclenche `ui_track_mode_exit()` → `_set_mode_label("SEQ")`, rétablissement des overlays/keyboard au besoin et `ui_led_refresh_state_on_mode_change(SEQ_MODE_DEFAULT)` pour réaligner LEDs et trace. 【F:ui/ui_backend.c†L231-L248】
 
-### Apps / MIDI I/O
+### Apps / RTOS shim & MIDI I/O
 
+* `apps/rtos_shim.h` fournit un type `systime_t` minimal pour compiler les apps sans inclure `ch.h` côté host/target.
 * `apps/midi_helpers.h` fournit un shim header-only (mapping 1..16 → status) utilisable hors RTOS/core.
 * L'émission passe par le hook surchargeable `midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2)` avec fallback no-op host.
+* Une CI spécifique audite :
+  * les includes RTOS interdits (`ch.h`, headers runtime internes) via `make check_no_legacy_includes_apps`.
+  * l'absence de sections `.ccm` dans `apps/` (`make check_no_ccm_in_apps`) en ignorant la macro vide `CCM_DATA`.
+  * la présence éventuelle de références "cold" (`make check_no_cold_refs_in_apps`) — garde en WARN tant que la migration est en cours.
 * Exemple :
   ```c
   midi_note_on(3, 60, 100);

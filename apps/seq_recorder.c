@@ -5,7 +5,7 @@
 
 #include "seq_recorder.h"
 
-#include "ch.h"
+#include "apps/rtos_shim.h"
 
 #include "brick_config.h"
 

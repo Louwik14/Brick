@@ -9,7 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "ch.h" // --- ARP: systime_t pour tick ---
+#include "apps/rtos_shim.h" // --- ARP: systime_t pour tick ---
 
 #ifdef __cplusplus
 extern "C" {

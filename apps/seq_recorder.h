@@ -10,7 +10,7 @@
 #include <stdbool.h>
 
 #include "clock_manager.h"
-#include "ch.h" // --- ARP FIX: timestamp explicite ---
+#include "apps/rtos_shim.h" // --- ARP FIX: timestamp explicite ---
 #include "core/seq/seq_model.h"
 
 #ifdef __cplusplus

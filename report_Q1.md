@@ -113,3 +113,39 @@ Impact binaire/RAM
 
 Risques / Next
 - Aucun à ce stade. Prochaine passe Q1.2 : cibles CI apps (non branchées).
+
+## [2025-10-22 11:00] Q1.3 — Purge RTOS dans apps + CCM CI fix + garde cold (WARN)
+
+Résumé
+- Suppression de tous les includes RTOS (`ch.h`) dans apps/**
+- Ajout `apps/rtos_shim.h` (systime_t)
+- Correction du garde CCM (ignore CCM_DATA vide)
+- Ajout du garde “no-cold-in-apps” (WARN)
+- Mise à jour docs/ARCHITECTURE_FR.md
+- make check-host OK, CI non bloquante
+
+Fichiers
+- apps/rtos_shim.h (nouveau)
+- apps/seq_led_bridge.c
+- apps/seq_engine_runner.c
+- apps/seq_recorder.c
+- apps/seq_recorder.h
+- apps/ui_keyboard_bridge.h
+- Makefile
+- docs/ARCHITECTURE_FR.md
+
+Commandes exécutées
+- grep -RIn '#include "ch\.h"' apps/
+- make check_no_legacy_includes_apps
+- make check_no_ccm_in_apps
+- make check_no_cold_refs_in_apps
+- make check-host
+
+Résultats attendus
+- [CI][OK] no forbidden includes in apps/
+- [CI][OK] no CCM section usage in apps/
+- [CI][WARN] Cold refs still present in apps/ (expected pre-Q1.4)
+- make check-host : OK
+
+Impact binaire
+- Aucun (header-only)
