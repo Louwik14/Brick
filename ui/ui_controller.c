@@ -28,6 +28,7 @@
 
 /* Ajout SEQ */
 #include "seq_led_bridge.h"
+#include "core/seq/seq_access.h"
 #include "ui_overlay.h"   /* <-- ajoute ceci */
 
 /* ============================================================================
@@ -218,6 +219,15 @@ void ui_init(const ui_cart_spec_t *spec) {
     /* === Activation SEQ au boot === */
     ui_led_backend_set_mode(UI_LED_MODE_SEQ);
     seq_led_bridge_init();
+    seq_project_t *project = seq_runtime_access_project_mut();
+    if (project != NULL) {
+        uint8_t active_bank = seq_project_get_active_bank(project);
+        uint8_t active_pattern = seq_project_get_active_pattern_index(project);
+        seq_led_bridge_set_active(active_bank, active_pattern);
+    } else {
+        seq_led_bridge_set_active(0U, 0U);
+    }
+    seq_led_bridge_bind_project(project);
 }
 
 /**

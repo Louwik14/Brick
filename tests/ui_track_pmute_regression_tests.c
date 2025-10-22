@@ -9,7 +9,7 @@
 #include "ui/ui_led_backend.h"
 #include "ui/ui_mute_backend.h"
 #include "apps/seq_led_bridge.h"
-#include "core/seq/seq_runtime.h"
+#include "core/seq/seq_access.h"
 #include "ui/ui_led_palette.h"
 
 static bool g_shift_pressed;
@@ -41,6 +41,15 @@ static void setup_runtime(void)
     ui_mute_backend_init();
     seq_runtime_init();
     seq_led_bridge_init();
+    seq_project_t *project = seq_runtime_access_project_mut();
+    if (project != NULL) {
+        uint8_t active_bank = seq_project_get_active_bank(project);
+        uint8_t active_pattern = seq_project_get_active_pattern_index(project);
+        seq_led_bridge_set_active(active_bank, active_pattern);
+    } else {
+        seq_led_bridge_set_active(0U, 0U);
+    }
+    seq_led_bridge_bind_project(project);
     ui_backend_init_runtime();
     seq_led_bridge_publish();
     ui_led_backend_refresh();

@@ -90,9 +90,8 @@ static void _cache_refresh_hold_slots(uint16_t base_step) {
     memset(g_cache.hold_slots, 0, sizeof(g_cache.hold_slots));
 
 #if SEQ_USE_HANDLES
-    seq_track_handle_t active = seq_reader_get_active_track_handle();
-    g_cache.active_bank = active.bank;
-    g_cache.active_pattern = active.pattern;
+    seq_track_handle_t active =
+        seq_reader_make_handle(g_cache.active_bank, g_cache.active_pattern, g.track_index);
     for (uint8_t local = 0U; local < SEQ_LED_BRIDGE_STEPS_PER_PAGE; ++local) {
         const uint16_t absolute = base_step + (uint16_t)local;
         if (!_valid_step_index(absolute)) {
@@ -861,13 +860,11 @@ static void _publish_runtime(void) {
         g.track_index = seq_project_get_active_track_index(project);
         g.track_count = seq_project_get_track_count(project);
         g.track = seq_project_get_active_track(project);
-        seq_led_bridge_set_active(seq_project_get_active_bank(project),
-                                  seq_project_get_active_pattern_index(project));
     } else {
         g.track_index = 0U;
         g.track_count = 0U;
         g.track = NULL;
-        seq_led_bridge_set_active(0U, 0U);
+        _cache_reset();
     }
 
     g.visible_page = _clamp_page(g.visible_page);
@@ -920,16 +917,10 @@ void seq_led_bridge_get_active(uint8_t *out_bank, uint8_t *out_pattern) {
 void seq_led_bridge_init(void) {
     memset(&g, 0, sizeof(g));
     _cache_reset();
-    g.project = seq_runtime_access_project_mut();
-    if (g.project != NULL) {
-        g.track_index = seq_project_get_active_track_index(g.project);
-        g.track_count = seq_project_get_track_count(g.project);
-        g.track = seq_project_get_active_track(g.project);
-    } else {
-        g.track_index = 0U;
-        g.track_count = 0U;
-        g.track = NULL;
-    }
+    g.project = NULL;
+    g.track = NULL;
+    g.track_index = 0U;
+    g.track_count = 0U;
     _hold_slots_clear();
     _hold_cart_reset();
     g.last_note = 60U;
@@ -940,9 +931,31 @@ void seq_led_bridge_init(void) {
     }
     g.visible_page = 0U;
 
-    if (g.project != NULL) {
-        seq_led_bridge_set_active(seq_project_get_active_bank(g.project),
-                                  seq_project_get_active_pattern_index(g.project));
+    _publish_runtime();
+}
+
+void seq_led_bridge_bind_project(seq_project_t *project) {
+    seq_project_t *previous = g.project;
+    g.project = project;
+    if (project == NULL) {
+        g.track = NULL;
+        g.track_index = 0U;
+        g.track_count = 0U;
+        _hold_slots_clear();
+        _hold_cart_reset();
+        g.hold.active = false;
+        g.hold.mask = 0U;
+        memset(g.hold.params, 0, sizeof(g.hold.params));
+        memset(g.page_hold_mask, 0, sizeof(g.page_hold_mask));
+        g.preview_mask = 0U;
+    } else if (project != previous) {
+        _hold_slots_clear();
+        _hold_cart_reset();
+        g.hold.active = false;
+        g.hold.mask = 0U;
+        memset(g.hold.params, 0, sizeof(g.hold.params));
+        memset(g.page_hold_mask, 0, sizeof(g.page_hold_mask));
+        g.preview_mask = 0U;
     }
     _publish_runtime();
 }
@@ -1429,11 +1442,11 @@ const seq_model_gen_t *seq_led_bridge_get_generation(void) {
 }
 
 seq_project_t *seq_led_bridge_get_project(void) {
-    return seq_runtime_access_project_mut();
+    return g.project;
 }
 
 const seq_project_t *seq_led_bridge_get_project_const(void) {
-    return seq_runtime_get_project();
+    return g.project;
 }
 
 uint8_t seq_led_bridge_get_track_index(void) {

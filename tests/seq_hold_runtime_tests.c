@@ -116,6 +116,15 @@ static void reset_runtime(void) {
     g_keyboard_led_omni = false;
     seq_runtime_init();
     seq_led_bridge_init();
+    seq_project_t *project = seq_runtime_access_project_mut();
+    if (project != NULL) {
+        uint8_t active_bank = seq_project_get_active_bank(project);
+        uint8_t active_pattern = seq_project_get_active_pattern_index(project);
+        seq_led_bridge_set_active(active_bank, active_pattern);
+    } else {
+        seq_led_bridge_set_active(0U, 0U);
+    }
+    seq_led_bridge_bind_project(project);
     assert(g_runtime_valid);
 }
 

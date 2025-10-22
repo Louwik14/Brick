@@ -22,6 +22,7 @@ extern "C" {
 
 /* ====== API Bridge ======================================================= */
 void seq_led_bridge_init(void);
+void seq_led_bridge_bind_project(seq_project_t *project);
 void seq_led_bridge_publish(void);
 
 void seq_led_bridge_set_max_pages(uint8_t max_pages);
