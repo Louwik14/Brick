@@ -12,7 +12,7 @@
 #include "brick_config.h"
 #include "cart_link.h"
 #include "cart_registry.h"
-#include "ch.h"
+#include "apps/rtos_shim.h"
 #include "midi.h"
 #include "seq_engine.h"
 #include "ui_mute_backend.h"

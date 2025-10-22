@@ -8,7 +8,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#include "ch.h"
+#include "apps/rtos_shim.h"
 #include "brick_config.h"
 
 #include "core/seq/runtime/seq_runtime_cold.h"

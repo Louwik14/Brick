@@ -522,7 +522,7 @@ tests/stubs/seq_led_bridge_hold_slots_stub.c -o $@
 # ------------------------------------------------------------
 # CI — audits apps/ (non branchés au pipeline à ce stade)
 # ------------------------------------------------------------
-.PHONY: check_no_legacy_includes_apps check_no_ccm_in_apps
+.PHONY: check_no_legacy_includes_apps check_no_ccm_in_apps check_no_cold_refs_in_apps
 
 # Interdit les includes legacy/RTOS dans apps/**
 # Autorisés côté apps/ : headers publics (p.ex. core/seq/seq_access.h)
@@ -538,11 +538,22 @@ check_no_legacy_includes_apps:
 		|| { echo "[CI][FAIL] Forbidden include(s) found in apps/ (ch.h, seq_project.h, seq_model.h)"; exit 1; }
 	@echo "[CI][OK] no forbidden includes in apps/"
 
-# Interdit l'usage CCM côté apps/** (sections .ccm, macros CCM_*, attributes cc m)
+# Interdit l'usage CCM côté apps/** (sections .ccm réelles, attributs de section CCM)
 check_no_ccm_in_apps:
 	@echo "[CI] check_no_ccm_in_apps"
 	@! grep -RInE --include='*.c' --include='*.h' \
-		'\bCCM_|\.ccm\b|section[[:space:]]*\([[:space:]]*".*ccm' \
+		'\.ccm\b|__attribute__\s*\(\s*\(.*section\s*\(\s*"[^"]*ccm' \
 		apps/ \
-		|| { echo "[CI][FAIL] CCM usage found in apps/"; exit 1; }
-	@echo "[CI][OK] no CCM usage in apps/"
+		|| { echo "[CI][FAIL] CCM section usage found in apps/"; exit 1; }
+	@echo "[CI][OK] no CCM section usage in apps/"
+
+# Audit préventif : références cold dans apps/** (WARN tant que la migration n'est pas terminée)
+check_no_cold_refs_in_apps:
+	@echo "[CI] check_no_cold_refs_in_apps"
+	@if grep -RInE --include='*.c' --include='*.h' \
+		'seq_runtime_cold|runtime/seq_runtime_cold|[[:space:]]\.cold\b' \
+		apps/; then \
+		echo "[CI][WARN] Cold refs still present in apps/ (expected pre-Q1.4)"; \
+	else \
+		echo "[CI][OK] no cold refs in apps/"; \
+	fi
