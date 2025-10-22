@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "apps/midi_probe.h"
+#include "apps/quickstep_cache.h"
 #include "apps/seq_engine_runner.h"
 #include "cart/cart_bus.h"
 #include "cart/cart_registry.h"
@@ -23,6 +24,7 @@ static uint8_t g_stub_active_pattern = 0U;
 void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern) {
     g_stub_active_bank = bank;
     g_stub_active_pattern = pattern;
+    quickstep_cache_set_active(bank, pattern);
     seq_project_t *project = seq_runtime_access_project_mut();
     if (project != NULL) {
         (void)seq_project_set_active_slot(project, bank, pattern);

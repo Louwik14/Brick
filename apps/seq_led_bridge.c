@@ -10,6 +10,7 @@
 
 #include "apps/rtos_shim.h"
 #include "brick_config.h"
+#include "apps/quickstep_cache.h"
 
 #include "core/seq/reader/seq_reader.h"
 #include "core/seq/runtime/seq_sections.h"
@@ -903,6 +904,7 @@ void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern) {
     g_cache.active_bank = bank;
     g_cache.active_pattern = pattern;
     memset(g_cache.hold_slots, 0, sizeof(g_cache.hold_slots));
+    quickstep_cache_set_active(bank, pattern);
 }
 
 void seq_led_bridge_get_active(uint8_t *out_bank, uint8_t *out_pattern) {
@@ -931,6 +933,7 @@ void seq_led_bridge_init(void) {
     }
     g.visible_page = 0U;
 
+    quickstep_cache_init();
     _publish_runtime();
 }
 
@@ -1117,6 +1120,15 @@ void seq_led_bridge_quick_toggle_step(uint8_t i) {
         const seq_model_voice_t *voice = seq_model_step_get_voice(step, 0U);
         if (voice != NULL) {
             g.last_note = voice->note;
+            const uint16_t absolute = _page_base(g.visible_page) + (uint16_t)i;
+            quickstep_cache_mark(g_cache.active_bank,
+                                 g_cache.active_pattern,
+                                 g.track_index,
+                                 (uint8_t)absolute,
+                                 0U,
+                                 voice->note,
+                                 voice->velocity,
+                                 voice->length);
         }
         _seq_led_bridge_bump_generation();
         _hold_refresh_if_active();
