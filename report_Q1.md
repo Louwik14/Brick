@@ -1,3 +1,25 @@
+## [2025-10-22 14:00] Q1.4 — LED bridge Reader-only
+
+Résumé
+- Migration du bridge LED vers un cache hot Reader-only (banque/pattern actifs + flags step).
+- Suppression de la façade `seq_runtime_cold.h` côté apps/.
+- Garde `check_no_cold_refs_in_apps` propre + `make check-host` OK.
+
+Fichiers (créés/modifiés)
+- apps/seq_led_bridge.c
+- apps/seq_led_bridge.h
+- docs/ARCHITECTURE_FR.md
+
+Commandes exécutées
+- make check_no_cold_refs_in_apps
+- make check-host
+
+Impact binaire/RAM
+- inchangé (cache hot local en BSS existante).
+
+Risques / Next
+- Continuer la migration Reader-only côté apps/ (recorder, keyboard) avant split hot/cold.
+
 ## [2025-10-21 23:50] Q1.2 — CI apps (cibles non branchées)
 
 Résumé
