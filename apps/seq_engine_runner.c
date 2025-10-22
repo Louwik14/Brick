@@ -182,20 +182,11 @@ static void _runner_advance_plock_state(void) {
     }
 }
 
-static bool _runner_step_has_voice(const seq_step_view_t *view) {
-    if (view == NULL) {
-        return false;
-    }
-    const uint8_t flags = view->flags;
-    const bool automation_only = (flags & SEQ_STEPF_AUTOMATION_ONLY) != 0U;
-    const bool has_voice = (flags & SEQ_STEPF_HAS_VOICE) != 0U;
-    return has_voice && !automation_only;
-}
-
 static void _runner_handle_step(uint8_t track,
                                 uint32_t step_abs,
                                 uint8_t step_idx,
                                 seq_track_handle_t handle) {
+    /* Phase 1: planned NOTE_OFF (before any new NOTE_ON). */
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
         if (state->active && (step_abs >= state->off_step)) {
@@ -206,6 +197,7 @@ static void _runner_handle_step(uint8_t track,
         }
     }
 
+    /* Track mute happens after planned NOTE_OFF and before any trigger. */
     if (ui_mute_backend_is_muted(track)) {
         for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
@@ -224,10 +216,17 @@ static void _runner_handle_step(uint8_t track,
         return;
     }
 
-    if (!_runner_step_has_voice(&view)) {
+    const bool automation_only = (view.flags & SEQ_STEPF_AUTOMATION_ONLY) != 0U;
+    if (automation_only) {
         return;
     }
 
+    const bool has_voice = (view.flags & SEQ_STEPF_HAS_VOICE) != 0U;
+    if (!has_voice) {
+        return;
+    }
+
+    /* Phase 2: per-slot trigger with deterministic OFF->ON order. */
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_step_voice_view_t voice_view;
         if (!seq_reader_get_step_voice(handle, step_idx, slot, &voice_view)) {
@@ -239,8 +238,8 @@ static void _runner_handle_step(uint8_t track,
 
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
 
-        uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
-        uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
+        const uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
+        const uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
         if (velocity == 0U) {
             continue;
         }
