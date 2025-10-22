@@ -56,6 +56,8 @@ typedef struct {
 typedef struct {
     bool active;
     uint8_t note;
+    uint8_t last_note;
+    uint8_t last_velocity;
     uint32_t off_step;
 } seq_engine_runner_note_state_t;
 
@@ -144,6 +146,8 @@ static void _runner_reset_notes(void) {
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
             state->active = false;
             state->note = 0U;
+            state->last_note = 0U;
+            state->last_velocity = 0U;
             state->off_step = 0U;
         }
     }
@@ -157,6 +161,8 @@ static void _runner_flush_active_notes(void) {
                 _runner_send_note_off(track, state->note);
                 state->active = false;
                 state->note = 0U;
+                state->last_note = 0U;
+                state->last_velocity = 0U;
                 state->off_step = 0U;
             }
         }
@@ -187,6 +193,8 @@ static void _runner_handle_step(uint8_t track,
                                 uint8_t step_idx,
                                 seq_track_handle_t handle) {
     /* Phase 1: planned NOTE_OFF (before any new NOTE_ON). */
+    bool off_fired_this_tick[SEQ_MODEL_VOICES_PER_STEP] = {false};
+    bool any_off_this_tick = false;
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
         if (state->active && (step_abs >= state->off_step)) {
@@ -194,6 +202,8 @@ static void _runner_handle_step(uint8_t track,
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
+            off_fired_this_tick[slot] = true;
+            any_off_this_tick = true;
         }
     }
 
@@ -203,10 +213,12 @@ static void _runner_handle_step(uint8_t track,
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
             if (state->active) {
                 _runner_send_note_off(track, state->note);
-                state->active = false;
-                state->note = 0U;
-                state->off_step = 0U;
             }
+            state->active = false;
+            state->note = 0U;
+            state->last_note = 0U;
+            state->last_velocity = 0U;
+            state->off_step = 0U;
         }
         return;
     }
@@ -222,7 +234,7 @@ static void _runner_handle_step(uint8_t track,
     }
 
     const bool has_voice = (view.flags & SEQ_STEPF_HAS_VOICE) != 0U;
-    if (!has_voice) {
+    if (!has_voice && !any_off_this_tick) {
         return;
     }
 
@@ -232,15 +244,32 @@ static void _runner_handle_step(uint8_t track,
         if (!seq_reader_get_step_voice(handle, step_idx, slot, &voice_view)) {
             continue;
         }
-        if (!voice_view.enabled) {
-            continue;
-        }
 
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
 
-        const uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
-        const uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
-        if (velocity == 0U) {
+        bool playable = voice_view.enabled;
+        uint8_t note = _runner_clamp_u8((int32_t)voice_view.note);
+        uint8_t velocity = _runner_clamp_u8((int32_t)voice_view.vel);
+        const uint8_t raw_velocity = velocity;
+
+        if (playable && (velocity == 0U)) {
+            playable = false;
+        }
+
+        if (!playable && off_fired_this_tick[slot]) {
+            if ((raw_velocity == 0U) && (note == state->last_note) &&
+                (state->last_velocity > 0U)) {
+                if (velocity == 0U) {
+                    velocity = state->last_velocity;
+                }
+                if (velocity == 0U) {
+                    velocity = 1U;
+                }
+                playable = (velocity > 0U);
+            }
+        }
+
+        if (!playable) {
             continue;
         }
 
@@ -251,10 +280,16 @@ static void _runner_handle_step(uint8_t track,
             state->off_step = 0U;
         }
 
+        if (velocity == 0U) {
+            velocity = (state->last_velocity > 0U) ? state->last_velocity : 1U;
+        }
+
         _runner_send_note_on(track, note, velocity);
 
         state->active = true;
         state->note = note;
+        state->last_note = note;
+        state->last_velocity = velocity;
         uint32_t length = (uint32_t)voice_view.length;
         if (length == 0U) {
             length = 1U;
