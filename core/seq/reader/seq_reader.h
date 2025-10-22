@@ -9,6 +9,13 @@ extern "C" {
 #endif
 
 bool seq_reader_get_step(seq_track_handle_t h, uint8_t step, seq_step_view_t *out);
+bool seq_reader_get_step_voice(seq_track_handle_t h,
+                               uint8_t step,
+                               uint8_t voice_slot,
+                               seq_step_voice_view_t *out);
+bool seq_reader_count_step_voices(seq_track_handle_t h,
+                                  uint8_t step,
+                                  uint8_t *out_count);
 bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it);
 bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_t *value);
 

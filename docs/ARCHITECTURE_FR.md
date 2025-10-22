@@ -6,7 +6,7 @@ Brick est un firmware séquenceur pour **STM32F429 + ChibiOS 21.11.x**. Il pilot
 Principes structurants :
 
 * Le **modèle de séquenceur** (`core/seq/seq_model.c`) contient l'état sérialisable d'une **track 64 steps** : 4 voix par pas, p-locks internes (note, vélocité, longueur, micro, offsets "All") et p-locks cart.【F:core/seq/seq_model.h†L17-L174】
-* Le **runner Reader-only** (`apps/seq_engine_runner.c`) parcourt les 16 handles actifs à chaque tick 1/16 via `seq_reader_get_step()`, émet NOTE_ON/OFF par `apps/midi_helpers.h`, applique les p-locks cart locaux et ne modifie jamais le modèle directement.
+* Le **runner Reader-only** (`apps/seq_engine_runner.c`) parcourt les 16 handles actifs à chaque tick 1/16, lit les flags de step via `seq_reader_get_step()` puis itère `slot=0..SEQ_MODEL_VOICES_PER_STEP-1` avec `seq_reader_get_step_voice()` pour jouer toutes les voix, émet NOTE_ON/OFF par `apps/midi_helpers.h`, applique les p-locks cart locaux et ne modifie jamais le modèle directement ; le tick reste Reader-only (aucun accès cold ni appel UI/backend).
 * L'**UI** (répartition `ui/` + ponts `apps/`) capte boutons/encodeurs/clavier, applique les modifications via `ui_backend.c`, tient à jour les LED via `seq_led_bridge.c` et `ui_led_backend.c`, et publie les événements MIDI en direct pour le mode clavier.
 * Les **cartouches** (`cart/`) reçoivent leurs p-locks via `cart_link.c` qui manipule un shadow de paramètres et sérialise les trames UART.
 * La couche **MIDI** (`midi/midi.c`) fournit les primitives note on/off/CC utilisées par l'UI, le runner et la clock.

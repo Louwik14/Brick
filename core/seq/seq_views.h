@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 
 typedef struct {
@@ -8,6 +9,14 @@ typedef struct {
   int8_t micro;
   uint8_t flags;
 } seq_step_view_t;
+
+typedef struct {
+  uint8_t note;
+  uint8_t vel;
+  uint8_t length;
+  int8_t micro;
+  bool enabled;
+} seq_step_voice_view_t;
 
 enum {
   SEQ_STEPF_HAS_VOICE       = 1u << 0,

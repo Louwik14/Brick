@@ -128,6 +128,61 @@ bool seq_reader_get_step(seq_track_handle_t h, uint8_t step, seq_step_view_t *ou
     return true;
 }
 
+bool seq_reader_get_step_voice(seq_track_handle_t h,
+                               uint8_t step,
+                               uint8_t voice_slot,
+                               seq_step_voice_view_t *out) {
+    if (out == NULL) {
+        return false;
+    }
+
+    memset(out, 0, sizeof(*out));
+
+    const seq_model_track_t *track = _resolve_legacy_track(h);
+    if ((track == NULL) ||
+        (step >= SEQ_MODEL_STEPS_PER_TRACK) ||
+        (voice_slot >= SEQ_MODEL_VOICES_PER_STEP)) {
+        return false;
+    }
+
+    const seq_model_step_t *legacy_step = &track->steps[step];
+    const seq_model_voice_t *voice = &legacy_step->voices[voice_slot];
+    if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
+        out->note = voice->note;
+        out->vel = voice->velocity;
+        out->length = voice->length;
+        out->micro = voice->micro_offset;
+        out->enabled = true;
+    }
+
+    return true;
+}
+
+bool seq_reader_count_step_voices(seq_track_handle_t h, uint8_t step, uint8_t *out_count) {
+    if (out_count == NULL) {
+        return false;
+    }
+
+    *out_count = 0U;
+
+    const seq_model_track_t *track = _resolve_legacy_track(h);
+    if ((track == NULL) || (step >= SEQ_MODEL_STEPS_PER_TRACK)) {
+        return false;
+    }
+
+    const seq_model_step_t *legacy_step = &track->steps[step];
+    uint8_t count = 0U;
+    for (uint8_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
+        const seq_model_voice_t *voice = &legacy_step->voices[i];
+        if ((voice->state == SEQ_MODEL_VOICE_ENABLED) && (voice->velocity > 0U)) {
+            count++;
+        }
+    }
+
+    *out_count = count;
+    return true;
+}
+
 bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
     if (it == NULL) {
         return false;
