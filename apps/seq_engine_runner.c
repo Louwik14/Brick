@@ -74,6 +74,7 @@ static void _runner_handle_step(uint8_t track, uint32_t step_abs, uint8_t step_i
 static uint8_t _runner_clamp_u8(int32_t value);
 static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity);
 static void _runner_send_note_off(uint8_t track, uint8_t note);
+static void _runner_purge_same_note(uint8_t track, uint8_t slot_to_skip, uint8_t note);
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id);
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
 static void _runner_plock_release(seq_engine_runner_plock_state_t *slot);
@@ -252,6 +253,8 @@ static void _runner_handle_step(uint8_t track,
             state->off_step = 0U;
         }
 
+        _runner_purge_same_note(track, slot, note);
+
         _runner_send_note_on(track, note, velocity);
 
         state->active = true;
@@ -322,6 +325,21 @@ static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity) 
 
 static void _runner_send_note_off(uint8_t track, uint8_t note) {
     midi_note_off((uint8_t)(track + 1U), note, 0U);
+}
+
+static void _runner_purge_same_note(uint8_t track, uint8_t slot_to_skip, uint8_t note) {
+    for (uint8_t other = 0U; other < SEQ_MODEL_VOICES_PER_STEP; ++other) {
+        if (other == slot_to_skip) {
+            continue;
+        }
+        seq_engine_runner_note_state_t *state = &s_note_state[track][other];
+        if (state->active && (state->note == note)) {
+            _runner_send_note_off(track, state->note);
+            state->active = false;
+            state->note = 0U;
+            state->off_step = 0U;
+        }
+    }
 }
 
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id) {
