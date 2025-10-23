@@ -60,7 +60,7 @@ typedef struct {
 } seq_engine_runner_note_state_t;
 
 enum {
-    SEQ_ENGINE_RUNNER_TRACK_COUNT = SEQ_RUNTIME_TRACK_CAPACITY
+    SEQ_ENGINE_RUNNER_TRACK_COUNT = 16U
 };
 
 static CCM_DATA seq_engine_runner_plock_state_t s_plock_state[SEQ_ENGINE_RUNNER_MAX_ACTIVE_PLOCKS];

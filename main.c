@@ -40,7 +40,6 @@
 #include "ui_led_backend.h"   /* Phase 6 : backend LED adressable */
 
 /* --- Sequencer runtime --- */
-#include "core/seq/seq_config.h"
 #include "core/seq/seq_runtime.h"
 
 /* --- I/O Temps Réel --- */
@@ -88,12 +87,9 @@ static void drivers_and_cart_init(void) {
   cart_link_init();
 
   /* Enregistre les cartouches disponibles */
-  const ui_cart_spec_t *const xva1_spec = &CART_XVA1;
-  for (uint8_t slot = 0U; slot < SEQ_VIRTUAL_CART_COUNT && slot < (uint8_t)CART_COUNT; ++slot) {
-    const cart_id_t id = (cart_id_t)slot;
-    cart_registry_register(id, xva1_spec);
-    cart_registry_set_uid(id, SEQ_VIRTUAL_CART_UID(slot));
-  }
+  cart_registry_register(CART1, &CART_XVA1);
+  // cart_registry_register(CART2, &CART_FX);
+  // cart_registry_register(CART3, &CART_SAMPLER);
 }
 
 /**
