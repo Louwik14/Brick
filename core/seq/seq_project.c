@@ -12,6 +12,9 @@
 #include "cart/cart_registry.h"
 #include "core/seq/runtime/seq_runtime_cold.h"
 #include "core/ram_audit.h"
+#if SEQ_FEATURE_PLOCK_POOL
+#include "core/seq/seq_plock_pool.h"
+#endif
 
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
 #define SEQ_PROJECT_PATTERN_MAGIC   0x42504154U /* 'BPAT' */
@@ -210,8 +213,61 @@ static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, s
     return true;
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+static bool encode_plk2_chunk(const seq_model_step_t *step,
+                              uint8_t **cursor,
+                              size_t *remaining,
+                              bool enable_plk2) {
+    if (!enable_plk2) {
+        return true;
+    }
+
+    if ((step == NULL) || (step->pl_ref.count == 0U)) {
+        return true;
+    }
+
+    const uint8_t chunk_tag[4] = {'P', 'L', 'K', '2'};
+    const uint8_t count = step->pl_ref.count;
+    const size_t payload_len = (size_t)count * 3U;
+    const size_t chunk_len = sizeof(chunk_tag) + sizeof(count) + payload_len;
+
+    if (*remaining < chunk_len) {
+        return false;
+    }
+
+    memcpy(*cursor, chunk_tag, sizeof(chunk_tag));
+    *cursor += sizeof(chunk_tag);
+    *remaining -= sizeof(chunk_tag);
+
+    **cursor = count;
+    *cursor += sizeof(count);
+    *remaining -= sizeof(count);
+
+    uint8_t *dst = *cursor;
+    for (uint8_t i = 0U; i < count; ++i) {
+        const seq_plock_entry_t *entry = seq_plock_pool_get(step->pl_ref.offset, i);
+        if (entry == NULL) {
+            return false;
+        }
+        *dst++ = entry->param_id;
+        *dst++ = entry->value;
+        *dst++ = entry->flags;
+    }
+
+    *cursor = dst;
+    *remaining -= payload_len;
+    return true;
+}
+#endif
+
 #if !BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **cursor, size_t *remaining) {
+static bool encode_track_steps_v1(const seq_model_track_t *track,
+                                  uint8_t **cursor,
+                                  size_t *remaining,
+                                  bool write_plk2) {
+#if !SEQ_FEATURE_PLOCK_POOL
+    (void)write_plk2;
+#endif
     uint16_t step_count = 0U;
     uint8_t *count_ptr = *cursor;
     if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
@@ -290,8 +346,11 @@ static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **curs
                 return false;
             }
         }
-#else
-        (void)step;
+#endif
+#if SEQ_FEATURE_PLOCK_POOL
+        if (!encode_plk2_chunk(step, cursor, remaining, write_plk2)) {
+            return false;
+        }
 #endif
 
         ++step_count;
@@ -303,7 +362,13 @@ static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **curs
 #endif
 
 #if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **cursor, size_t *remaining) {
+static bool encode_track_steps_v2(const seq_model_track_t *track,
+                                  uint8_t **cursor,
+                                  size_t *remaining,
+                                  bool write_plk2) {
+#if !SEQ_FEATURE_PLOCK_POOL
+    (void)write_plk2;
+#endif
     uint16_t step_count = 0U;
     uint8_t *count_ptr = *cursor;
     if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
@@ -398,8 +463,11 @@ static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **curs
                 }
             }
         }
-#else
-        (void)step;
+#endif
+#if SEQ_FEATURE_PLOCK_POOL
+        if (!encode_plk2_chunk(step, cursor, remaining, write_plk2)) {
+            return false;
+        }
 #endif
 
         previous_index = (int16_t)i;
@@ -410,6 +478,47 @@ static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **curs
     return true;
 }
 #endif
+
+static bool encode_track_steps_dispatch(const seq_model_track_t *track,
+                                        uint8_t **cursor,
+                                        size_t *remaining,
+                                        bool write_plk2) {
+#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
+    return encode_track_steps_v2(track, cursor, remaining, write_plk2);
+#else
+    return encode_track_steps_v1(track, cursor, remaining, write_plk2);
+#endif
+}
+
+static bool track_steps_encode_internal(const seq_model_track_t *track,
+                                        uint8_t *buffer,
+                                        size_t buffer_size,
+                                        size_t *written,
+                                        bool write_plk2) {
+    if ((buffer == NULL) || (written == NULL)) {
+        return false;
+    }
+
+    uint8_t *cursor = buffer;
+    size_t remaining = buffer_size;
+
+    if (track == NULL) {
+        if (buffer_size < sizeof(uint16_t)) {
+            return false;
+        }
+        uint16_t zero = 0U;
+        memcpy(cursor, &zero, sizeof(zero));
+        *written = sizeof(zero);
+        return true;
+    }
+
+    if (!encode_track_steps_dispatch(track, &cursor, &remaining, write_plk2)) {
+        return false;
+    }
+
+    *written = buffer_size - remaining;
+    return true;
+}
 
 static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *saved, seq_project_cart_ref_t *resolved) {
     *resolved = *saved;
@@ -717,35 +826,28 @@ bool seq_project_track_steps_encode(const seq_model_track_t *track,
                                       uint8_t *buffer,
                                       size_t buffer_size,
                                       size_t *written) {
-    if ((buffer == NULL) || (written == NULL)) {
-        return false;
-    }
-
-    uint8_t *cursor = buffer;
-    size_t remaining = buffer_size;
-
-    if (track == NULL) {
-        if (buffer_size < sizeof(uint16_t)) {
-            return false;
-        }
-        uint16_t zero = 0U;
-        memcpy(cursor, &zero, sizeof(zero));
-        *written = sizeof(zero);
-        return true;
-    }
-
-    bool result;
-#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-    result = encode_track_steps_v2(track, &cursor, &remaining);
-#else
-    result = encode_track_steps_v1(track, &cursor, &remaining);
+    bool write_plk2 = false;
+#if SEQ_FEATURE_PLOCK_POOL
+    write_plk2 = true;
 #endif
-    if (!result) {
-        return false;
-    }
+    return track_steps_encode_internal(track, buffer, buffer_size, written, write_plk2);
+}
 
-    *written = buffer_size - remaining;
-    return true;
+ssize_t seq_codec_write_track_with_plk2(uint8_t *dst,
+                                        size_t cap,
+                                        const seq_model_track_t *track,
+                                        int enable_plk2) {
+    size_t written = 0U;
+    bool write_plk2 = false;
+#if SEQ_FEATURE_PLOCK_POOL
+    write_plk2 = (enable_plk2 != 0);
+#else
+    (void)enable_plk2;
+#endif
+    if (!track_steps_encode_internal(track, dst, cap, &written, write_plk2)) {
+        return -1;
+    }
+    return (ssize_t)written;
 }
 
 bool seq_project_track_steps_decode(seq_model_track_t *track,

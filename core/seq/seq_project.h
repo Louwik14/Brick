@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include "seq_model.h"
 #include "board/board_flash.h"
@@ -151,6 +152,11 @@ bool seq_project_track_steps_encode(const seq_model_track_t *track,
                                       uint8_t *buffer,
                                       size_t buffer_size,
                                       size_t *written);
+
+ssize_t seq_codec_write_track_with_plk2(uint8_t *dst,
+                                        size_t cap,
+                                        const seq_model_track_t *track,
+                                        int enable_plk2);
 
 bool seq_project_track_steps_decode(seq_model_track_t *track,
                                       const uint8_t *buffer,
