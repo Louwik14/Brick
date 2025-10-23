@@ -120,7 +120,7 @@ typedef struct {
     uint8_t reserved : 6;   /**< Reserved for future use. */
 } seq_model_step_flags_t;
 
-typedef struct {
+typedef struct seq_model_step_t {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
     seq_model_plock_t plocks[SEQ_MODEL_MAX_PLOCKS_PER_STEP]; /**< Parameter locks. */
     uint8_t plock_count; /**< Number of active parameter locks. */
