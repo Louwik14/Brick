@@ -23,6 +23,10 @@
 #define SEQ_FEATURE_PLOCK_POOL 0
 #endif
 
+#ifndef SEQ_MODEL_ENABLE_DEBUG_COUNTER
+#define SEQ_MODEL_ENABLE_DEBUG_COUNTER 0
+#endif
+
 #ifndef SEQ_MAX_TRACKS
 #define SEQ_MAX_TRACKS 16
 #endif

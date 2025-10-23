@@ -7,12 +7,25 @@
 
 #if SEQ_FEATURE_PLOCK_POOL
 #include "seq_plock_pool.h"
+#include "seq_plock_ids.h"
 #endif
 
 #include <string.h>
 
 static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets);
 static void seq_model_track_reset_config(seq_model_track_config_t *config);
+
+#if SEQ_MODEL_ENABLE_DEBUG_COUNTER
+static uint32_t s_seq_model_recompute_counter = 0U;
+
+void seq_model_debug_reset_recompute_counter(void) {
+    s_seq_model_recompute_counter = 0U;
+}
+
+uint32_t seq_model_debug_get_recompute_counter(void) {
+    return s_seq_model_recompute_counter;
+}
+#endif
 
 void seq_model_gen_reset(seq_model_gen_t *gen) {
     if (gen == NULL) {
@@ -60,7 +73,8 @@ void seq_model_step_init(seq_model_step_t *step) {
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
 #endif
-    seq_model_step_recompute_flags(step);
+    step->flags.active = 0U;
+    step->flags.automation = 0U;
 }
 
 void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
@@ -150,6 +164,7 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
         return;
     }
 
+    const bool had_plocks = seq_model_step_has_any_plock(step);
 #if !SEQ_FEATURE_PLOCK_POOL
     memset(step->plocks, 0, sizeof(step->plocks));
     step->plock_count = 0U;
@@ -158,7 +173,9 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
 #endif
-    seq_model_step_recompute_flags(step);
+    if (had_plocks) {
+        seq_model_step_recompute_flags(step);
+    }
 }
 
 bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index) {
@@ -234,11 +251,18 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
         return false;
     }
 
+    return seq_model_step_plock_count(step) > 0U;
+}
+
+uint8_t seq_model_step_plock_count(const seq_model_step_t *step) {
+    if (step == NULL) {
+        return 0U;
+    }
+
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
-    return false;
+    return step->pl_ref.count;
 #else
-    return step->plock_count > 0U;
+    return step->plock_count;
 #endif
 }
 
@@ -248,7 +272,13 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
     }
 
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
+    for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
+        const seq_plock_entry_t *entry = seq_plock_pool_get(step->pl_ref.offset, i);
+        if ((entry != NULL) && !pl_is_cart(entry->param_id)) {
+            return true;
+        }
+    }
+
     return false;
 #else
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
@@ -268,7 +298,13 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
     }
 
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
+    for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
+        const seq_plock_entry_t *entry = seq_plock_pool_get(step->pl_ref.offset, i);
+        if ((entry != NULL) && pl_is_cart(entry->param_id)) {
+            return true;
+        }
+    }
+
     return false;
 #else
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
@@ -295,7 +331,15 @@ void seq_model_step_make_automation_only(seq_model_step_t *step) {
         voice->velocity = 0U;
     }
 
-    seq_model_step_recompute_flags(step);
+    step->flags.active = 0U;
+#if SEQ_FEATURE_PLOCK_POOL
+    const bool has_plock = seq_model_step_plock_count(step) > 0U;
+    step->flags.automation = has_plock ? 1U : 0U;
+#else
+    const bool has_cart = seq_model_step_has_cart_plock(step);
+    const bool has_seq = seq_model_step_has_seq_plock(step);
+    step->flags.automation = (uint8_t)((has_cart && !has_seq) ? 1U : 0U);
+#endif
 }
 
 void seq_model_step_make_neutral(seq_model_step_t *step) {
@@ -374,6 +418,10 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
         return;
     }
 
+#if SEQ_MODEL_ENABLE_DEBUG_COUNTER
+    ++s_seq_model_recompute_counter;
+#endif
+
     bool has_voice = false;
     for (size_t i = 0U; i < SEQ_MODEL_VOICES_PER_STEP; ++i) {
         const seq_model_voice_t *voice = &step->voices[i];
@@ -383,11 +431,15 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
         }
     }
 
+    step->flags.active = has_voice;
+#if SEQ_FEATURE_PLOCK_POOL
+    const bool has_plocks = seq_model_step_plock_count(step) > 0U;
+    step->flags.automation = (uint8_t)((!has_voice && has_plocks) ? 1U : 0U);
+#else
     const bool has_seq_plock = seq_model_step_has_seq_plock(step);
     const bool has_cart_plock = seq_model_step_has_cart_plock(step);
-
-    step->flags.active = has_voice;
-    step->flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock;
+    step->flags.automation = (uint8_t)((!has_voice && has_cart_plock && !has_seq_plock) ? 1U : 0U);
+#endif
 }
 
 int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
@@ -400,9 +452,14 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
         return -1;
     }
 
+    const bool had_plocks = step->pl_ref.count > 0U;
+
     if (n == 0U) {
         step->pl_ref.offset = 0U;
         step->pl_ref.count = 0U;
+        if (had_plocks) {
+            seq_model_step_recompute_flags(step);
+        }
         return 0;
     }
 
@@ -431,6 +488,9 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
 
     step->pl_ref.offset = offset;
     step->pl_ref.count = n;
+    if (!had_plocks) {
+        seq_model_step_recompute_flags(step);
+    }
     return 0;
 #else
     (void)step;

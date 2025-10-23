@@ -205,8 +205,7 @@ bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_mo
 
 static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
-    return 0U;
+    return seq_model_step_plock_count(step);
 #else
     return (step != NULL) ? step->plock_count : 0U;
 #endif
@@ -267,6 +266,8 @@ bool seq_model_step_has_playable_voice(const seq_model_step_t *step);
 bool seq_model_step_is_automation_only(const seq_model_step_t *step);
 /** Return true when the step exposes at least one parameter lock. */
 bool seq_model_step_has_any_plock(const seq_model_step_t *step);
+/** Return the number of parameter locks attached to a step. */
+uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
 /** Return true when the step exposes at least one sequencer-domain parameter lock. */
 bool seq_model_step_has_seq_plock(const seq_model_step_t *step);
 /** Return true when the step exposes at least one cartridge-domain parameter lock. */
@@ -282,12 +283,17 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
 
 #if SEQ_FEATURE_PLOCK_POOL
 static inline uint8_t seq_model_step_pl_count_poolref(const seq_model_step_t *step) {
-    return (step != NULL) ? step->pl_ref.count : 0U;
+    return seq_model_step_plock_count(step);
 }
 
 static inline uint16_t seq_model_step_pl_offset_poolref(const seq_model_step_t *step) {
     return (step != NULL) ? step->pl_ref.offset : 0U;
 }
+#endif
+
+#if SEQ_MODEL_ENABLE_DEBUG_COUNTER
+void seq_model_debug_reset_recompute_counter(void);
+uint32_t seq_model_debug_get_recompute_counter(void);
 #endif
 
 /** Flash-resident template used to initialise neutral sequencer steps. */
