@@ -122,8 +122,10 @@ typedef struct {
 
 typedef struct seq_model_step_t {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
+#if !SEQ_FEATURE_PLOCK_POOL
     seq_model_plock_t plocks[SEQ_MODEL_MAX_PLOCKS_PER_STEP]; /**< Parameter locks. */
     uint8_t plock_count; /**< Number of active parameter locks. */
+#endif
 #if SEQ_FEATURE_PLOCK_POOL
     seq_step_plock_ref_t pl_ref;  /**< Reference into the packed p-lock pool. */
 #endif
@@ -200,6 +202,59 @@ void seq_model_step_clear_plocks(seq_model_step_t *step);
 bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index);
 /** Retrieve a parameter lock by index. */
 bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out);
+
+static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return 0U;
+#else
+    return (step != NULL) ? step->plock_count : 0U;
+#endif
+}
+
+static inline void seq_model_step_legacy_pl_set_count(seq_model_step_t *step, uint8_t count) {
+#if !SEQ_FEATURE_PLOCK_POOL
+    if (step != NULL) {
+        step->plock_count = count;
+    }
+#else
+    (void)step;
+    (void)count;
+#endif
+}
+
+static inline seq_model_plock_t *seq_model_step_legacy_pl_storage(seq_model_step_t *step) {
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return NULL;
+#else
+    return (step != NULL) ? step->plocks : NULL;
+#endif
+}
+
+static inline const seq_model_plock_t *seq_model_step_legacy_pl_storage_const(const seq_model_step_t *step) {
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return NULL;
+#else
+    return (step != NULL) ? step->plocks : NULL;
+#endif
+}
+
+#if SEQ_FEATURE_PLOCK_POOL
+static inline int seq_model_step_legacy_pl_get(const seq_model_step_t *step,
+                                               uint8_t index,
+                                               uint8_t *out_id,
+                                               uint8_t *out_value,
+                                               uint8_t *out_flags) {
+    (void)step;
+    (void)index;
+    (void)out_id;
+    (void)out_value;
+    (void)out_flags;
+    return 0;
+}
+#endif
 
 /** Assign the aggregate offsets for a step. */
 void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_offsets_t *offsets);

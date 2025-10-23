@@ -89,6 +89,7 @@ static void test_live_capture_helper_success(void) {
 }
 
 static void test_helper_oom_fallback(void) {
+#if !SEQ_FEATURE_PLOCK_POOL
     seq_plock_pool_reset();
 
     seq_model_step_t step;
@@ -140,6 +141,10 @@ static void test_helper_oom_fallback(void) {
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
     assert(id == (uint8_t)(PL_INT_VEL_V0 + 0U));
     assert(value == 90U);
+#else
+    /* Legacy per-step storage not available when pooled mode is enabled. */
+    seq_plock_pool_reset();
+#endif
 }
 
 int main(void) {

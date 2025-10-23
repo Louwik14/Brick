@@ -155,7 +155,7 @@ static void _seq_live_commit_plock_pool(seq_model_step_t *step) {
         return;
     }
 
-    const uint8_t count = step->plock_count;
+    const uint8_t count = seq_model_step_legacy_pl_count(step);
     if (count == 0U) {
         (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
         return;
@@ -165,8 +165,9 @@ static void _seq_live_commit_plock_pool(seq_model_step_t *step) {
     uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
     uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
 
+    const seq_model_plock_t *legacy_plocks = seq_model_step_legacy_pl_storage_const(step);
     for (uint8_t i = 0U; i < count; ++i) {
-        _seq_live_pack_plock(&step->plocks[i], &ids[i], &values[i], &flags[i]);
+        _seq_live_pack_plock(&legacy_plocks[i], &ids[i], &values[i], &flags[i]);
     }
 
     (void)seq_model_step_set_plocks_pooled(step, ids, values, flags, count);
@@ -634,6 +635,12 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)param;
+    (void)voice;
+    (void)value;
+    return false;
+#else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         seq_model_plock_t *plk = &step->plocks[i];
@@ -661,6 +668,7 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     };
 
     return seq_model_step_add_plock(step, &plock);
+#endif
 }
 
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,

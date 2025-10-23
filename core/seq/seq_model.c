@@ -125,6 +125,11 @@ bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *p
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    (void)plock;
+    return false;
+#else
     if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
         return false;
     }
@@ -137,6 +142,7 @@ bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *p
     ++step->plock_count;
     seq_model_step_recompute_flags(step);
     return true;
+#endif
 }
 
 void seq_model_step_clear_plocks(seq_model_step_t *step) {
@@ -144,8 +150,10 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
         return;
     }
 
+#if !SEQ_FEATURE_PLOCK_POOL
     memset(step->plocks, 0, sizeof(step->plocks));
     step->plock_count = 0U;
+#endif
 #if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
@@ -154,6 +162,11 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
 }
 
 bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index) {
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    (void)index;
+    return false;
+#else
     if ((step == NULL) || (index >= step->plock_count)) {
         return false;
     }
@@ -165,15 +178,23 @@ bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index) {
     --step->plock_count;
     seq_model_step_recompute_flags(step);
     return true;
+#endif
 }
 
 bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out) {
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    (void)index;
+    (void)out;
+    return false;
+#else
     if ((step == NULL) || (index >= step->plock_count) || (out == NULL)) {
         return false;
     }
 
     *out = step->plocks[index];
     return true;
+#endif
 }
 
 void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_offsets_t *offsets) {
@@ -213,7 +234,12 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return false;
+#else
     return step->plock_count > 0U;
+#endif
 }
 
 bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
@@ -221,6 +247,10 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return false;
+#else
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if (plk->domain == SEQ_MODEL_PLOCK_INTERNAL) {
@@ -229,6 +259,7 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
     }
 
     return false;
+#endif
 }
 
 bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
@@ -236,6 +267,10 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)step;
+    return false;
+#else
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if (plk->domain == SEQ_MODEL_PLOCK_CART) {
@@ -244,6 +279,7 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
     }
 
     return false;
+#endif
 }
 
 void seq_model_step_make_automation_only(seq_model_step_t *step) {

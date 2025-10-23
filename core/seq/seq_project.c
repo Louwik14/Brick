@@ -168,9 +168,11 @@ static bool step_needs_persist(const seq_model_step_t *step) {
     if (step->flags.active || step->flags.automation) {
         return true;
     }
+#if !SEQ_FEATURE_PLOCK_POOL
     if (step->plock_count > 0U) {
         return true;
     }
+#endif
     if (!offsets_is_zero(&step->offsets)) {
         return true;
     }
@@ -226,7 +228,11 @@ static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **curs
         header.step_index = i;
         header.flags = 0U;
         header.voice_mask = 0U;
+#if !SEQ_FEATURE_PLOCK_POOL
         header.plock_count = step->plock_count;
+#else
+        header.plock_count = 0U;
+#endif
 
         if (step->flags.active) {
             header.flags |= STEP_FLAG_ACTIVE;
@@ -271,6 +277,7 @@ static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **curs
             }
         }
 
+#if !SEQ_FEATURE_PLOCK_POOL
         for (uint8_t p = 0U; p < step->plock_count; ++p) {
             const seq_model_plock_t *plock = &step->plocks[p];
             track_plock_v1_payload_t payload;
@@ -283,6 +290,9 @@ static bool encode_track_steps_v1(const seq_model_track_t *track, uint8_t **curs
                 return false;
             }
         }
+#else
+        (void)step;
+#endif
 
         ++step_count;
     }
@@ -314,7 +324,11 @@ static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **curs
         header.skip = skip;
         header.flags = 0U;
         header.voice_mask = 0U;
+#if !SEQ_FEATURE_PLOCK_POOL
         header.plock_count = step->plock_count;
+#else
+        header.plock_count = 0U;
+#endif
 
         if (step->flags.active) {
             header.flags |= STEP_FLAG_ACTIVE;
@@ -363,6 +377,7 @@ static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **curs
             }
         }
 
+#if !SEQ_FEATURE_PLOCK_POOL
         for (uint8_t p = 0U; p < step->plock_count; ++p) {
             const seq_model_plock_t *plock = &step->plocks[p];
             track_plock_v2_payload_t payload;
@@ -383,6 +398,9 @@ static bool encode_track_steps_v2(const seq_model_track_t *track, uint8_t **curs
                 }
             }
         }
+#else
+        (void)step;
+#endif
 
         previous_index = (int16_t)i;
         ++step_count;
@@ -506,6 +524,7 @@ static bool decode_track_steps_v1(seq_model_track_t *track,
                 continue;
             }
 
+#if !SEQ_FEATURE_PLOCK_POOL
             seq_model_plock_t *plock = &step->plocks[effective_plocks];
             plock->value = payload_plock.value;
             plock->parameter_id = payload_plock.parameter_id;
@@ -513,8 +532,15 @@ static bool decode_track_steps_v1(seq_model_track_t *track,
             plock->voice_index = payload_plock.voice_index;
             plock->internal_param = payload_plock.internal_param;
             ++effective_plocks;
+#else
+            (void)policy;
+#endif
         }
+#if !SEQ_FEATURE_PLOCK_POOL
         step->plock_count = effective_plocks;
+#else
+        (void)effective_plocks;
+#endif
 
         if (policy == TRACK_LOAD_ABSENT) {
             for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
@@ -638,6 +664,7 @@ static bool decode_track_steps_v2(seq_model_track_t *track,
                 continue;
             }
 
+#if !SEQ_FEATURE_PLOCK_POOL
             if (effective_plocks >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
                 return false;
             }
@@ -655,8 +682,15 @@ static bool decode_track_steps_v2(seq_model_track_t *track,
                 plock->internal_param = (uint8_t)((payload_plock.meta >> 3) & 0x07U);
             }
             ++effective_plocks;
+#else
+            (void)parameter_id;
+#endif
         }
+#if !SEQ_FEATURE_PLOCK_POOL
         step->plock_count = effective_plocks;
+#else
+        (void)effective_plocks;
+#endif
 
         if (policy == TRACK_LOAD_ABSENT) {
             for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {

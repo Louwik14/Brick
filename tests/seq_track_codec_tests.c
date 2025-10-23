@@ -111,11 +111,15 @@ static bool track_equals(const seq_model_track_t *lhs, const seq_model_track_t *
 static bool track_has_cart_plocks(const seq_model_track_t *track) {
     for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_TRACK; ++s) {
         const seq_model_step_t *step = &track->steps[s];
+#if !SEQ_FEATURE_PLOCK_POOL
         for (uint8_t p = 0U; p < step->plock_count; ++p) {
             if (step->plocks[p].domain == SEQ_MODEL_PLOCK_CART) {
                 return true;
             }
         }
+#else
+        (void)step;
+#endif
     }
     return false;
 }

@@ -214,7 +214,6 @@ static void configure_voice_step(seq_model_step_t *step) {
 
 #if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.count = 0U;
-    step->plock_count = 0U;
     const uint8_t ids[] = {
         PL_INT_ALL_TRANSP,
         PL_INT_ALL_VEL,
@@ -273,7 +272,6 @@ static void configure_automation_step(seq_model_step_t *step) {
     seq_model_step_make_neutral(step);
     seq_model_step_make_automation_only(step);
 #if SEQ_FEATURE_PLOCK_POOL
-    step->plock_count = 0U;
     uint16_t offset = 0U;
     int ok = seq_plock_pool_alloc(1U, &offset);
     assert(ok == 0);
