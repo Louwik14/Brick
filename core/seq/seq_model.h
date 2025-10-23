@@ -17,6 +17,12 @@ typedef struct {
     uint16_t offset;
     uint8_t count;
 } seq_step_plock_ref_t;
+
+#define SEQ_LEGACY_FORBIDDEN_STR(symbol) \
+    "GCC error \"Forbidden legacy symbol: " #symbol "\""
+#define SEQ_LEGACY_FORBIDDEN(symbol) _Pragma(SEQ_LEGACY_FORBIDDEN_STR(symbol))
+#else
+#define SEQ_LEGACY_FORBIDDEN(symbol)
 #endif
 
 #ifdef __cplusplus
@@ -205,44 +211,48 @@ bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_mo
 
 uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
 
-static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
 #if SEQ_FEATURE_PLOCK_POOL
-    return seq_model_step_plock_count(step);
+#define seq_model_step_legacy_pl_count(...) \
+    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_count)
 #else
+static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
     return (step != NULL) ? step->plock_count : 0U;
-#endif
 }
+#endif
 
+#if SEQ_FEATURE_PLOCK_POOL
+#define seq_model_step_legacy_pl_set_count(...) \
+    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_set_count)
+#else
 static inline void seq_model_step_legacy_pl_set_count(seq_model_step_t *step, uint8_t count) {
-#if !SEQ_FEATURE_PLOCK_POOL
     if (step != NULL) {
         step->plock_count = count;
     }
-#else
-    (void)step;
-    (void)count;
-#endif
 }
+#endif
 
+#if SEQ_FEATURE_PLOCK_POOL
+#define seq_model_step_legacy_pl_storage(...) \
+    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_storage)
+#else
 static inline seq_model_plock_t *seq_model_step_legacy_pl_storage(seq_model_step_t *step) {
-#if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
-    return NULL;
-#else
     return (step != NULL) ? step->plocks : NULL;
-#endif
 }
+#endif
 
+#if SEQ_FEATURE_PLOCK_POOL
+#define seq_model_step_legacy_pl_storage_const(...) \
+    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_storage_const)
+#else
 static inline const seq_model_plock_t *seq_model_step_legacy_pl_storage_const(const seq_model_step_t *step) {
-#if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
-    return NULL;
-#else
     return (step != NULL) ? step->plocks : NULL;
-#endif
 }
+#endif
 
 #if SEQ_FEATURE_PLOCK_POOL
+#define seq_model_step_legacy_pl_get(...) \
+    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_get)
+#else
 static inline int seq_model_step_legacy_pl_get(const seq_model_step_t *step,
                                                uint8_t index,
                                                uint8_t *out_id,

@@ -68,6 +68,12 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out) {
     return false;
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+int main(void) {
+    return 0;
+}
+#else
+
 static void populate_track(seq_model_track_t *track) {
     seq_model_track_init(track);
 
@@ -166,3 +172,5 @@ int main(void) {
 
     return 0;
 }
+
+#endif /* SEQ_FEATURE_PLOCK_POOL */
