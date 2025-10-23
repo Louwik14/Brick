@@ -81,6 +81,20 @@
 ### Décisions
 - Garde-fou legacy (`check_no_legacy_includes_led`) laissé commenté pour MP3b conformément au plan.
 
+## [2025-10-23 09:10] P7d — Reader pool-only en mode plock_pool
+### Étapes réalisées
+- `seq_reader_pl_open()` retourne immédiatement 0 quand `pl_ref.count==0` et bascule systématiquement sur le pool quand `SEQ_FEATURE_PLOCK_POOL=1` (plus de fallback legacy dans cette configuration).
+- `seq_reader_pl_next()` itère exclusivement via `seq_plock_pool_get()` sous flag pool et conserve le chemin legacy inchangé quand le flag est désactivé.
+- Nettoyage conditionnel : helpers d’encodage legacy désormais compilés uniquement quand la branche legacy est active, pour supprimer les warnings en build pool-only.
+### Tests
+- make build/host/seq_reader_pl_iter_tests : OK (flag pool + capacité 256).
+- build/host/seq_reader_pl_iter_tests : OK.
+- make build/host/seq_runner_plock_router_pool_tests : OK.
+- build/host/seq_runner_plock_router_pool_tests : OK.
+- make check-host SKIP_SOAK=1 : OK.
+### Audits mémoire
+- Inchangés (.data ≈ 1 792 o, .bss ≈ 130 220 o, .ram4 = 0 o).
+
 ## [2025-10-23 11:00] MP3c — Reader complet + garde-fou actif
 ### Étapes réalisées
 - Flags publics `SEQ_STEPF_*` exposés dans `seq_views.h` et alimentés par `seq_reader_get_step()` (voix, p-locks seq/cart, automation, mute placeholder) pour supprimer les heuristiques côté apps.
