@@ -18,3 +18,19 @@
 #ifndef SEQ_EXPERIMENT_MOVE_ONE_BLOCK
 #define SEQ_EXPERIMENT_MOVE_ONE_BLOCK 0
 #endif
+
+#ifndef SEQ_FEATURE_PLOCK_POOL
+#define SEQ_FEATURE_PLOCK_POOL 0
+#endif
+
+#ifndef SEQ_MAX_TRACKS
+#define SEQ_MAX_TRACKS 16
+#endif
+
+#ifndef SEQ_STEPS_PER_TRACK
+#define SEQ_STEPS_PER_TRACK 64   /* 1024 plus tard */
+#endif
+
+#ifndef SEQ_MAX_PLOCKS_PER_STEP
+#define SEQ_MAX_PLOCKS_PER_STEP 32
+#endif
