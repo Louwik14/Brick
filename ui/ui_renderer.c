@@ -157,6 +157,7 @@ static void _copy_project_name(const seq_project_t *project, char *dst, size_t d
 
 static void _draw_track_mode_placeholder(const seq_project_t *project,
                                          const ui_mode_context_t *ctx) {
+    const uint8_t track_count = (project != NULL) ? seq_project_get_track_count(project) : 0U;
     for (int slot = 0; slot < 4; ++slot) {
         int x = k_param_frame_x_offsets[slot];
         int y = k_param_frame_y;
@@ -172,8 +173,9 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
 
         for (int row = 0; row < 4; ++row) {
             uint8_t track_idx = (uint8_t)(slot * 4 + row);
+            const bool within_bounds = (track_idx < track_count);
             const seq_model_track_t *track_model =
-                (project != NULL) ? seq_project_get_track_const(project, track_idx) : NULL;
+                (project != NULL && within_bounds) ? seq_project_get_track_const(project, track_idx) : NULL;
             const bool present = (track_model != NULL);
             const bool active = present && ctx && (track_idx == ctx->seq.track_index);
 
