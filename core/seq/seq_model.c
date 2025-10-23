@@ -52,6 +52,10 @@ void seq_model_step_init(seq_model_step_t *step) {
     }
 
     *step = k_seq_model_step_default;
+#if SEQ_FEATURE_PLOCK_POOL
+    step->pl_ref.offset = 0U;
+    step->pl_ref.count = 0U;
+#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -72,6 +76,10 @@ void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
         }
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    step->pl_ref.offset = 0U;
+    step->pl_ref.count = 0U;
+#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -134,6 +142,10 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
 
     memset(step->plocks, 0, sizeof(step->plocks));
     step->plock_count = 0U;
+#if SEQ_FEATURE_PLOCK_POOL
+    step->pl_ref.offset = 0U;
+    step->pl_ref.count = 0U;
+#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -267,6 +279,10 @@ void seq_model_step_make_neutral(seq_model_step_t *step) {
         }
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    step->pl_ref.offset = 0U;
+    step->pl_ref.count = 0U;
+#endif
     seq_model_step_recompute_flags(step);
 }
 

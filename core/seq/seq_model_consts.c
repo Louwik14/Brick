@@ -37,6 +37,12 @@ const seq_model_step_t k_seq_model_step_default = {
         },
     },
     .plock_count = 0U,
+#if SEQ_FEATURE_PLOCK_POOL
+    .pl_ref = {
+        .offset = 0U,
+        .count = 0U,
+    },
+#endif
     .offsets = {
         .velocity = 0,
         .transpose = 0,
