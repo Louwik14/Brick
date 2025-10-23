@@ -25,6 +25,7 @@
 #include "cart_link.h"
 #include "cart_registry.h"
 #include "brick_config.h"
+#include "core/seq/seq_config.h"
 
 #include "ui_shortcuts.h"
 #include "ui_led_backend.h"
@@ -263,7 +264,8 @@ void ui_track_mode_exit(void) {
 }
 
 void ui_track_select_from_bs(uint8_t bs_index) {
-    if (bs_index >= 16U) {
+    const uint8_t track_count = seq_led_bridge_get_track_count();
+    if ((bs_index >= track_count) || (bs_index >= SEQ_LED_BRIDGE_TRACK_CAPACITY)) {
         return;
     }
 

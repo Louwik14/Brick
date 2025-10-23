@@ -1,4 +1,6 @@
 #pragma once
+
+#include <stdint.h>
 #ifndef SEQ_USE_HANDLES
 #define SEQ_USE_HANDLES 0
 #endif
@@ -18,3 +20,26 @@
 #ifndef SEQ_EXPERIMENT_MOVE_ONE_BLOCK
 #define SEQ_EXPERIMENT_MOVE_ONE_BLOCK 0
 #endif
+
+#ifndef SEQ_VIRTUAL_CART_COUNT
+#define SEQ_VIRTUAL_CART_COUNT 4U
+#endif
+
+#ifndef SEQ_VIRTUAL_TRACKS_PER_CART
+#define SEQ_VIRTUAL_TRACKS_PER_CART 4U
+#endif
+
+#ifndef SEQ_VIRTUAL_CART_UID_BASE
+#define SEQ_VIRTUAL_CART_UID_BASE \
+    (((uint32_t)('X') << 24) | ((uint32_t)('V') << 16) | ((uint32_t)('A') << 8) | ((uint32_t)('1')))
+#endif
+
+#ifndef SEQ_VIRTUAL_CART_UID
+#define SEQ_VIRTUAL_CART_UID(slot) (SEQ_VIRTUAL_CART_UID_BASE + (uint32_t)(slot))
+#endif
+
+#undef  SEQ_RUNTIME_TRACK_CAPACITY
+#define SEQ_RUNTIME_TRACK_CAPACITY (SEQ_VIRTUAL_CART_COUNT * SEQ_VIRTUAL_TRACKS_PER_CART)
+
+#undef  SEQ_LED_BRIDGE_TRACK_CAPACITY
+#define SEQ_LED_BRIDGE_TRACK_CAPACITY SEQ_RUNTIME_TRACK_CAPACITY
