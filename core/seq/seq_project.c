@@ -14,6 +14,10 @@
 #include "core/ram_audit.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
+#include "core/seq/seq_plock_ids.h"
+#if !defined(__arm__) && !defined(__thumb__)
+#include <stdio.h>
+#endif
 #endif
 
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
@@ -213,6 +217,167 @@ static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, s
     return true;
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+typedef enum {
+    PLK2_DECODE_NOT_FOUND = 0,
+    PLK2_DECODE_OK,
+    PLK2_DECODE_INVALID,
+    PLK2_DECODE_OOM
+} plk2_decode_result_t;
+
+static void decoder_warn(const char *msg) {
+#if !defined(__arm__) && !defined(__thumb__)
+    if (msg != NULL) {
+        fprintf(stderr, "[seq_project] %s\n", msg);
+    }
+#else
+    (void)msg;
+#endif
+}
+
+static void step_reset_pl_ref(seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+    step->pl_ref.offset = 0U;
+    step->pl_ref.count = 0U;
+}
+
+static plk2_decode_result_t decode_plk2_chunk(seq_model_step_t *step,
+                                              const uint8_t **cursor,
+                                              size_t *remaining,
+                                              track_load_policy_t policy) {
+    if ((step == NULL) || (cursor == NULL) || (remaining == NULL)) {
+        return PLK2_DECODE_NOT_FOUND;
+    }
+
+    if (*remaining < 4U) {
+        return PLK2_DECODE_NOT_FOUND;
+    }
+
+    const uint8_t *chunk_start = *cursor;
+    if ((chunk_start[0] != 'P') || (chunk_start[1] != 'L') || (chunk_start[2] != 'K') || (chunk_start[3] != '2')) {
+        return PLK2_DECODE_NOT_FOUND;
+    }
+
+    size_t total_remaining = *remaining;
+    const uint8_t *ptr = chunk_start + 4U;
+    size_t left = total_remaining - 4U;
+
+    if (left < 1U) {
+        *cursor = chunk_start + total_remaining;
+        *remaining = 0U;
+        decoder_warn("PLK2 chunk truncated (missing count)");
+        step_reset_pl_ref(step);
+        return PLK2_DECODE_INVALID;
+    }
+
+    const uint8_t stored_count = *ptr++;
+    left -= 1U;
+
+    const size_t payload_len = (size_t)stored_count * 3U;
+    if (payload_len > left) {
+        *cursor = chunk_start + total_remaining;
+        *remaining = 0U;
+        decoder_warn("PLK2 chunk truncated (payload)");
+        step_reset_pl_ref(step);
+        return PLK2_DECODE_INVALID;
+    }
+
+    const uint8_t *payload = ptr;
+    left -= payload_len;
+
+    uint8_t kept = 0U;
+    if (stored_count > 0U) {
+        for (uint8_t i = 0U; i < stored_count; ++i) {
+            const uint8_t id = payload[(size_t)i * 3U];
+            if (pl_is_cart(id) && (policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED)) {
+                continue;
+            }
+            ++kept;
+        }
+    }
+
+    if (kept == 0U) {
+        step_reset_pl_ref(step);
+    } else {
+        uint16_t offset = 0U;
+        if (seq_plock_pool_alloc(kept, &offset) != 0) {
+            decoder_warn("PLK2 chunk OOM while allocating pool entries");
+            step_reset_pl_ref(step);
+            *cursor = payload + payload_len;
+            *remaining = left;
+            return PLK2_DECODE_OOM;
+        }
+
+        uint8_t written = 0U;
+        for (uint8_t i = 0U; i < stored_count; ++i) {
+            const uint8_t id = payload[(size_t)i * 3U];
+            const uint8_t value = payload[(size_t)i * 3U + 1U];
+            const uint8_t flags = payload[(size_t)i * 3U + 2U];
+
+            if (pl_is_cart(id) && (policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED)) {
+                continue;
+            }
+
+            seq_plock_entry_t *entry = seq_plock_pool_get(offset, written);
+            if (entry == NULL) {
+                decoder_warn("PLK2 chunk invalid (pool access)");
+                step_reset_pl_ref(step);
+                *cursor = payload + payload_len;
+                *remaining = left;
+                return PLK2_DECODE_INVALID;
+            }
+
+            entry->param_id = id;
+            entry->value = value;
+            entry->flags = flags;
+            ++written;
+        }
+
+        step->pl_ref.offset = offset;
+        step->pl_ref.count = kept;
+    }
+
+    *cursor = payload + payload_len;
+    *remaining = left;
+    return PLK2_DECODE_OK;
+}
+#else
+static void skip_plk2_chunk(const uint8_t **cursor, size_t *remaining) {
+    if ((cursor == NULL) || (remaining == NULL) || (*remaining < 4U)) {
+        return;
+    }
+
+    const uint8_t *chunk_start = *cursor;
+    if ((chunk_start[0] != 'P') || (chunk_start[1] != 'L') || (chunk_start[2] != 'K') || (chunk_start[3] != '2')) {
+        return;
+    }
+
+    size_t total_remaining = *remaining;
+    const uint8_t *ptr = chunk_start + 4U;
+    size_t left = total_remaining - 4U;
+
+    if (left < 1U) {
+        *cursor = chunk_start + total_remaining;
+        *remaining = 0U;
+        return;
+    }
+
+    const uint8_t count = *ptr++;
+    left -= 1U;
+    const size_t payload_len = (size_t)count * 3U;
+    if (payload_len > left) {
+        *cursor = chunk_start + total_remaining;
+        *remaining = 0U;
+        return;
+    }
+
+    left -= payload_len;
+    *cursor = ptr + payload_len;
+    *remaining = left;
+}
+#endif
 #if SEQ_FEATURE_PLOCK_POOL
 static bool encode_plk2_chunk(const seq_model_step_t *step,
                               uint8_t **cursor,
@@ -650,6 +815,11 @@ static bool decode_track_steps_v1(seq_model_track_t *track,
 #else
         (void)effective_plocks;
 #endif
+#if SEQ_FEATURE_PLOCK_POOL
+        (void)decode_plk2_chunk(step, &cursor, &remaining, policy);
+#else
+        skip_plk2_chunk(&cursor, &remaining);
+#endif
 
         if (policy == TRACK_LOAD_ABSENT) {
             for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
@@ -799,6 +969,11 @@ static bool decode_track_steps_v2(seq_model_track_t *track,
         step->plock_count = effective_plocks;
 #else
         (void)effective_plocks;
+#endif
+#if SEQ_FEATURE_PLOCK_POOL
+        (void)decode_plk2_chunk(step, &cursor, &remaining, policy);
+#else
+        skip_plk2_chunk(&cursor, &remaining);
 #endif
 
         if (policy == TRACK_LOAD_ABSENT) {
