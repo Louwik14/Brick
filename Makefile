@@ -28,6 +28,16 @@ USE_COPT += $(WARNINGS_FLAGS)
 # P1/MP5 — handles flipped ON globally for apps/** (deprecated APIs now error).
 CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
 
+.PHONY: fw-pooled fw-legacy
+
+fw-pooled:
+	$(MAKE) BUILD_MODE=firmware \
+		CFLAGS+='-DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=1'
+
+fw-legacy:
+	$(MAKE) BUILD_MODE=firmware \
+		CFLAGS+='-DSEQ_FEATURE_PLOCK_POOL=0 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=0'
+
 ARM_CC ?= arm-none-eabi-gcc
 HAVE_ARM := $(shell which $(ARM_CC) >/dev/null 2>&1 && echo 1 || echo 0)
 
