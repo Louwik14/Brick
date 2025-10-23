@@ -274,6 +274,13 @@ En lecture (P8c), le décodeur privilégie désormais `PLK2` lorsqu'il est prés
 
 Les cas d'entrée corrompue déclenchent un warning non bloquant (`stderr` côté host) et la navigation continue sur les steps suivants. L'écriture duale introduite en P8b reste inchangée : les projets plus anciens (sans `PLK2`) demeurent lisibles, tandis que les builds Reader-only profitent du pool dès que le chunk est disponible.
 
+### Activation par défaut (firmware F429)
+
+* Le pool packé est désormais la vérité côté firmware : `SEQ_FEATURE_PLOCK_POOL=1` et `SEQ_FEATURE_PLOCK_POOL_STORAGE=1` sont activés par défaut, le flux legacy par step est donc compilé-out.
+* La capacité est calculée à la construction (`SEQ_MAX_TRACKS * SEQ_STEPS_PER_TRACK * SEQ_MAX_PLOCKS_PER_STEP`) et bornée via un `_Static_assert` pour garantir des offsets 16-bit (≤ 65535).
+* Le rollback reste disponible : `make fw-legacy` force `SEQ_FEATURE_PLOCK_POOL{,_STORAGE}=0` pour rétablir la variante historique pendant la phase de surveillance.
+* Aucun symbole n'est poussé en `.ram4`/CCMRAM : le gain RAM provient exclusivement du packing 3 octets par entrée (param/value/flags) et du header `(offset,count)` par step.
+
 ## 8. Éléments obsolètes ou redondants
 
 * Archives et logs (`Brick4_labelstab_uistab_phase4.zip`, `drivers/drivers.zip`, `log.txt`, `tableaudebord.txt`) ne participent pas au build.

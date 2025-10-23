@@ -20,7 +20,7 @@
 #endif
 
 #ifndef SEQ_FEATURE_PLOCK_POOL
-#define SEQ_FEATURE_PLOCK_POOL 0
+#define SEQ_FEATURE_PLOCK_POOL 1
 #endif
 
 #ifndef SEQ_MODEL_ENABLE_DEBUG_COUNTER
@@ -32,9 +32,9 @@
 #endif
 
 #ifndef SEQ_STEPS_PER_TRACK
-#define SEQ_STEPS_PER_TRACK 64   /* 1024 plus tard */
+#define SEQ_STEPS_PER_TRACK 64   /* garder 64 pour le F429 */
 #endif
 
 #ifndef SEQ_MAX_PLOCKS_PER_STEP
-#define SEQ_MAX_PLOCKS_PER_STEP 32
+#define SEQ_MAX_PLOCKS_PER_STEP 20
 #endif
