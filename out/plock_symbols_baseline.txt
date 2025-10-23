@@ -1,0 +1,23 @@
+# Host snapshot — symbol sizes (make check-host)
+
+$ size build/host/seq_hold_runtime_tests
+text	   data	    bss	    dec	    hex	filename
+  63611	    888	 110808	 175307	  2accb	build/host/seq_hold_runtime_tests
+
+$ nm -S build/host/seq_hold_runtime_tests | egrep 'g_seq_runtime|g_hold_slots'
+0000000000012120 0000000000000e40 B g_hold_slots
+000000000000d628 0000000000000008 R g_hold_slots_size
+0000000000014360 0000000000018cc8 B g_seq_runtime
+0000000000012018 0000000000000008 d ui_ram_audit_entry_g_hold_slots
+0000000000012030 0000000000000008 d ui_ram_audit_entry_g_seq_runtime
+
+$ nm -S build/host/seq_runner_smoke_tests | egrep 's_plock_state|s_note_state|s_on_events|s_off_events'
+000000000000a160 0000000000000200 b s_note_state
+000000000000a360 00000000000000c0 b s_off_events
+000000000000a420 00000000000000c0 b s_on_events
+000000000000a040 0000000000000120 b s_plock_state
+
+# sizeof helper (host)
+sizeof(seq_model_plock_t)=8
+sizeof(seq_model_step_t)=222
+sizeof(seq_model_track_t)=14224
