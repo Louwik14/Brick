@@ -81,9 +81,9 @@ static void test_pool_iter(void) {
     uint16_t offset = 0U;
     assert(seq_plock_pool_alloc(3U, &offset) == 0);
 
-    seq_plock_entry_t *entry0 = (seq_plock_entry_t *)(uintptr_t)seq_plock_pool_get(offset, 0U);
-    seq_plock_entry_t *entry1 = (seq_plock_entry_t *)(uintptr_t)seq_plock_pool_get(offset, 1U);
-    seq_plock_entry_t *entry2 = (seq_plock_entry_t *)(uintptr_t)seq_plock_pool_get(offset, 2U);
+    seq_plock_entry_t *entry0 = seq_plock_pool_get(offset, 0U);
+    seq_plock_entry_t *entry1 = seq_plock_pool_get(offset, 1U);
+    seq_plock_entry_t *entry2 = seq_plock_pool_get(offset, 2U);
 
     entry0->param_id = 0x10U;
     entry0->value = 0xAAU;

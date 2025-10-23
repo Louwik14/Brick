@@ -8,6 +8,9 @@
 #include <string.h>
 
 #include "ch.h"
+#if SEQ_FEATURE_PLOCK_POOL
+#include "core/seq/seq_plock_ids.h"
+#endif
 
 #define MICRO_OFFSET_MIN   (-12)
 #define MICRO_OFFSET_MAX   (12)
@@ -34,6 +37,141 @@ static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *
                                                       systime_t end_time,
                                                       systime_t step_duration_snapshot);
 
+#if SEQ_FEATURE_PLOCK_POOL
+enum {
+    k_seq_live_pl_flag_domain_cart = 0x01U,
+    k_seq_live_pl_flag_signed = 0x02U,
+    k_seq_live_pl_flag_voice_shift = 2U,
+};
+
+static int16_t _seq_live_clamp_i16(int16_t value, int16_t min_value, int16_t max_value) {
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
+
+static uint8_t _seq_live_encode_internal_id(seq_model_plock_internal_param_t param, uint8_t voice) {
+    switch (param) {
+        case SEQ_MODEL_PLOCK_PARAM_NOTE:
+            return (uint8_t)(PL_INT_NOTE_V0 + (voice & 0x03U));
+        case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
+            return (uint8_t)(PL_INT_VEL_V0 + (voice & 0x03U));
+        case SEQ_MODEL_PLOCK_PARAM_LENGTH:
+            return (uint8_t)(PL_INT_LEN_V0 + (voice & 0x03U));
+        case SEQ_MODEL_PLOCK_PARAM_MICRO:
+            return (uint8_t)(PL_INT_MIC_V0 + (voice & 0x03U));
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
+            return PL_INT_ALL_TRANSP;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
+            return PL_INT_ALL_VEL;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
+            return PL_INT_ALL_LEN;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
+            return PL_INT_ALL_MIC;
+        default:
+            break;
+    }
+    return 0U;
+}
+
+static uint8_t _seq_live_encode_signed(int16_t value, uint8_t *flags) {
+    if (flags != NULL) {
+        *flags = (uint8_t)(*flags | k_seq_live_pl_flag_signed);
+    }
+    int16_t clamped = _seq_live_clamp_i16(value, -128, 127);
+    return pl_u8_from_s8((int8_t)clamped);
+}
+
+static uint8_t _seq_live_encode_unsigned(int16_t value, int16_t min_value, int16_t max_value) {
+    int16_t clamped = _seq_live_clamp_i16(value, min_value, max_value);
+    if (clamped < 0) {
+        clamped = 0;
+    }
+    return (uint8_t)(clamped & 0x00FF);
+}
+
+static void _seq_live_pack_plock(const seq_model_plock_t *plock,
+                                 uint8_t *out_id,
+                                 uint8_t *out_value,
+                                 uint8_t *out_flags) {
+    uint8_t id = 0U;
+    uint8_t value = 0U;
+    uint8_t flags = 0U;
+
+    if (plock != NULL) {
+        if (plock->domain == SEQ_MODEL_PLOCK_CART) {
+            id = (uint8_t)(plock->parameter_id & 0x00FFU);
+            value = _seq_live_encode_unsigned(plock->value, 0, 255);
+            flags = (uint8_t)(flags | k_seq_live_pl_flag_domain_cart);
+        } else {
+            id = _seq_live_encode_internal_id(plock->internal_param, plock->voice_index);
+            switch (plock->internal_param) {
+                case SEQ_MODEL_PLOCK_PARAM_NOTE:
+                    value = _seq_live_encode_unsigned(plock->value, 0, 127);
+                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
+                    break;
+                case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
+                    value = _seq_live_encode_unsigned(plock->value, 0, 127);
+                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
+                    break;
+                case SEQ_MODEL_PLOCK_PARAM_LENGTH:
+                    value = _seq_live_encode_unsigned(plock->value, 0, 255);
+                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
+                    break;
+                case SEQ_MODEL_PLOCK_PARAM_MICRO:
+                    value = _seq_live_encode_signed(plock->value, &flags);
+                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
+                    break;
+                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
+                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
+                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
+                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
+                    value = _seq_live_encode_signed(plock->value, &flags);
+                    break;
+                default:
+                    value = _seq_live_encode_unsigned(plock->value, 0, 255);
+                    break;
+            }
+        }
+    }
+
+    if (out_id != NULL) {
+        *out_id = id;
+    }
+    if (out_value != NULL) {
+        *out_value = value;
+    }
+    if (out_flags != NULL) {
+        *out_flags = flags;
+    }
+}
+
+static void _seq_live_commit_plock_pool(seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+
+    const uint8_t count = step->plock_count;
+    if (count == 0U) {
+        (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
+        return;
+    }
+
+    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+
+    for (uint8_t i = 0U; i < count; ++i) {
+        _seq_live_pack_plock(&step->plocks[i], &ids[i], &values[i], &flags[i]);
+    }
+
+    (void)seq_model_step_set_plocks_pooled(step, ids, values, flags, count);
+}
+#endif
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
     chDbgCheck(capture != NULL);
 
@@ -241,6 +379,9 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                                       slot,
                                                       length_steps);
 
+#if SEQ_FEATURE_PLOCK_POOL
+        _seq_live_commit_plock_pool(step);
+#endif
         capture->voices[slot].active = false;
         capture->voices[slot].note = 0U;
         capture->voices[slot].start_time_raw = 0U;
@@ -290,6 +431,9 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                                   slot,
                                                   voice.micro_offset);
 
+#if SEQ_FEATURE_PLOCK_POOL
+    _seq_live_commit_plock_pool(step);
+#endif
     capture->voices[slot].active = true;
     capture->voices[slot].step_index = plan->step_index;
     capture->voices[slot].start_time = plan->scheduled_time;

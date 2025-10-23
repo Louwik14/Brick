@@ -5,6 +5,10 @@
 
 #include "seq_model.h"
 
+#if SEQ_FEATURE_PLOCK_POOL
+#include "seq_plock_pool.h"
+#endif
+
 #include <string.h>
 
 static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets);
@@ -348,4 +352,56 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
 
     step->flags.active = has_voice;
     step->flags.automation = (!has_voice) && has_cart_plock && !has_seq_plock;
+}
+
+int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
+                                     const uint8_t *ids,
+                                     const uint8_t *vals,
+                                     const uint8_t *flags,
+                                     uint8_t n) {
+#if SEQ_FEATURE_PLOCK_POOL
+    if (step == NULL) {
+        return -1;
+    }
+
+    if (n == 0U) {
+        step->pl_ref.offset = 0U;
+        step->pl_ref.count = 0U;
+        return 0;
+    }
+
+    if ((ids == NULL) || (vals == NULL) || (flags == NULL)) {
+        return -1;
+    }
+
+    uint16_t offset = 0U;
+    if ((step->pl_ref.count == n) && (step->pl_ref.count > 0U)) {
+        offset = step->pl_ref.offset;
+    } else {
+        if (seq_plock_pool_alloc(n, &offset) != 0) {
+            return -1;
+        }
+    }
+
+    for (uint8_t i = 0U; i < n; ++i) {
+        seq_plock_entry_t *entry = seq_plock_pool_get(offset, i);
+        if (entry == NULL) {
+            return -1;
+        }
+        entry->param_id = ids[i];
+        entry->value = vals[i];
+        entry->flags = flags[i];
+    }
+
+    step->pl_ref.offset = offset;
+    step->pl_ref.count = n;
+    return 0;
+#else
+    (void)step;
+    (void)ids;
+    (void)vals;
+    (void)flags;
+    (void)n;
+    return -1;
+#endif
 }
