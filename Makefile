@@ -538,7 +538,7 @@ $(HOST_SEQ_LED_SNAPSHOT_TEST): tests/seq_led_snapshot_tests.c core/seq/seq_runti
 
 $(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
         core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
+	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
                 tests/seq_runner_smoke_tests.c apps/seq_engine_runner.c apps/midi_probe.c \
@@ -548,7 +548,7 @@ $(HOST_SEQ_RUNNER_SMOKE_TEST): tests/seq_runner_smoke_tests.c apps/seq_engine_ru
 
 $(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST): tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
         core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
+	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
                 tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
@@ -558,7 +558,7 @@ $(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST): tests/seq_runner_plock_router_tests.c apps
 
 $(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST): tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
         core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-        $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_plock_pool.c tests/stubs/ch.c tests/stubs/board_flash_stub.c \
+	$(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_plock_pool.c tests/stubs/ch.c tests/stubs/board_flash_stub.c \
         tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 \
