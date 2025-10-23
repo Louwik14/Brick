@@ -27,6 +27,7 @@ typedef struct {
 
 static seq_reader_plock_iter_state_t s_plock_iter_state;
 
+#if !SEQ_FEATURE_PLOCK_POOL
 static int16_t _clamp_i16(int16_t value, int16_t min_value, int16_t max_value) {
     if (value < min_value) {
         return min_value;
@@ -82,7 +83,6 @@ static uint8_t _encode_unsigned_value(int16_t value, int16_t min_value, int16_t 
     return (uint8_t)(clamped & 0x00FF);
 }
 
-#if !SEQ_FEATURE_PLOCK_POOL
 static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
                                           uint8_t *out_id,
                                           uint8_t *out_val,
@@ -371,57 +371,50 @@ int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     it->use_pool = 0U;
 
 #if SEQ_FEATURE_PLOCK_POOL
-    if (step->pl_ref.count > 0U) {
-        it->use_pool = 1U;
-        it->off = step->pl_ref.offset;
-        it->n = step->pl_ref.count;
-        return (it->n > 0U) ? 1 : 0;
+    if (step->pl_ref.count == 0U) {
+        return 0;
     }
-#endif
 
-#if !SEQ_FEATURE_PLOCK_POOL
-    it->n = step->plock_count;
+    it->use_pool = 1U;
+    it->off = step->pl_ref.offset;
+    it->n = step->pl_ref.count;
+    return 1;
 #else
-    it->n = 0U;
-#endif
+    it->use_pool = 0U;
+    it->n = step->plock_count;
     return (it->n > 0U) ? 1 : 0;
+#endif
 }
 
 int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags) {
+#if SEQ_FEATURE_PLOCK_POOL
+    if ((it == NULL) || (it->i >= it->n)) {
+        return 0;
+    }
+
+    const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
+    if (entry == NULL) {
+        return 0;
+    }
+    if (out_id != NULL) {
+        *out_id = entry->param_id;
+    }
+    if (out_val != NULL) {
+        *out_val = entry->value;
+    }
+    if (out_flags != NULL) {
+        *out_flags = entry->flags;
+    }
+    return 1;
+#else
     if ((it == NULL) || (it->step == NULL) || (it->i >= it->n)) {
         return 0;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
-    if (it->use_pool) {
-        const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i);
-        if (entry == NULL) {
-            return 0;
-        }
-        it->i++;
-        if (out_id != NULL) {
-            *out_id = entry->param_id;
-        }
-        if (out_val != NULL) {
-            *out_val = entry->value;
-        }
-        if (out_flags != NULL) {
-            *out_flags = entry->flags;
-        }
-        return 1;
-    }
-#endif
-
-#if !SEQ_FEATURE_PLOCK_POOL
     const seq_model_plock_t *plock = &it->step->plocks[it->i];
     it->i++;
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
-#else
-    (void)out_id;
-    (void)out_val;
-    (void)out_flags;
-    return 0;
 #endif
 }
 
