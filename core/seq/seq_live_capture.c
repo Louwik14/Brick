@@ -10,6 +10,7 @@
 #include "ch.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_ids.h"
+#include "core/seq/reader/seq_reader.h"
 #endif
 
 #define MICRO_OFFSET_MIN   (-12)
@@ -150,27 +151,164 @@ static void _seq_live_pack_plock(const seq_model_plock_t *plock,
     }
 }
 
-static void _seq_live_commit_plock_pool(seq_model_step_t *step) {
+#if SEQ_FEATURE_PLOCK_POOL
+typedef struct {
+    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t count;
+} seq_live_capture_plock_buffer_t;
+
+static bool s_seq_live_capture_plock_error = false;
+
+static void _seq_live_capture_plock_clear_error(void) {
+    s_seq_live_capture_plock_error = false;
+}
+
+static void _seq_live_capture_plock_flag_error(void) {
+    s_seq_live_capture_plock_error = true;
+}
+
+static bool _seq_live_capture_plock_has_error(void) {
+    return s_seq_live_capture_plock_error;
+}
+
+static void _seq_live_capture_collect_plocks(const seq_model_step_t *step,
+                                             seq_live_capture_plock_buffer_t *buffer) {
+    if (buffer == NULL) {
+        return;
+    }
+
+    buffer->count = 0U;
     if (step == NULL) {
         return;
     }
 
-    const uint8_t count = seq_model_step_legacy_pl_count(step);
-    if (count == 0U) {
-        (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
+    seq_reader_pl_it_t it;
+    if (seq_reader_pl_open(&it, step) <= 0) {
         return;
     }
 
-    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t id = 0U;
+    uint8_t value = 0U;
+    uint8_t flags = 0U;
+    while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
+           (buffer->count < SEQ_MODEL_MAX_PLOCKS_PER_STEP)) {
+        buffer->ids[buffer->count] = id;
+        buffer->values[buffer->count] = value;
+        buffer->flags[buffer->count] = flags;
+        buffer->count++;
+    }
+}
 
-    const seq_model_plock_t *legacy_plocks = seq_model_step_legacy_pl_storage_const(step);
-    for (uint8_t i = 0U; i < count; ++i) {
-        _seq_live_pack_plock(&legacy_plocks[i], &ids[i], &values[i], &flags[i]);
+static bool _seq_live_capture_buffer_upsert_internal(seq_model_step_t *step,
+                                                     seq_live_capture_plock_buffer_t *buffer,
+                                                     seq_model_plock_internal_param_t param,
+                                                     uint8_t voice,
+                                                     int32_t value) {
+    if ((step == NULL) || (buffer == NULL)) {
+        return false;
     }
 
-    (void)seq_model_step_set_plocks_pooled(step, ids, values, flags, count);
+    const uint8_t id = _seq_live_encode_internal_id(param, voice);
+    uint8_t encoded_flags = 0U;
+    uint8_t encoded_value = 0U;
+
+    switch (param) {
+        case SEQ_MODEL_PLOCK_PARAM_NOTE:
+            encoded_value = _seq_live_encode_unsigned((int16_t)value, 0, 127);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_live_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
+            encoded_value = _seq_live_encode_unsigned((int16_t)value, 0, 127);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_live_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_LENGTH:
+            encoded_value = _seq_live_encode_unsigned((int16_t)value, 0, 255);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_live_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_MICRO:
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_live_pl_flag_voice_shift);
+            encoded_value = _seq_live_encode_signed((int16_t)value, &encoded_flags);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
+            encoded_value = _seq_live_encode_signed((int16_t)value, &encoded_flags);
+            break;
+        default:
+            return false;
+    }
+
+    bool found = false;
+    bool mutated = false;
+    for (uint8_t i = 0U; i < buffer->count; ++i) {
+        if ((buffer->flags[i] & k_seq_live_pl_flag_domain_cart) != 0U) {
+            continue;
+        }
+        if (buffer->ids[i] != id) {
+            continue;
+        }
+        found = true;
+        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
+            buffer->values[i] = encoded_value;
+            buffer->flags[i] = encoded_flags;
+            mutated = true;
+        }
+        break;
+    }
+
+    if (!found) {
+        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+            _seq_live_capture_plock_flag_error();
+            return false;
+        }
+        buffer->ids[buffer->count] = id;
+        buffer->values[buffer->count] = encoded_value;
+        buffer->flags[buffer->count] = encoded_flags;
+        buffer->count++;
+        mutated = true;
+    }
+
+    if (!mutated) {
+        return false;
+    }
+
+    const int rc = seq_model_step_set_plocks_pooled(step,
+                                                     buffer->ids,
+                                                     buffer->values,
+                                                     buffer->flags,
+                                                     buffer->count);
+    if (rc < 0) {
+        _seq_live_capture_plock_flag_error();
+        return false;
+    }
+
+    return true;
+}
+#endif
+
+static bool _seq_live_commit_plock_pool(seq_model_step_t *step) {
+    if (step == NULL) {
+        return false;
+    }
+
+    seq_live_capture_plock_buffer_t buffer;
+    _seq_live_capture_collect_plocks(step, &buffer);
+
+    const uint8_t n = buffer.count;
+    const uint8_t *ids = (n > 0U) ? buffer.ids : NULL;
+    const uint8_t *values = (n > 0U) ? buffer.values : NULL;
+    const uint8_t *flags = (n > 0U) ? buffer.flags : NULL;
+
+    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
+    if (rc < 0) {
+        _seq_live_capture_plock_flag_error();
+        return false;
+    }
+
+    return true;
 }
 #endif
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
@@ -375,13 +513,27 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
             return false;
         }
 
+#if SEQ_FEATURE_PLOCK_POOL
+        seq_model_step_t snapshot = *step;
+        _seq_live_capture_plock_clear_error();
+#endif
+
         (void)_seq_live_capture_upsert_internal_plock(step,
                                                       SEQ_MODEL_PLOCK_PARAM_LENGTH,
                                                       slot,
                                                       length_steps);
 
 #if SEQ_FEATURE_PLOCK_POOL
-        _seq_live_commit_plock_pool(step);
+        if (_seq_live_capture_plock_has_error()) {
+            *step = snapshot;
+            _seq_live_capture_plock_clear_error();
+            return false;
+        }
+        if (!_seq_live_commit_plock_pool(step) && _seq_live_capture_plock_has_error()) {
+            *step = snapshot;
+            _seq_live_capture_plock_clear_error();
+            return false;
+        }
 #endif
         capture->voices[slot].active = false;
         capture->voices[slot].note = 0U;
@@ -422,6 +574,10 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         return false;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    seq_model_step_t snapshot = *step;
+    _seq_live_capture_plock_clear_error();
+#endif
     (void)_seq_live_capture_upsert_internal_plock(step, SEQ_MODEL_PLOCK_PARAM_NOTE, slot, voice.note);
     (void)_seq_live_capture_upsert_internal_plock(step,
                                                   SEQ_MODEL_PLOCK_PARAM_VELOCITY,
@@ -433,7 +589,16 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
                                                   voice.micro_offset);
 
 #if SEQ_FEATURE_PLOCK_POOL
-    _seq_live_commit_plock_pool(step);
+    if (_seq_live_capture_plock_has_error()) {
+        *step = snapshot;
+        _seq_live_capture_plock_clear_error();
+        return false;
+    }
+    if (!_seq_live_commit_plock_pool(step) && _seq_live_capture_plock_has_error()) {
+        *step = snapshot;
+        _seq_live_capture_plock_clear_error();
+        return false;
+    }
 #endif
     capture->voices[slot].active = true;
     capture->voices[slot].step_index = plan->step_index;
@@ -636,10 +801,9 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     }
 
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)param;
-    (void)voice;
-    (void)value;
-    return false;
+    seq_live_capture_plock_buffer_t buffer;
+    _seq_live_capture_collect_plocks(step, &buffer);
+    return _seq_live_capture_buffer_upsert_internal(step, &buffer, param, voice, value);
 #else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {

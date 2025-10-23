@@ -203,6 +203,8 @@ bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index);
 /** Retrieve a parameter lock by index. */
 bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out);
 
+uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
+
 static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
 #if SEQ_FEATURE_PLOCK_POOL
     return seq_model_step_plock_count(step);

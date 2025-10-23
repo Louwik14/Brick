@@ -89,6 +89,27 @@ enum {
     k_seq_led_bridge_pl_flag_voice_shift = 2U,
 };
 
+typedef struct {
+    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t count;
+} seq_led_bridge_plock_buffer_t;
+
+static bool s_seq_led_bridge_plock_error = false;
+
+static void _seq_led_bridge_plock_clear_error(void) {
+    s_seq_led_bridge_plock_error = false;
+}
+
+static void _seq_led_bridge_plock_flag_error(void) {
+    s_seq_led_bridge_plock_error = true;
+}
+
+static bool _seq_led_bridge_plock_has_error(void) {
+    return s_seq_led_bridge_plock_error;
+}
+
 static int16_t _clamp_i16_local(int16_t value, int16_t min_value, int16_t max_value) {
     if (value < min_value) {
         return min_value;
@@ -139,10 +160,273 @@ static uint8_t _encode_unsigned_value(int16_t value, int16_t min_value, int16_t 
     return (uint8_t)(clamped & 0x00FF);
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
+                                           seq_led_bridge_plock_buffer_t *buffer) {
+    if (buffer == NULL) {
+        return;
+    }
+
+    buffer->count = 0U;
+    if (step == NULL) {
+        return;
+    }
+
+    seq_reader_pl_it_t it;
+    if (seq_reader_pl_open(&it, step) <= 0) {
+        return;
+    }
+
+    uint8_t id = 0U;
+    uint8_t value = 0U;
+    uint8_t flags = 0U;
+    while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
+           (buffer->count < SEQ_MODEL_MAX_PLOCKS_PER_STEP)) {
+        buffer->ids[buffer->count] = id;
+        buffer->values[buffer->count] = value;
+        buffer->flags[buffer->count] = flags;
+        buffer->count++;
+    }
+}
+
+static bool _seq_led_bridge_buffer_upsert_internal(seq_model_step_t *step,
+                                                   seq_led_bridge_plock_buffer_t *buffer,
+                                                   seq_model_plock_internal_param_t param,
+                                                   uint8_t voice,
+                                                   int32_t value) {
+    if ((step == NULL) || (buffer == NULL)) {
+        return false;
+    }
+
+    const uint8_t id = _encode_internal_plock_id(param, voice);
+    uint8_t encoded_flags = 0U;
+    uint8_t encoded_value = 0U;
+
+    switch (param) {
+        case SEQ_MODEL_PLOCK_PARAM_NOTE:
+            encoded_value = _encode_unsigned_value((int16_t)value, 0, 127);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
+            encoded_value = _encode_unsigned_value((int16_t)value, 0, 127);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_LENGTH:
+            encoded_value = _encode_unsigned_value((int16_t)value, 0, 255);
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_MICRO:
+            encoded_flags = (uint8_t)((voice & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift);
+            encoded_value = _encode_signed_value((int16_t)value, &encoded_flags);
+            break;
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
+        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
+            encoded_value = _encode_signed_value((int16_t)value, &encoded_flags);
+            break;
+        default:
+            return false;
+    }
+
+    bool found = false;
+    bool mutated = false;
+    for (uint8_t i = 0U; i < buffer->count; ++i) {
+        if ((buffer->flags[i] & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+            continue;
+        }
+        if (buffer->ids[i] != id) {
+            continue;
+        }
+        found = true;
+        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
+            buffer->values[i] = encoded_value;
+            buffer->flags[i] = encoded_flags;
+            mutated = true;
+        }
+        break;
+    }
+
+    if (!found) {
+        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+            _seq_led_bridge_plock_flag_error();
+            return false;
+        }
+        buffer->ids[buffer->count] = id;
+        buffer->values[buffer->count] = encoded_value;
+        buffer->flags[buffer->count] = encoded_flags;
+        buffer->count++;
+        mutated = true;
+    }
+
+    if (!mutated) {
+        return false;
+    }
+
+    const int rc = seq_model_step_set_plocks_pooled(step,
+                                                     buffer->ids,
+                                                     buffer->values,
+                                                     buffer->flags,
+                                                     buffer->count);
+    if (rc < 0) {
+        _seq_led_bridge_plock_flag_error();
+        return false;
+    }
+
+    return true;
+}
+
+static bool _seq_led_bridge_buffer_upsert_cart(seq_model_step_t *step,
+                                               seq_led_bridge_plock_buffer_t *buffer,
+                                               uint16_t parameter_id,
+                                               uint8_t track,
+                                               int32_t value) {
+    if ((step == NULL) || (buffer == NULL)) {
+        return false;
+    }
+
+    const uint8_t id = (uint8_t)(parameter_id & 0x00FFU);
+    uint8_t encoded_flags = k_seq_led_bridge_pl_flag_domain_cart;
+    encoded_flags = (uint8_t)(encoded_flags |
+                               ((track & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift));
+    const uint8_t encoded_value = _encode_unsigned_value((int16_t)value, 0, 255);
+
+    bool found = false;
+    bool mutated = false;
+    for (uint8_t i = 0U; i < buffer->count; ++i) {
+        if ((buffer->flags[i] & k_seq_led_bridge_pl_flag_domain_cart) == 0U) {
+            continue;
+        }
+        if (buffer->ids[i] != id) {
+            continue;
+        }
+        found = true;
+        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
+            buffer->values[i] = encoded_value;
+            buffer->flags[i] = encoded_flags;
+            mutated = true;
+        }
+        break;
+    }
+
+    if (!found) {
+        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+            _seq_led_bridge_plock_flag_error();
+            return false;
+        }
+        buffer->ids[buffer->count] = id;
+        buffer->values[buffer->count] = encoded_value;
+        buffer->flags[buffer->count] = encoded_flags;
+        buffer->count++;
+        mutated = true;
+    }
+
+    if (!mutated) {
+        return false;
+    }
+
+    const int rc = seq_model_step_set_plocks_pooled(step,
+                                                     buffer->ids,
+                                                     buffer->values,
+                                                     buffer->flags,
+                                                     buffer->count);
+    if (rc < 0) {
+        _seq_led_bridge_plock_flag_error();
+        return false;
+    }
+
+    return true;
+}
+
+static bool _seq_led_bridge_decode_internal(uint8_t id,
+                                            uint8_t value,
+                                            uint8_t flags,
+                                            seq_model_plock_internal_param_t *out_param,
+                                            uint8_t *out_voice,
+                                            int32_t *out_value) {
+    if ((out_param == NULL) || (out_voice == NULL) || (out_value == NULL)) {
+        return false;
+    }
+
+    seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
+    uint8_t voice = 0U;
+    int32_t decoded = 0;
+
+    if ((id >= PL_INT_NOTE_V0) && (id <= PL_INT_NOTE_V3)) {
+        param = SEQ_MODEL_PLOCK_PARAM_NOTE;
+        voice = (uint8_t)(id - PL_INT_NOTE_V0);
+        decoded = value;
+    } else if ((id >= PL_INT_VEL_V0) && (id <= PL_INT_VEL_V3)) {
+        param = SEQ_MODEL_PLOCK_PARAM_VELOCITY;
+        voice = (uint8_t)(id - PL_INT_VEL_V0);
+        decoded = value;
+    } else if ((id >= PL_INT_LEN_V0) && (id <= PL_INT_LEN_V3)) {
+        param = SEQ_MODEL_PLOCK_PARAM_LENGTH;
+        voice = (uint8_t)(id - PL_INT_LEN_V0);
+        decoded = value;
+    } else if ((id >= PL_INT_MIC_V0) && (id <= PL_INT_MIC_V3)) {
+        param = SEQ_MODEL_PLOCK_PARAM_MICRO;
+        voice = (uint8_t)(id - PL_INT_MIC_V0);
+        decoded = pl_s8_from_u8(value);
+    } else {
+        switch (id) {
+            case PL_INT_ALL_TRANSP:
+                param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR;
+                decoded = pl_s8_from_u8(value);
+                break;
+            case PL_INT_ALL_VEL:
+                param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE;
+                decoded = pl_s8_from_u8(value);
+                break;
+            case PL_INT_ALL_LEN:
+                param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE;
+                decoded = pl_s8_from_u8(value);
+                break;
+            case PL_INT_ALL_MIC:
+                param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI;
+                decoded = pl_s8_from_u8(value);
+                break;
+            default:
+                return false;
+        }
+    }
+
+    (void)flags;
+    *out_param = param;
+    *out_voice = voice;
+    *out_value = decoded;
+    return true;
+}
+
+static bool _seq_led_bridge_decode_cart(uint8_t id,
+                                        uint8_t flags,
+                                        uint8_t stored_value,
+                                        uint16_t *out_param_id,
+                                        uint8_t *out_track,
+                                        uint8_t *out_value) {
+    if ((out_param_id == NULL) || (out_value == NULL) || (out_track == NULL)) {
+        return false;
+    }
+
+    uint16_t param_id = 0U;
+    if ((flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+        param_id = (uint16_t)id;
+    } else {
+        param_id = (uint16_t)pl_cart_id(id);
+    }
+
+    uint8_t track = (uint8_t)((flags >> k_seq_led_bridge_pl_flag_voice_shift) & 0x03U);
+    *out_param_id = param_id;
+    *out_track = track;
+    *out_value = stored_value;
+    return true;
+}
+#endif
+
 static void _pack_plock_entry(const seq_model_plock_t *plock,
-                              uint8_t *out_id,
-                              uint8_t *out_value,
-                              uint8_t *out_flags) {
+                               uint8_t *out_id,
+                               uint8_t *out_value,
+                               uint8_t *out_flags) {
     uint8_t id = 0U;
     uint8_t value = 0U;
     uint8_t flags = 0U;
@@ -200,23 +484,37 @@ static void _pack_plock_entry(const seq_model_plock_t *plock,
 }
 
 #if SEQ_FEATURE_PLOCK_POOL
-static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
+static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     if (step == NULL) {
-        return;
+        return false;
     }
 
-    (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
+    seq_led_bridge_plock_buffer_t buffer;
+    _seq_led_bridge_collect_plocks(step, &buffer);
+
+    const uint8_t n = buffer.count;
+    const uint8_t *ids = (n > 0U) ? buffer.ids : NULL;
+    const uint8_t *values = (n > 0U) ? buffer.values : NULL;
+    const uint8_t *flags = (n > 0U) ? buffer.flags : NULL;
+
+    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
+    if (rc < 0) {
+        _seq_led_bridge_plock_flag_error();
+        return false;
+    }
+
+    return true;
 }
 #else
-static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
+static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     if (step == NULL) {
-        return;
+        return false;
     }
 
     const uint8_t count = step->plock_count;
     if (count == 0U) {
         (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
-        return;
+        return true;
     }
 
     uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
@@ -228,6 +526,7 @@ static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     }
 
     (void)seq_model_step_set_plocks_pooled(step, ids, values, flags, count);
+    return true;
 }
 #endif
 #endif
@@ -482,7 +781,18 @@ static bool _hold_commit_slot(uint8_t local) {
     seq_model_track_t *track = _seq_led_bridge_track();
     if ((track != NULL) && mutated && _valid_step_index(slot->absolute_index)) {
 #if SEQ_FEATURE_PLOCK_POOL
-        _seq_led_bridge_commit_plock_pool(&slot->staged);
+        seq_model_step_t snapshot = slot->staged;
+        _seq_led_bridge_plock_clear_error();
+        if (!_seq_led_bridge_commit_plock_pool(&slot->staged) && _seq_led_bridge_plock_has_error()) {
+            slot->staged = snapshot;
+            slot->mutated = false;
+            _seq_led_bridge_plock_clear_error();
+            mutated = false;
+        }
+        if (!mutated) {
+            memset(slot, 0, sizeof(*slot));
+            return false;
+        }
 #endif
         track->steps[slot->absolute_index] = slot->staged;
         seq_model_step_recompute_flags(&track->steps[slot->absolute_index]);
@@ -714,6 +1024,31 @@ static void _hold_collect_step(const seq_model_step_t *step,
         plocked[pid] = true;
         values[pid] = plk->value;
     }
+#else
+    seq_reader_pl_it_t it;
+    if (seq_reader_pl_open(&it, step) > 0) {
+        uint8_t id = 0U;
+        uint8_t stored_value = 0U;
+        uint8_t flags = 0U;
+        while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
+            if ((flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+                continue;
+            }
+            seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
+            uint8_t voice = 0U;
+            int32_t decoded = 0;
+            if (!_seq_led_bridge_decode_internal(id, stored_value, flags, &param, &voice, &decoded)) {
+                continue;
+            }
+            const seq_hold_param_id_t pid = _hold_param_for_internal(param, voice);
+            if (pid >= SEQ_HOLD_PARAM_COUNT) {
+                continue;
+            }
+            present[pid] = true;
+            plocked[pid] = true;
+            values[pid] = decoded;
+        }
+    }
 #endif
 }
 
@@ -740,6 +1075,38 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
             entry->view.mixed = false;
         } else if (entry->view.value != plk->value) {
             entry->view.mixed = true;
+        }
+    }
+#else
+    seq_reader_pl_it_t it;
+    if (seq_reader_pl_open(&it, step) > 0) {
+        uint8_t id = 0U;
+        uint8_t stored_value = 0U;
+        uint8_t flags = 0U;
+        while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
+            if ((flags & k_seq_led_bridge_pl_flag_domain_cart) == 0U && !pl_is_cart(id)) {
+                continue;
+            }
+            uint16_t param_id = 0U;
+            uint8_t track = 0U;
+            uint8_t encoded_value = 0U;
+            if (!_seq_led_bridge_decode_cart(id, flags, stored_value, &param_id, &track, &encoded_value)) {
+                continue;
+            }
+            (void)track;
+            seq_led_bridge_hold_cart_entry_t *entry =
+                _hold_cart_entry_get(param_id, true);
+            if (entry == NULL) {
+                continue;
+            }
+            entry->match_count++;
+            if (!entry->view.available) {
+                entry->view.available = true;
+                entry->view.value = encoded_value;
+                entry->view.mixed = false;
+            } else if (entry->view.value != encoded_value) {
+                entry->view.mixed = true;
+            }
         }
     }
 #endif
@@ -881,10 +1248,9 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
         return false;
     }
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)param;
-    (void)voice;
-    (void)value;
-    return false;
+    seq_led_bridge_plock_buffer_t buffer;
+    _seq_led_bridge_collect_plocks(step, &buffer);
+    return _seq_led_bridge_buffer_upsert_internal(step, &buffer, param, voice, value);
 #else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
@@ -924,10 +1290,9 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
         return false;
     }
 #if SEQ_FEATURE_PLOCK_POOL
-    (void)parameter_id;
-    (void)track;
-    (void)value;
-    return false;
+    seq_led_bridge_plock_buffer_t buffer;
+    _seq_led_bridge_collect_plocks(step, &buffer);
+    return _seq_led_bridge_buffer_upsert_cart(step, &buffer, parameter_id, track, value);
 #else
 
     const int16_t casted = (int16_t)value;
@@ -1399,6 +1764,11 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             continue;
         }
 
+#if SEQ_FEATURE_PLOCK_POOL
+        seq_model_step_t snapshot = *step;
+        _seq_led_bridge_plock_clear_error();
+        const bool track_prev_mutated = mutated_track;
+#endif
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
         bool step_mutated = false;
@@ -1514,8 +1884,26 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 
         seq_model_step_recompute_flags(step);
 #if SEQ_FEATURE_PLOCK_POOL
+        if (_seq_led_bridge_plock_has_error()) {
+            if (slot != NULL) {
+                slot->staged = snapshot;
+                slot->mutated = false;
+            } else if (step != NULL) {
+                *step = snapshot;
+                mutated_track = track_prev_mutated;
+            }
+            _seq_led_bridge_plock_clear_error();
+            continue;
+        }
+#endif
+#if SEQ_FEATURE_PLOCK_POOL
         if (step_mutated && (slot == NULL)) {
-            _seq_led_bridge_commit_plock_pool(step);
+            if (!_seq_led_bridge_commit_plock_pool(step) && _seq_led_bridge_plock_has_error()) {
+                *step = snapshot;
+                mutated_track = track_prev_mutated;
+                _seq_led_bridge_plock_clear_error();
+                continue;
+            }
         }
 #endif
         if (step_mutated) {
@@ -1585,6 +1973,11 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
             continue;
         }
 
+#if SEQ_FEATURE_PLOCK_POOL
+        seq_model_step_t snapshot = *step;
+        _seq_led_bridge_plock_clear_error();
+        const bool track_prev_mutated = mutated_track;
+#endif
         const uint8_t track = _first_active_voice(step);
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
@@ -1608,8 +2001,24 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
 
         seq_model_step_recompute_flags(step);
 #if SEQ_FEATURE_PLOCK_POOL
+        if (_seq_led_bridge_plock_has_error()) {
+            if (slot != NULL) {
+                slot->staged = snapshot;
+                slot->mutated = false;
+            } else {
+                *step = snapshot;
+                mutated_track = track_prev_mutated;
+            }
+            _seq_led_bridge_plock_clear_error();
+            continue;
+        }
         if ((slot == NULL) && ((!had_voice && !had_plock) || cart_mutated)) {
-            _seq_led_bridge_commit_plock_pool(step);
+            if (!_seq_led_bridge_commit_plock_pool(step) && _seq_led_bridge_plock_has_error()) {
+                *step = snapshot;
+                mutated_track = track_prev_mutated;
+                _seq_led_bridge_plock_clear_error();
+                continue;
+            }
         }
 #endif
     }
