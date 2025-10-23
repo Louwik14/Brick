@@ -19,6 +19,7 @@ static void test_open_empty_step(void) {
 }
 
 static void test_legacy_iter(void) {
+#if !SEQ_FEATURE_PLOCK_POOL
     seq_model_step_t step;
     seq_model_step_init(&step);
 
@@ -72,6 +73,9 @@ static void test_legacy_iter(void) {
     assert(flags == 0x01U);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flags) == 0);
+#else
+    (void)seq_model_step_add_plock;
+#endif
 }
 
 #if SEQ_FEATURE_PLOCK_POOL
@@ -124,7 +128,9 @@ static void test_pool_iter(void) {
 
 int main(void) {
     test_open_empty_step();
+#if !SEQ_FEATURE_PLOCK_POOL
     test_legacy_iter();
+#endif
 #if SEQ_FEATURE_PLOCK_POOL
     test_pool_iter();
 #endif

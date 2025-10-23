@@ -317,6 +317,7 @@ static void test_live_capture_records_length(void) {
     assert(voice->length > 1U);
 
     bool has_length_plock = false;
+#if !SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
@@ -326,6 +327,7 @@ static void test_live_capture_records_length(void) {
             assert(plk->value == (int16_t)voice->length);
         }
     }
+#endif
     assert(has_length_plock);
 }
 

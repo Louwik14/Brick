@@ -82,6 +82,7 @@ static uint8_t _encode_unsigned_value(int16_t value, int16_t min_value, int16_t 
     return (uint8_t)(clamped & 0x00FF);
 }
 
+#if !SEQ_FEATURE_PLOCK_POOL
 static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
                                           uint8_t *out_id,
                                           uint8_t *out_val,
@@ -148,6 +149,7 @@ static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
         *out_flags = flags;
     }
 }
+#endif
 
 static const seq_model_track_t *_resolve_legacy_track(seq_track_handle_t handle) {
     if ((handle.bank >= SEQ_PROJECT_BANK_COUNT) ||
@@ -321,8 +323,14 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
     }
 
     const seq_model_step_t *legacy_step = &track->steps[step];
+#if !SEQ_FEATURE_PLOCK_POOL
     s_plock_iter_state.plocks = legacy_step->plocks;
     s_plock_iter_state.count = legacy_step->plock_count;
+#else
+    (void)legacy_step;
+    s_plock_iter_state.plocks = NULL;
+    s_plock_iter_state.count = 0U;
+#endif
     s_plock_iter_state.index = 0U;
     it->_opaque = &s_plock_iter_state;
     return true;
@@ -371,7 +379,11 @@ int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     }
 #endif
 
+#if !SEQ_FEATURE_PLOCK_POOL
     it->n = step->plock_count;
+#else
+    it->n = 0U;
+#endif
     return (it->n > 0U) ? 1 : 0;
 }
 
@@ -400,10 +412,17 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     }
 #endif
 
+#if !SEQ_FEATURE_PLOCK_POOL
     const seq_model_plock_t *plock = &it->step->plocks[it->i];
     it->i++;
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
+#else
+    (void)out_id;
+    (void)out_val;
+    (void)out_flags;
+    return 0;
+#endif
 }
 
 const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {

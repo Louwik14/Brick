@@ -29,7 +29,9 @@ static void test_default_step_initialisation(void) {
     size_t i;
 
     seq_model_step_init(&step);
+#if !SEQ_FEATURE_PLOCK_POOL
     assert(step.plock_count == 0U);
+#endif
     assert(!seq_model_step_has_playable_voice(&step));
     assert(!seq_model_step_is_automation_only(&step));
 
@@ -134,7 +136,9 @@ static void test_plock_capacity_guard(void) {
         assert(seq_model_step_add_plock(&step, &plock));
     }
 
+#if !SEQ_FEATURE_PLOCK_POOL
     assert(step.plock_count == SEQ_MODEL_MAX_PLOCKS_PER_STEP);
+#endif
 
     /* The next addition should be rejected because the buffer is full. */
     assert(!seq_model_step_add_plock(&step, &plock));

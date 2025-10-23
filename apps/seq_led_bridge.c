@@ -199,6 +199,15 @@ static void _pack_plock_entry(const seq_model_plock_t *plock,
     }
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
+    if (step == NULL) {
+        return;
+    }
+
+    (void)seq_model_step_set_plocks_pooled(step, NULL, NULL, NULL, 0U);
+}
+#else
 static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     if (step == NULL) {
         return;
@@ -220,6 +229,7 @@ static void _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
 
     (void)seq_model_step_set_plocks_pooled(step, ids, values, flags, count);
 }
+#endif
 #endif
 
 static void _cache_reset(void) {
@@ -401,6 +411,8 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
         return fallback;
     }
 
+    (void)voice;
+#if !SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
@@ -415,6 +427,7 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
             return (uint8_t)value;
         }
     }
+#endif
 
     return fallback;
 }
@@ -683,6 +696,7 @@ static void _hold_collect_step(const seq_model_step_t *step,
         values[base + 3U] = v->micro_offset;
     }
 
+#if !SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if (plk->domain != SEQ_MODEL_PLOCK_INTERNAL) {
@@ -700,6 +714,7 @@ static void _hold_collect_step(const seq_model_step_t *step,
         plocked[pid] = true;
         values[pid] = plk->value;
     }
+#endif
 }
 
 static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
@@ -707,6 +722,7 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
         return;
     }
 
+#if !SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if (plk->domain != SEQ_MODEL_PLOCK_CART) {
@@ -726,6 +742,7 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
             entry->view.mixed = true;
         }
     }
+#endif
 }
 
 static void _hold_update(uint16_t mask) {
@@ -863,6 +880,12 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
     if (step == NULL) {
         return false;
     }
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)param;
+    (void)voice;
+    (void)value;
+    return false;
+#else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         seq_model_plock_t *plk = &step->plocks[i];
@@ -890,6 +913,7 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
     };
 
     return seq_model_step_add_plock(step, &plock);
+#endif
 }
 
 static bool _ensure_cart_plock_value(seq_model_step_t *step,
@@ -899,6 +923,12 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
     if (step == NULL) {
         return false;
     }
+#if SEQ_FEATURE_PLOCK_POOL
+    (void)parameter_id;
+    (void)track;
+    (void)value;
+    return false;
+#else
 
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
@@ -925,6 +955,7 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
     };
 
     return seq_model_step_add_plock(step, &plock);
+#endif
 }
 
 static void _update_preview_mask(void) {
@@ -1231,10 +1262,13 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
             seq_model_step_make_automation_only(step);
             mutated = true;
         }
-    } else if (step->plock_count > 0U) {
+    }
+#if !SEQ_FEATURE_PLOCK_POOL
+    else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
     }
+#endif
 
     if (mutated) {
         seq_model_step_recompute_flags(step);
@@ -1286,10 +1320,13 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
             seq_model_step_make_automation_only(step);
             mutated = true;
         }
-    } else if (step->plock_count > 0U) {
+    }
+#if !SEQ_FEATURE_PLOCK_POOL
+    else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
     }
+#endif
 
     if (mutated) {
         seq_model_step_recompute_flags(step);
