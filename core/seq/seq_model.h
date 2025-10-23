@@ -10,6 +10,15 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#include "seq_config.h"
+
+#if SEQ_FEATURE_PLOCK_POOL
+typedef struct {
+    uint16_t offset;
+    uint8_t count;
+} seq_step_plock_ref_t;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -115,6 +124,9 @@ typedef struct {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
     seq_model_plock_t plocks[SEQ_MODEL_MAX_PLOCKS_PER_STEP]; /**< Parameter locks. */
     uint8_t plock_count; /**< Number of active parameter locks. */
+#if SEQ_FEATURE_PLOCK_POOL
+    seq_step_plock_ref_t pl_ref;  /**< Reference into the packed p-lock pool. */
+#endif
     seq_model_step_offsets_t offsets; /**< Per-step offsets. */
     seq_model_step_flags_t flags; /**< Cached step flags (playable / automation). */
 } seq_model_step_t;
@@ -206,6 +218,16 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step);
 bool seq_model_step_has_cart_plock(const seq_model_step_t *step);
 /** Recompute cached flags after mutating voices or parameter locks. */
 void seq_model_step_recompute_flags(seq_model_step_t *step);
+
+#if SEQ_FEATURE_PLOCK_POOL
+static inline uint8_t seq_model_step_pl_count_poolref(const seq_model_step_t *step) {
+    return (step != NULL) ? step->pl_ref.count : 0U;
+}
+
+static inline uint16_t seq_model_step_pl_offset_poolref(const seq_model_step_t *step) {
+    return (step != NULL) ? step->pl_ref.offset : 0U;
+}
+#endif
 
 /** Flash-resident template used to initialise neutral sequencer steps. */
 extern const seq_model_step_t k_seq_model_step_default;
