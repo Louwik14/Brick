@@ -319,13 +319,14 @@ HOST_SEQ_16TRACKS_STRESS_TEST := $(HOST_TEST_DIR)/seq_16tracks_stress_tests
 HOST_SEQ_16TRACKS_SOAK_TEST := $(HOST_TEST_DIR)/seq_soak_16tracks_tests
 HOST_SEQ_RT_REPORT := $(HOST_TEST_DIR)/seq_rt_report
 HOST_SEQ_PLOCK_IDS_TEST := $(HOST_TEST_DIR)/seq_plock_ids_tests
+HOST_SEQ_PLOCK_POOL_TEST := $(HOST_TEST_DIR)/seq_plock_pool_tests
 
 CHECK_HOST_TARGETS := $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_PLOCK_IDS_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) \
     $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
     $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
     $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
     $(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
-    $(HOST_SEQ_RUNNER_SMOKE_TEST) $(HOST_SEQ_16TRACKS_STRESS_TEST)
+    $(HOST_SEQ_RUNNER_SMOKE_TEST) $(HOST_SEQ_16TRACKS_STRESS_TEST) $(HOST_SEQ_PLOCK_POOL_TEST)
 
 ifeq ($(SKIP_SOAK),1)
 RUN_SOAK_TEST :=
@@ -359,6 +360,8 @@ check-host: $(CHECK_HOST_TARGETS)
 	$(HOST_SEQ_MODEL_TEST)
 	@echo "Running P-lock ID helper tests"
 	$(HOST_SEQ_PLOCK_IDS_TEST)
+	@echo "Running P-lock pool tests"
+	$(HOST_SEQ_PLOCK_POOL_TEST)
 	@echo "Running host hold/runtime bridge tests"
 	$(HOST_SEQ_HOLD_TEST)
 	@echo "Running host UI mode tests"
@@ -412,10 +415,14 @@ $(HOST_SEQ_PLOCK_IDS_TEST): tests/seq_plock_ids_tests.c core/seq/seq_plock_ids.h
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. tests/seq_plock_ids_tests.c -o $@
 
+$(HOST_SEQ_PLOCK_POOL_TEST): tests/seq_plock_pool_tests.c core/seq/seq_plock_pool.c core/seq/seq_plock_pool.h
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_PLOCK_POOL_CAPACITY_TEST=2048 -I. tests/seq_plock_pool_tests.c core/seq/seq_plock_pool.c -o $@
+
 $(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iui -Iapps -Imidi -Icore -Icart -Iboard -I. \
-	tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c \
+        tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c \
 	apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c -o $@
 
 $(HOST_UI_MODE_TEST): tests/ui_mode_transition_tests.c ui/ui_shortcuts.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_seq_stub.c tests/stubs/ui_mute_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
