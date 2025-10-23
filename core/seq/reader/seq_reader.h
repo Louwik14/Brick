@@ -39,8 +39,16 @@ typedef struct {
   uint8_t use_pool;
 } seq_reader_pl_it_t;
 
+enum {
+  SEQ_READER_PL_FLAG_DOMAIN_CART = 0x01U,
+  SEQ_READER_PL_FLAG_SIGNED      = 0x02U,
+  SEQ_READER_PL_FLAG_VOICE_SHIFT = 2U,
+  SEQ_READER_PL_FLAG_VOICE_MASK  = 0x0CU,
+};
+
 int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step);
 int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags);
+const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step);
 
 #ifdef __cplusplus
 }
