@@ -27,6 +27,21 @@ static inline seq_track_handle_t seq_reader_make_handle(uint8_t bank, uint8_t pa
     return h;
 }
 
+// --- P-Lock iteration (hybrid: legacy or pool) ------------------------------
+struct seq_model_step_t;
+typedef struct seq_model_step_t seq_model_step_t;
+
+typedef struct {
+  const seq_model_step_t *step;
+  uint16_t off;
+  uint8_t i;
+  uint8_t n;
+  uint8_t use_pool;
+} seq_reader_pl_it_t;
+
+int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step);
+int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags);
+
 #ifdef __cplusplus
 }
 #endif

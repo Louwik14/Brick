@@ -320,9 +320,10 @@ HOST_SEQ_16TRACKS_SOAK_TEST := $(HOST_TEST_DIR)/seq_soak_16tracks_tests
 HOST_SEQ_RT_REPORT := $(HOST_TEST_DIR)/seq_rt_report
 HOST_SEQ_PLOCK_IDS_TEST := $(HOST_TEST_DIR)/seq_plock_ids_tests
 HOST_SEQ_PLOCK_POOL_TEST := $(HOST_TEST_DIR)/seq_plock_pool_tests
+HOST_SEQ_READER_PLOCK_ITER_TEST := $(HOST_TEST_DIR)/seq_reader_pl_iter_tests
 
 CHECK_HOST_TARGETS := $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_PLOCK_IDS_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) \
-    $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
+    $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_READER_PLOCK_ITER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
     $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
     $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
     $(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
@@ -374,6 +375,8 @@ check-host: $(CHECK_HOST_TARGETS)
 	$(HOST_SEQ_TRACK_CODEC_TEST)
 	@echo "Running reader facade tests"
 	$(HOST_SEQ_READER_TEST)
+	@echo "Running reader p-lock iterator tests"
+	$(HOST_SEQ_READER_PLOCK_ITER_TEST)
 	@echo "Running runtime layout tests"
 	$(HOST_SEQ_RUNTIME_LAYOUT_TEST)
 	@echo "Running runtime cold view tests"
@@ -461,6 +464,12 @@ $(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/seq_model.c core/seq/
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -I. -Icore -Icart -Iboard \
 	tests/seq_reader_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) -o $@
+
+
+$(HOST_SEQ_READER_PLOCK_ITER_TEST): tests/seq_reader_pl_iter_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c core/seq/seq_plock_pool.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 -Itests/stubs -I. -Icore -Icart -Iboard \
+	tests/seq_reader_pl_iter_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c core/seq/seq_plock_pool.c -o $@
 
 $(HOST_SEQ_RUNTIME_LAYOUT_TEST): tests/seq_runtime_layout_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
