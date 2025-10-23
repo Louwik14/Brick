@@ -17,9 +17,6 @@
 enum {
     k_seq_reader_plock_internal_flag = 0x8000U,
     k_seq_reader_plock_internal_voice_shift = 8U,
-    k_seq_reader_pl_flag_domain_cart = 0x01U,
-    k_seq_reader_pl_flag_signed = 0x02U,
-    k_seq_reader_pl_flag_voice_shift = 2U,
 };
 
 typedef struct {
@@ -71,7 +68,7 @@ static uint8_t _legacy_encode_internal_id(const seq_model_plock_t *plock) {
 
 static uint8_t _encode_signed_value(int16_t value, uint8_t *flags) {
     if (flags != NULL) {
-        *flags = (uint8_t)(*flags | k_seq_reader_pl_flag_signed);
+        *flags = (uint8_t)(*flags | SEQ_READER_PL_FLAG_SIGNED);
     }
     int16_t clamped = _clamp_i16(value, -128, 127);
     return pl_u8_from_s8((int8_t)clamped);
@@ -109,25 +106,25 @@ static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
     if (plock->domain == SEQ_MODEL_PLOCK_CART) {
         id = (uint8_t)(plock->parameter_id & 0x00FFU);
         value = _encode_unsigned_value(plock->value, 0, 255);
-        flags |= k_seq_reader_pl_flag_domain_cart;
+        flags |= SEQ_READER_PL_FLAG_DOMAIN_CART;
     } else {
         id = _legacy_encode_internal_id(plock);
         switch (plock->internal_param) {
             case SEQ_MODEL_PLOCK_PARAM_NOTE:
                 value = _encode_unsigned_value(plock->value, 0, 127);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_reader_pl_flag_voice_shift));
+                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
                 break;
             case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
                 value = _encode_unsigned_value(plock->value, 0, 127);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_reader_pl_flag_voice_shift));
+                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
                 break;
             case SEQ_MODEL_PLOCK_PARAM_LENGTH:
                 value = _encode_unsigned_value(plock->value, 0, 255);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_reader_pl_flag_voice_shift));
+                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
                 break;
             case SEQ_MODEL_PLOCK_PARAM_MICRO:
                 value = _encode_signed_value(plock->value, &flags);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_reader_pl_flag_voice_shift));
+                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
                 break;
             case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
             case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
@@ -407,6 +404,14 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     it->i++;
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
+}
+
+const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {
+    const seq_model_track_t *track = _resolve_legacy_track(h);
+    if ((track == NULL) || (step >= SEQ_MODEL_STEPS_PER_TRACK)) {
+        return NULL;
+    }
+    return &track->steps[step];
 }
 
 seq_track_handle_t seq_reader_get_active_track_handle(void) {
