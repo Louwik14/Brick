@@ -255,6 +255,16 @@ SEQ
 * **Cartouches supplémentaires** : enregistrer une nouvelle spec via `cart_registry_register()` et fournir les mappings `ui_spec`/`cart_link`.
 * **Tests runtime** : `tests/seq_hold_runtime_tests.c` montre comment instrumenter `seq_led_bridge_apply_plock_param()` et `seq_live_capture_commit_plan()` sans RTOS.
 
+### Sérialisation des tracks (pattern save)
+
+La sérialisation de piste conserve le flux legacy (en-tête de step, voix, offsets) utilisé depuis P7. Lorsque `SEQ_FEATURE_PLOCK_POOL==1`, chaque step effectivement persisté ajoute un chunk optionnel `PLK2` immédiatement après les données legacy.
+
+* **Tag** : quatre octets ASCII `"PLK2"`.
+* **Compteur** : un octet `count` (0..255). Si `count==0`, aucun chunk n'est émis pour le step.
+* **Payload** : `count × 3` octets, séquence `{param_id, value, flags}` pour chaque entrée, dans l'ordre du pool (identique à l'itérateur Reader).
+
+Les valeurs stockées sont déjà compactées en `uint8_t` (`pl_u8_from_s8()` appliqué à l'entrée dans le pool). La lecture reste strictement legacy sur cette passe (support `PLK2` côté loader prévu en P8c), garantissant la compatibilité avec les sauvegardes existantes. L'API host `seq_codec_write_track_with_plk2()` retourne le nombre d'octets écrits ou `-1` en cas de buffer insuffisant et permet de désactiver l'émission du chunk (`enable_plk2=0`) pour les tests de régression.
+
 ## 8. Éléments obsolètes ou redondants
 
 * Archives et logs (`Brick4_labelstab_uistab_phase4.zip`, `drivers/drivers.zip`, `log.txt`, `tableaudebord.txt`) ne participent pas au build.
