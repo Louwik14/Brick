@@ -219,6 +219,12 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step);
 /** Recompute cached flags after mutating voices or parameter locks. */
 void seq_model_step_recompute_flags(seq_model_step_t *step);
 
+int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
+                                     const uint8_t *ids,
+                                     const uint8_t *vals,
+                                     const uint8_t *flags,
+                                     uint8_t n);
+
 #if SEQ_FEATURE_PLOCK_POOL
 static inline uint8_t seq_model_step_pl_count_poolref(const seq_model_step_t *step) {
     return (step != NULL) ? step->pl_ref.count : 0U;

@@ -39,7 +39,7 @@ int seq_plock_pool_alloc(uint16_t count, uint16_t *out_offset) {
   return 0;
 }
 
-const seq_plock_entry_t *seq_plock_pool_get(uint16_t offset, uint16_t i) {
+seq_plock_entry_t *seq_plock_pool_get(uint16_t offset, uint16_t i) {
   uint32_t idx = (uint32_t)offset + (uint32_t)i;
   assert(idx < seq_plock_pool_capacity());
   return &s_pool[idx];
@@ -59,10 +59,10 @@ int seq_plock_pool_alloc(uint16_t count, uint16_t *out_offset) {
   return -1;
 }
 
-const seq_plock_entry_t *seq_plock_pool_get(uint16_t offset, uint16_t i) {
+seq_plock_entry_t *seq_plock_pool_get(uint16_t offset, uint16_t i) {
   (void)offset;
   (void)i;
-  return (const seq_plock_entry_t *)0;
+  return (seq_plock_entry_t *)0;
 }
 
 #endif
