@@ -13,6 +13,8 @@
 #include "core/seq/seq_plock_ids.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
+#pragma GCC poison plocks
+#pragma GCC poison plock_count
 #endif
 
 enum {
@@ -22,7 +24,7 @@ enum {
 
 #if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
-    uint16_t off;
+    uint16_t base;
     uint8_t count;
     uint8_t i;
 } seq_reader_plock_iter_state_t;
@@ -414,7 +416,7 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
         it->_opaque = NULL;
         return false;
     }
-    s_plock_iter_state.off = step_model->pl_ref.offset;
+    s_plock_iter_state.base = step_model->pl_ref.offset;
     s_plock_iter_state.count = step_model->pl_ref.count;
     if (s_plock_iter_state.count == 0U) {
         it->_opaque = NULL;
@@ -435,7 +437,9 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
         return false;
     }
 
-    const seq_plock_entry_t *entry = seq_plock_pool_get(state->off, state->i++);
+    const uint16_t absolute = (uint16_t)(state->base + state->i);
+    const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+    state->i++;
     if (entry == NULL) {
         return false;
     }
@@ -514,7 +518,9 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
         return 0;
     }
 
-    const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
+    const uint16_t absolute = (uint16_t)(it->off + it->i);
+    const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+    it->i++;
     if (entry == NULL) {
         return 0;
     }
