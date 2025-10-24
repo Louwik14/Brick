@@ -832,7 +832,10 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
         .internal_param = param,
     };
 
-    return seq_model_step_add_plock(step, &plock);
+    seq_model_plock_t *slot = &step->plocks[step->plock_count];
+    *slot = plock;
+    step->plock_count++;
+    return true;
 }
 
 #endif /* SEQ_FEATURE_PLOCK_POOL */

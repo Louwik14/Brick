@@ -205,15 +205,6 @@ bool seq_model_step_set_voice(seq_model_step_t *step, size_t voice_index, const 
 /** Remove all parameter locks from a step. */
 void seq_model_step_clear_plocks(seq_model_step_t *step);
 #if !SEQ_FEATURE_PLOCK_POOL
-/** Append a parameter lock to a step. */
-bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *plock);
-/** Remove a parameter lock at the provided index. */
-bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index);
-/** Retrieve a parameter lock by index. */
-bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out);
-/** Return the number of parameter locks attached to a step. */
-uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
-
 static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
     return (step != NULL) ? step->plock_count : 0U;
 }
