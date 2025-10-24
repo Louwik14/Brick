@@ -32,13 +32,13 @@ typedef struct {
     uint8_t value;
     uint8_t flags;
 } seq_reader_plock_item_t;
-#else
+#else  // !SEQ_FEATURE_PLOCK_POOL
 typedef struct {
     const seq_model_plock_t *plocks;
     uint8_t count;
     uint8_t index;
 } seq_reader_plock_iter_state_t;
-#endif
+#endif  /* SEQ_FEATURE_PLOCK_POOL */
 
 static seq_reader_plock_iter_state_t s_plock_iter_state;
 
@@ -119,7 +119,7 @@ static inline void reader_pack_from_pool(const seq_plock_entry_t *entry,
     out->flags = entry->flags;
 }
 
-#else
+#else  // !SEQ_FEATURE_PLOCK_POOL
 static int16_t _clamp_i16(int16_t value, int16_t min_value, int16_t max_value) {
     if (value < min_value) {
         return min_value;
@@ -255,7 +255,7 @@ static uint16_t _encode_plock_id(const seq_model_plock_t *plock) {
     const uint16_t param = (uint16_t)plock->internal_param & 0x00FFU;
     return (uint16_t)(k_seq_reader_plock_internal_flag | voice | param);
 }
-#endif
+#endif  /* SEQ_FEATURE_PLOCK_POOL */
 
 static const seq_model_track_t *_resolve_legacy_track(seq_track_handle_t handle) {
     if ((handle.bank >= SEQ_PROJECT_BANK_COUNT) ||
@@ -409,13 +409,11 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
         return false;
     }
 
-    const seq_model_track_t *track = _resolve_legacy_track(h);
-    if ((track == NULL) || (step >= SEQ_MODEL_STEPS_PER_TRACK)) {
+    const seq_model_step_t *step_model = seq_reader_peek_step(h, step);
+    if (step_model == NULL) {
         it->_opaque = NULL;
         return false;
     }
-
-    const seq_model_step_t *step_model = &track->steps[step];
     s_plock_iter_state.off = step_model->pl_ref.offset;
     s_plock_iter_state.count = step_model->pl_ref.count;
     if (s_plock_iter_state.count == 0U) {
@@ -453,7 +451,7 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
     }
     return true;
 }
-#else
+#else  // !SEQ_FEATURE_PLOCK_POOL
 bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
     if (it == NULL) {
         return false;
@@ -495,7 +493,7 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
 
     return true;
 }
-#endif
+#endif  /* SEQ_FEATURE_PLOCK_POOL */
 
 #if SEQ_FEATURE_PLOCK_POOL
 int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
@@ -535,7 +533,7 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     }
     return 1;
 }
-#else
+#else  // !SEQ_FEATURE_PLOCK_POOL
 int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     if ((it == NULL) || (step == NULL)) {
         return 0;
@@ -564,7 +562,7 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
 }
-#endif
+#endif  /* SEQ_FEATURE_PLOCK_POOL */
 
 const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {
     const seq_model_track_t *track = _resolve_legacy_track(h);
