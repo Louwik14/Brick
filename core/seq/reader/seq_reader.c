@@ -1,3 +1,4 @@
+#include "core/seq/seq_config.h"       // IMPORTANT: en premier
 #include "core/seq/reader/seq_reader.h"
 #include <stddef.h>
 #include <stdbool.h>
@@ -21,6 +22,10 @@ enum {
 
 typedef struct {
     const seq_model_plock_t *plocks;
+#if SEQ_FEATURE_PLOCK_POOL
+    uint16_t pool_offset;
+    uint8_t use_pool;
+#endif
     uint8_t count;
     uint8_t index;
 } seq_reader_plock_iter_state_t;
@@ -323,13 +328,17 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
     }
 
     const seq_model_step_t *legacy_step = &track->steps[step];
-#if !SEQ_FEATURE_PLOCK_POOL
     s_plock_iter_state.plocks = legacy_step->plocks;
     s_plock_iter_state.count = legacy_step->plock_count;
-#else
-    (void)legacy_step;
-    s_plock_iter_state.plocks = NULL;
-    s_plock_iter_state.count = 0U;
+#if SEQ_FEATURE_PLOCK_POOL
+    s_plock_iter_state.use_pool = 0U;
+    s_plock_iter_state.pool_offset = 0U;
+    if (legacy_step->pl_ref.count > 0U) {
+        s_plock_iter_state.plocks = NULL;
+        s_plock_iter_state.count = legacy_step->pl_ref.count;
+        s_plock_iter_state.use_pool = 1U;
+        s_plock_iter_state.pool_offset = legacy_step->pl_ref.offset;
+    }
 #endif
     s_plock_iter_state.index = 0U;
     it->_opaque = &s_plock_iter_state;
@@ -342,9 +351,35 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
     }
 
     seq_reader_plock_iter_state_t *state = (seq_reader_plock_iter_state_t *)it->_opaque;
+#if SEQ_FEATURE_PLOCK_POOL
+    if ((state->index >= state->count)) {
+        return false;
+    }
+    if (state->use_pool != 0U) {
+        const seq_plock_entry_t *entry = seq_plock_pool_get(state->pool_offset, state->index);
+        if (entry == NULL) {
+            return false;
+        }
+        state->index++;
+        if (param_id != NULL) {
+            *param_id = entry->param_id;
+        }
+        if (value != NULL) {
+            *value = (int32_t)entry->value;
+        }
+        return true;
+    }
+#else
     if ((state->plocks == NULL) || (state->index >= state->count)) {
         return false;
     }
+#endif
+
+#if SEQ_FEATURE_PLOCK_POOL
+    if ((state->plocks == NULL) || (state->index >= state->count)) {
+        return false;
+    }
+#endif
 
     const seq_model_plock_t *plock = &state->plocks[state->index];
     state->index++;
@@ -371,43 +406,43 @@ int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     it->use_pool = 0U;
 
 #if SEQ_FEATURE_PLOCK_POOL
-    if (step->pl_ref.count == 0U) {
-        return 0;
+    if (step->pl_ref.count > 0U) {
+        it->use_pool = 1U;
+        it->off = step->pl_ref.offset;
+        it->n = step->pl_ref.count;
+        return 1;
     }
-
-    it->use_pool = 1U;
-    it->off = step->pl_ref.offset;
-    it->n = step->pl_ref.count;
-    return 1;
-#else
+#endif
     it->use_pool = 0U;
     it->n = step->plock_count;
     return (it->n > 0U) ? 1 : 0;
-#endif
 }
 
 int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags) {
-#if SEQ_FEATURE_PLOCK_POOL
     if ((it == NULL) || (it->i >= it->n)) {
         return 0;
     }
 
-    const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
-    if (entry == NULL) {
-        return 0;
+#if SEQ_FEATURE_PLOCK_POOL
+    if (it->use_pool != 0U) {
+        const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
+        if (entry == NULL) {
+            return 0;
+        }
+        if (out_id != NULL) {
+            *out_id = entry->param_id;
+        }
+        if (out_val != NULL) {
+            *out_val = entry->value;
+        }
+        if (out_flags != NULL) {
+            *out_flags = entry->flags;
+        }
+        return 1;
     }
-    if (out_id != NULL) {
-        *out_id = entry->param_id;
-    }
-    if (out_val != NULL) {
-        *out_val = entry->value;
-    }
-    if (out_flags != NULL) {
-        *out_flags = entry->flags;
-    }
-    return 1;
-#else
-    if ((it == NULL) || (it->step == NULL) || (it->i >= it->n)) {
+#endif
+
+    if ((it->step == NULL) || (it->i >= it->n)) {
         return 0;
     }
 
@@ -415,7 +450,6 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     it->i++;
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
-#endif
 }
 
 const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {
