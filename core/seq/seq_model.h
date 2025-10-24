@@ -13,10 +13,11 @@
 #include "seq_config.h"
 
 #if SEQ_FEATURE_PLOCK_POOL
-typedef struct {
+typedef struct __attribute__((packed)) {
     uint16_t offset;
     uint8_t count;
 } seq_step_plock_ref_t;
+_Static_assert(sizeof(seq_step_plock_ref_t) == 3, "pl_ref must be 3 bytes");
 
 #define SEQ_LEGACY_FORBIDDEN_STR(symbol) \
     "GCC error \"Forbidden legacy symbol: " #symbol "\""
@@ -306,6 +307,9 @@ static inline uint16_t seq_model_step_pl_offset_poolref(const seq_model_step_t *
 #if SEQ_MODEL_ENABLE_DEBUG_COUNTER
 void seq_model_debug_reset_recompute_counter(void);
 uint32_t seq_model_debug_get_recompute_counter(void);
+#else
+static inline void seq_model_debug_reset_recompute_counter(void) {}
+static inline uint32_t seq_model_debug_get_recompute_counter(void) { return 0U; }
 #endif
 
 /** Flash-resident template used to initialise neutral sequencer steps. */
