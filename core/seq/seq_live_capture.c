@@ -13,7 +13,10 @@
 #include "ch.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_ids.h"
-#include "core/seq/reader/seq_reader.h"
+#include "core/seq/seq_plock_pool.h"
+#pragma GCC poison plocks
+#pragma GCC poison plock_count
+#pragma GCC poison SEQ_MODEL_MAX_PLOCKS_PER_STEP
 #endif
 
 #define MICRO_OFFSET_MIN   (-12)
@@ -34,11 +37,20 @@ static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
 static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture);
 #if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
-    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t vals[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
+    uint16_t id;
+    uint16_t value;
+    uint8_t flags;
+} seq_live_capture_plk_cap_t;
+
+typedef struct {
+    seq_live_capture_plk_cap_t entries[SEQ_MAX_PLOCKS_PER_STEP];
     uint8_t count;
 } seq_live_capture_plock_buffer_t;
+
+static bool _seq_live_capture_cap_add_or_replace(seq_live_capture_plock_buffer_t *buffer,
+                                                 uint16_t id,
+                                                 uint16_t value,
+                                                 uint8_t flags);
 
 static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_live_capture_plock_buffer_t *buf,
@@ -145,19 +157,25 @@ static void _seq_live_capture_collect_plocks(const seq_model_step_t *step,
         return;
     }
 
-    seq_reader_pl_it_t it;
-    if (seq_reader_pl_open(&it, step) <= 0) {
-        return;
-    }
-
-    uint8_t id = 0U;
-    uint8_t value = 0U;
-    uint8_t flags = 0U;
-    while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
-           (buffer->count < SEQ_MAX_PLOCKS_PER_STEP)) {
-        buffer->ids[buffer->count] = id;
-        buffer->vals[buffer->count] = value;
-        buffer->flags[buffer->count] = flags;
+    const uint8_t count = step->pl_ref.count;
+    const uint16_t base = step->pl_ref.offset;
+    for (uint8_t i = 0U; i < count; ++i) {
+        if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
+            _seq_live_capture_plock_flag_error();
+            SEQ_LIVE_CAPTURE_WARN("existing p-lock buffer overflow on collect");
+            return;
+        }
+        const uint16_t absolute = (uint16_t)(base + i);
+        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        if (entry == NULL) {
+            _seq_live_capture_plock_flag_error();
+            SEQ_LIVE_CAPTURE_WARN("p-lock pool read failed during collect");
+            return;
+        }
+        seq_live_capture_plk_cap_t *slot = &buffer->entries[buffer->count];
+        slot->id = entry->param_id;
+        slot->value = entry->value;
+        slot->flags = entry->flags;
         buffer->count++;
     }
 }
@@ -169,16 +187,68 @@ static bool _seq_live_capture_commit_buffer(seq_model_step_t *step,
     }
 
     const uint8_t n = buffer->count;
-    const uint8_t *ids = (n > 0U) ? buffer->ids : NULL;
-    const uint8_t *values = (n > 0U) ? buffer->vals : NULL;
-    const uint8_t *flags = (n > 0U) ? buffer->flags : NULL;
+    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
 
-    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
+    for (uint8_t i = 0U; i < n; ++i) {
+        const seq_live_capture_plk_cap_t *slot = &buffer->entries[i];
+        ids[i] = (uint8_t)(slot->id & 0x00FFU);
+        values[i] = (uint8_t)(slot->value & 0x00FFU);
+        flags[i] = slot->flags;
+    }
+
+    const uint8_t *ids_ptr = (n > 0U) ? ids : NULL;
+    const uint8_t *vals_ptr = (n > 0U) ? values : NULL;
+    const uint8_t *flags_ptr = (n > 0U) ? flags : NULL;
+
+    const int rc = seq_model_step_set_plocks_pooled(step, ids_ptr, vals_ptr, flags_ptr, n);
     if (rc < 0) {
         _seq_live_capture_plock_flag_error();
         return false;
     }
 
+    return true;
+}
+
+static bool _seq_live_capture_cap_add_or_replace(seq_live_capture_plock_buffer_t *buffer,
+                                                 uint16_t id,
+                                                 uint16_t value,
+                                                 uint8_t flags) {
+    if (buffer == NULL) {
+        return false;
+    }
+
+    const bool new_is_cart = (flags & k_seq_live_pl_flag_domain_cart) != 0U;
+
+    for (uint8_t i = 0U; i < buffer->count; ++i) {
+        seq_live_capture_plk_cap_t *slot = &buffer->entries[i];
+        const bool slot_is_cart = (slot->flags & k_seq_live_pl_flag_domain_cart) != 0U;
+        if (slot_is_cart != new_is_cart) {
+            continue;
+        }
+        if (slot->id != id) {
+            continue;
+        }
+        if ((slot->value != value) || (slot->flags != flags)) {
+            slot->value = value;
+            slot->flags = flags;
+            return true;
+        }
+        return false;
+    }
+
+    if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
+        _seq_live_capture_plock_flag_error();
+        SEQ_LIVE_CAPTURE_WARN("p-lock buffer full (id=%u)", (unsigned)id);
+        return false;
+    }
+
+    seq_live_capture_plk_cap_t *slot = &buffer->entries[buffer->count];
+    slot->id = id;
+    slot->value = value;
+    slot->flags = flags;
+    buffer->count++;
     return true;
 }
 
@@ -190,9 +260,9 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
         return false;
     }
 
-    const uint8_t id = _seq_live_encode_internal_id(param, voice);
+    const uint16_t id = _seq_live_encode_internal_id(param, voice);
     uint8_t encoded_flags = 0U;
-    uint8_t encoded_value = 0U;
+    uint16_t encoded_value = 0U;
 
     switch (param) {
         case SEQ_MODEL_PLOCK_PARAM_NOTE:
@@ -221,41 +291,7 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
             return false;
     }
 
-    bool found = false;
-    bool mutated = false;
-    for (uint8_t i = 0U; i < buffer->count; ++i) {
-        if ((buffer->flags[i] & k_seq_live_pl_flag_domain_cart) != 0U) {
-            continue;
-        }
-        if (buffer->ids[i] != id) {
-            continue;
-        }
-        found = true;
-        if ((buffer->vals[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
-            buffer->vals[i] = encoded_value;
-            buffer->flags[i] = encoded_flags;
-            mutated = true;
-        }
-        break;
-    }
-
-    if (!found) {
-        if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
-            _seq_live_capture_plock_flag_error();
-            return false;
-        }
-        buffer->ids[buffer->count] = id;
-        buffer->vals[buffer->count] = encoded_value;
-        buffer->flags[buffer->count] = encoded_flags;
-        buffer->count++;
-        mutated = true;
-    }
-
-    if (!mutated) {
-        return false;
-    }
-
-    return true;
+    return _seq_live_capture_cap_add_or_replace(buffer, id, encoded_value, encoded_flags);
 }
 
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
