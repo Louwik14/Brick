@@ -10,7 +10,10 @@
 #include "seq_plock_ids.h"
 #endif
 
-#include <string.h>
+#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#pragma GCC poison plock_count
+#pragma GCC poison plocks
+#endif
 
 static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets);
 static void seq_model_track_reset_config(seq_model_track_config_t *config);
@@ -148,15 +151,6 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
     if (had_plocks) {
         seq_model_step_recompute_flags(step);
     }
-#else
-    const bool had_plocks = seq_model_step_has_any_plock(step);
-
-    memset(step->plocks, 0, sizeof(step->plocks));
-    step->plock_count = 0U;
-
-    if (had_plocks) {
-        seq_model_step_recompute_flags(step);
-    }
 #endif
 }
 
@@ -200,7 +194,8 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
 #if SEQ_FEATURE_PLOCK_POOL
     return step->pl_ref.count > 0U;
 #else
-    return step->plock_count > 0U;
+    (void)step;
+    return false;
 #endif
 }
 
@@ -219,13 +214,7 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
 
     return false;
 #else
-    for (uint8_t i = 0U; i < step->plock_count; ++i) {
-        const seq_model_plock_t *plk = &step->plocks[i];
-        if (plk->domain == SEQ_MODEL_PLOCK_INTERNAL) {
-            return true;
-        }
-    }
-
+    (void)step;
     return false;
 #endif
 }
@@ -245,13 +234,7 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
 
     return false;
 #else
-    for (uint8_t i = 0U; i < step->plock_count; ++i) {
-        const seq_model_plock_t *plk = &step->plocks[i];
-        if (plk->domain == SEQ_MODEL_PLOCK_CART) {
-            return true;
-        }
-    }
-
+    (void)step;
     return false;
 #endif
 }
@@ -274,9 +257,7 @@ void seq_model_step_make_automation_only(seq_model_step_t *step) {
     const bool has_plock = step->pl_ref.count > 0U;
     step->flags.automation = has_plock ? 1U : 0U;
 #else
-    const bool has_cart = seq_model_step_has_cart_plock(step);
-    const bool has_seq = seq_model_step_has_seq_plock(step);
-    step->flags.automation = (uint8_t)((has_cart && !has_seq) ? 1U : 0U);
+    step->flags.automation = 0U;
 #endif
 }
 
@@ -370,14 +351,11 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
     }
 
     step->flags.active = has_voice;
+    bool has_plocks = false;
 #if SEQ_FEATURE_PLOCK_POOL
-    const bool has_plocks = step->pl_ref.count > 0U;
-    step->flags.automation = (uint8_t)((!has_voice && has_plocks) ? 1U : 0U);
-#else
-    const bool has_seq_plock = seq_model_step_has_seq_plock(step);
-    const bool has_cart_plock = seq_model_step_has_cart_plock(step);
-    step->flags.automation = (uint8_t)((!has_voice && has_cart_plock && !has_seq_plock) ? 1U : 0U);
+    has_plocks = step->pl_ref.count > 0U;
 #endif
+    step->flags.automation = (uint8_t)((!has_voice && has_plocks) ? 1U : 0U);
 }
 
 int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
