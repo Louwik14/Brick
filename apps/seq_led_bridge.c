@@ -7,6 +7,9 @@
 
 #include <stddef.h>
 #include <string.h>
+#if !defined(__arm__) && !defined(__thumb__)
+#include <stdio.h>
+#endif
 
 #include "apps/rtos_shim.h"
 #include "brick_config.h"
@@ -97,6 +100,13 @@ typedef struct {
 } seq_led_bridge_plock_buffer_t;
 
 static bool s_seq_led_bridge_plock_error = false;
+
+#if !defined(__arm__) && !defined(__thumb__)
+#define SEQ_LED_BRIDGE_WARN(fmt, ...) \
+    fprintf(stderr, "[seq_led_bridge] " fmt "\n", ##__VA_ARGS__)
+#else
+#define SEQ_LED_BRIDGE_WARN(fmt, ...) ((void)0)
+#endif
 
 static void _seq_led_bridge_plock_clear_error(void) {
     s_seq_led_bridge_plock_error = false;
@@ -189,12 +199,31 @@ static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
     }
 }
 
-static bool _seq_led_bridge_buffer_upsert_internal(seq_model_step_t *step,
-                                                   seq_led_bridge_plock_buffer_t *buffer,
+static bool _seq_led_bridge_commit_plock_buffer(seq_model_step_t *step,
+                                                const seq_led_bridge_plock_buffer_t *buffer) {
+    if ((step == NULL) || (buffer == NULL)) {
+        return false;
+    }
+
+    const uint8_t n = buffer->count;
+    const uint8_t *ids = (n > 0U) ? buffer->ids : NULL;
+    const uint8_t *values = (n > 0U) ? buffer->values : NULL;
+    const uint8_t *flags = (n > 0U) ? buffer->flags : NULL;
+
+    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
+    if (rc < 0) {
+        _seq_led_bridge_plock_flag_error();
+        return false;
+    }
+
+    return true;
+}
+
+static bool _seq_led_bridge_buffer_upsert_internal(seq_led_bridge_plock_buffer_t *buffer,
                                                    seq_model_plock_internal_param_t param,
                                                    uint8_t voice,
                                                    int32_t value) {
-    if ((step == NULL) || (buffer == NULL)) {
+    if (buffer == NULL) {
         return false;
     }
 
@@ -263,25 +292,14 @@ static bool _seq_led_bridge_buffer_upsert_internal(seq_model_step_t *step,
         return false;
     }
 
-    const int rc = seq_model_step_set_plocks_pooled(step,
-                                                     buffer->ids,
-                                                     buffer->values,
-                                                     buffer->flags,
-                                                     buffer->count);
-    if (rc < 0) {
-        _seq_led_bridge_plock_flag_error();
-        return false;
-    }
-
     return true;
 }
 
-static bool _seq_led_bridge_buffer_upsert_cart(seq_model_step_t *step,
-                                               seq_led_bridge_plock_buffer_t *buffer,
+static bool _seq_led_bridge_buffer_upsert_cart(seq_led_bridge_plock_buffer_t *buffer,
                                                uint16_t parameter_id,
                                                uint8_t track,
                                                int32_t value) {
-    if ((step == NULL) || (buffer == NULL)) {
+    if (buffer == NULL) {
         return false;
     }
 
@@ -322,16 +340,6 @@ static bool _seq_led_bridge_buffer_upsert_cart(seq_model_step_t *step,
     }
 
     if (!mutated) {
-        return false;
-    }
-
-    const int rc = seq_model_step_set_plocks_pooled(step,
-                                                     buffer->ids,
-                                                     buffer->values,
-                                                     buffer->flags,
-                                                     buffer->count);
-    if (rc < 0) {
-        _seq_led_bridge_plock_flag_error();
         return false;
     }
 
@@ -493,19 +501,7 @@ static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
 
     seq_led_bridge_plock_buffer_t buffer;
     _seq_led_bridge_collect_plocks(step, &buffer);
-
-    const uint8_t n = buffer.count;
-    const uint8_t *ids = (n > 0U) ? buffer.ids : NULL;
-    const uint8_t *values = (n > 0U) ? buffer.values : NULL;
-    const uint8_t *flags = (n > 0U) ? buffer.flags : NULL;
-
-    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
-    if (rc < 0) {
-        _seq_led_bridge_plock_flag_error();
-        return false;
-    }
-
-    return true;
+    return _seq_led_bridge_commit_plock_buffer(step, &buffer);
 }
 #else
 static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
@@ -1243,6 +1239,9 @@ static int32_t _clamp_i32(int32_t value, int32_t min, int32_t max) {
 }
 
 static bool _ensure_internal_plock_value(seq_model_step_t *step,
+#if SEQ_FEATURE_PLOCK_POOL
+                                         seq_led_bridge_plock_buffer_t *buffer,
+#endif
                                          seq_model_plock_internal_param_t param,
                                          uint8_t voice,
                                          int32_t value) {
@@ -1250,9 +1249,8 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
         return false;
     }
 #if SEQ_FEATURE_PLOCK_POOL
-    seq_led_bridge_plock_buffer_t buffer;
-    _seq_led_bridge_collect_plocks(step, &buffer);
-    return _seq_led_bridge_buffer_upsert_internal(step, &buffer, param, voice, value);
+    (void)step;
+    return _seq_led_bridge_buffer_upsert_internal(buffer, param, voice, value);
 #else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
@@ -1285,6 +1283,9 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
 }
 
 static bool _ensure_cart_plock_value(seq_model_step_t *step,
+#if SEQ_FEATURE_PLOCK_POOL
+                                     seq_led_bridge_plock_buffer_t *buffer,
+#endif
                                      uint16_t parameter_id,
                                      uint8_t track,
                                      int32_t value) {
@@ -1292,9 +1293,8 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
         return false;
     }
 #if SEQ_FEATURE_PLOCK_POOL
-    seq_led_bridge_plock_buffer_t buffer;
-    _seq_led_bridge_collect_plocks(step, &buffer);
-    return _seq_led_bridge_buffer_upsert_cart(step, &buffer, parameter_id, track, value);
+    (void)step;
+    return _seq_led_bridge_buffer_upsert_cart(buffer, parameter_id, track, value);
 #else
 
     const int16_t casted = (int16_t)value;
@@ -1767,9 +1767,14 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
         }
 
 #if SEQ_FEATURE_PLOCK_POOL
+        const uint16_t absolute_index = (slot != NULL) ? slot->absolute_index
+                                                       : (_page_base(g.visible_page) + (uint16_t)i);
         seq_model_step_t snapshot = *step;
+        seq_led_bridge_plock_buffer_t buffer;
+        _seq_led_bridge_collect_plocks(step, &buffer);
         _seq_led_bridge_plock_clear_error();
         const bool track_prev_mutated = mutated_track;
+        bool buffer_mutated = false;
 #endif
         const bool had_voice = seq_model_step_has_playable_voice(step);
         const bool had_plock = seq_model_step_has_any_plock(step);
@@ -1790,7 +1795,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                     step->offsets.transpose = (int8_t)v;
                     step_mutated = true;
                 }
-                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+#else
+                bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR, 0U, v);
+#endif
+                step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                buffer_mutated |= applied;
+#endif
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_VEL: {
@@ -1799,7 +1812,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                     step->offsets.velocity = (int16_t)v;
                     step_mutated = true;
                 }
-                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+#else
+                bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE, 0U, v);
+#endif
+                step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                buffer_mutated |= applied;
+#endif
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_LEN: {
@@ -1808,7 +1829,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                     step->offsets.length = (int8_t)v;
                     step_mutated = true;
                 }
-                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+#else
+                bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE, 0U, v);
+#endif
+                step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                buffer_mutated |= applied;
+#endif
                 break;
             }
             case SEQ_HOLD_PARAM_ALL_MIC: {
@@ -1817,7 +1846,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                     step->offsets.micro = (int8_t)v;
                     step_mutated = true;
                 }
-                step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+#else
+                bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI, 0U, v);
+#endif
+                step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                buffer_mutated |= applied;
+#endif
                 break;
             }
             default: {
@@ -1839,7 +1876,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                             voice_state.note = (uint8_t)v;
                             step_mutated = true;
                         }
-                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                        bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+#else
+                        bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_NOTE, voice, v);
+#endif
+                        step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                        buffer_mutated |= applied;
+#endif
                         if ((voice == 0U) &&
                             (voice_state.state == SEQ_MODEL_VOICE_ENABLED) &&
                             (voice_state.velocity > 0U)) {
@@ -1855,7 +1900,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                             step_mutated = true;
                         }
                         voice_state.state = (voice_state.velocity > 0U) ? SEQ_MODEL_VOICE_ENABLED : SEQ_MODEL_VOICE_DISABLED;
-                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                        bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+#else
+                        bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_VELOCITY, voice, v);
+#endif
+                        step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                        buffer_mutated |= applied;
+#endif
                         break;
                     }
                     case 2: { /* Length */
@@ -1864,7 +1917,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                             voice_state.length = (uint8_t)v;
                             step_mutated = true;
                         }
-                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                        bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+#else
+                        bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_LENGTH, voice, v);
+#endif
+                        step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                        buffer_mutated |= applied;
+#endif
                         break;
                     }
                     case 3: { /* Micro */
@@ -1873,7 +1934,15 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                             voice_state.micro_offset = (int8_t)v;
                             step_mutated = true;
                         }
-                        step_mutated |= _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+#if SEQ_FEATURE_PLOCK_POOL
+                        bool applied = _ensure_internal_plock_value(step, &buffer, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+#else
+                        bool applied = _ensure_internal_plock_value(step, SEQ_MODEL_PLOCK_PARAM_MICRO, voice, v);
+#endif
+                        step_mutated |= applied;
+#if SEQ_FEATURE_PLOCK_POOL
+                        buffer_mutated |= applied;
+#endif
                         break;
                     }
                     default:
@@ -1894,19 +1963,29 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
                 *step = snapshot;
                 mutated_track = track_prev_mutated;
             }
+            SEQ_LED_BRIDGE_WARN("p-lock upsert failed on step %u", (unsigned)absolute_index);
             _seq_led_bridge_plock_clear_error();
             continue;
         }
-#endif
 #if SEQ_FEATURE_PLOCK_POOL
-        if (step_mutated && (slot == NULL)) {
-            if (!_seq_led_bridge_commit_plock_pool(step) && _seq_led_bridge_plock_has_error()) {
-                *step = snapshot;
-                mutated_track = track_prev_mutated;
+        if (buffer_mutated) {
+            if (!_seq_led_bridge_commit_plock_buffer(step, &buffer)) {
+                if (slot != NULL) {
+                    slot->staged = snapshot;
+                    slot->mutated = false;
+                } else {
+                    *step = snapshot;
+                    mutated_track = track_prev_mutated;
+                }
+                SEQ_LED_BRIDGE_WARN("p-lock commit failed on step %u", (unsigned)absolute_index);
                 _seq_led_bridge_plock_clear_error();
                 continue;
             }
+            _seq_led_bridge_plock_clear_error();
         }
+#endif
+#if SEQ_FEATURE_PLOCK_POOL
+        step_mutated |= buffer_mutated;
 #endif
         if (step_mutated) {
             if (slot != NULL) {
@@ -1976,9 +2055,14 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
         }
 
 #if SEQ_FEATURE_PLOCK_POOL
+        const uint16_t absolute_index = (slot != NULL) ? slot->absolute_index
+                                                       : (_page_base(g.visible_page) + (uint16_t)i);
         seq_model_step_t snapshot = *step;
+        seq_led_bridge_plock_buffer_t buffer;
+        _seq_led_bridge_collect_plocks(step, &buffer);
         _seq_led_bridge_plock_clear_error();
         const bool track_prev_mutated = mutated_track;
+        bool buffer_mutated = false;
 #endif
         const uint8_t track = _first_active_voice(step);
         const bool had_voice = seq_model_step_has_playable_voice(step);
@@ -1992,7 +2076,13 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
             }
         }
 
-        const bool cart_mutated = _ensure_cart_plock_value(step, parameter_id, track, value);
+        bool cart_mutated = false;
+#if SEQ_FEATURE_PLOCK_POOL
+        cart_mutated = _ensure_cart_plock_value(step, &buffer, parameter_id, track, value);
+        buffer_mutated |= cart_mutated;
+#else
+        cart_mutated = _ensure_cart_plock_value(step, parameter_id, track, value);
+#endif
         if (cart_mutated) {
             if (slot != NULL) {
                 slot->mutated = true;
@@ -2011,16 +2101,24 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
                 *step = snapshot;
                 mutated_track = track_prev_mutated;
             }
+            SEQ_LED_BRIDGE_WARN("cart p-lock upsert failed on step %u", (unsigned)absolute_index);
             _seq_led_bridge_plock_clear_error();
             continue;
         }
-        if ((slot == NULL) && ((!had_voice && !had_plock) || cart_mutated)) {
-            if (!_seq_led_bridge_commit_plock_pool(step) && _seq_led_bridge_plock_has_error()) {
-                *step = snapshot;
-                mutated_track = track_prev_mutated;
+        if (buffer_mutated) {
+            if (!_seq_led_bridge_commit_plock_buffer(step, &buffer)) {
+                if (slot != NULL) {
+                    slot->staged = snapshot;
+                    slot->mutated = false;
+                } else {
+                    *step = snapshot;
+                    mutated_track = track_prev_mutated;
+                }
+                SEQ_LED_BRIDGE_WARN("cart p-lock commit failed on step %u", (unsigned)absolute_index);
                 _seq_led_bridge_plock_clear_error();
                 continue;
             }
+            _seq_led_bridge_plock_clear_error();
         }
 #endif
     }
