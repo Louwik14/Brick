@@ -139,10 +139,12 @@ typedef struct seq_model_step_t {
 #pragma GCC poison seq_model_step_plock_count
 #endif
 
-#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#if SEQ_FEATURE_PLOCK_POOL
+#if defined(__GNUC__)
 #pragma GCC poison SEQ_MODEL_MAX_PLOCKS_PER_STEP
 #pragma GCC poison plocks
 #pragma GCC poison plock_count
+#endif
 _Static_assert(sizeof(((seq_model_step_t*)0)->pl_ref) == 3, "pl_ref must be 3 bytes");
 #endif
 
