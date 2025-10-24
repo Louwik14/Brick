@@ -57,12 +57,14 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
                                                     uint8_t voice,
                                                     int32_t value);
-#else
+#endif  /* SEQ_FEATURE_PLOCK_POOL */
+
+#if !SEQ_FEATURE_PLOCK_POOL
 static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
                                                     uint8_t voice,
                                                     int32_t value);
-#endif
+#endif  /* !SEQ_FEATURE_PLOCK_POOL */
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
                                                       systime_t end_time,
@@ -832,7 +834,9 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     return _seq_live_capture_buffer_upsert_internal(buffer, param, voice, value);
 }
 
-#else  /* SEQ_FEATURE_PLOCK_POOL */
+#endif
+
+#if !SEQ_FEATURE_PLOCK_POOL
 
 static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
@@ -874,7 +878,7 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     return true;
 }
 
-#endif /* SEQ_FEATURE_PLOCK_POOL */
+#endif /* !SEQ_FEATURE_PLOCK_POOL */
 
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
