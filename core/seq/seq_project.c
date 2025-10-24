@@ -14,7 +14,6 @@
 #include "core/ram_audit.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
-#include "core/seq/seq_plock_ids.h"
 #if !defined(__arm__) && !defined(__thumb__)
 #include <stdio.h>
 #endif
@@ -251,6 +250,8 @@ static plk2_decode_result_t decode_plk2_chunk(seq_model_step_t *step,
         return PLK2_DECODE_NOT_FOUND;
     }
 
+    (void)policy;
+
     if (*remaining < 4U) {
         return PLK2_DECODE_NOT_FOUND;
     }
@@ -286,58 +287,51 @@ static plk2_decode_result_t decode_plk2_chunk(seq_model_step_t *step,
 
     const uint8_t *payload = ptr;
     left -= payload_len;
-
-    uint8_t kept = 0U;
-    if (stored_count > 0U) {
-        for (uint8_t i = 0U; i < stored_count; ++i) {
-            const uint8_t id = payload[(size_t)i * 3U];
-            if (pl_is_cart(id) && (policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED)) {
-                continue;
-            }
-            ++kept;
-        }
+    if (stored_count > SEQ_MAX_PLOCKS_PER_STEP) {
+        decoder_warn("PLK2 chunk invalid (count exceeds max)");
+        step_reset_pl_ref(step);
+        *cursor = payload + payload_len;
+        *remaining = left;
+        return PLK2_DECODE_INVALID;
     }
 
-    if (kept == 0U) {
+    if (stored_count == 0U) {
         step_reset_pl_ref(step);
-    } else {
-        uint16_t offset = 0U;
-        if (seq_plock_pool_alloc(kept, &offset) != 0) {
-            decoder_warn("PLK2 chunk OOM while allocating pool entries");
+        *cursor = payload + payload_len;
+        *remaining = left;
+        return PLK2_DECODE_OK;
+    }
+
+    uint16_t offset = 0U;
+    if (seq_plock_pool_alloc(stored_count, &offset) != 0) {
+        decoder_warn("PLK2 chunk OOM while allocating pool entries");
+        step_reset_pl_ref(step);
+        *cursor = payload + payload_len;
+        *remaining = left;
+        return PLK2_DECODE_OOM;
+    }
+
+    for (uint8_t i = 0U; i < stored_count; ++i) {
+        const uint8_t id = payload[(size_t)i * 3U];
+        const uint8_t value = payload[(size_t)i * 3U + 1U];
+        const uint8_t flags = payload[(size_t)i * 3U + 2U];
+
+        seq_plock_entry_t *entry = seq_plock_pool_get(offset, i);
+        if (entry == NULL) {
+            decoder_warn("PLK2 chunk invalid (pool access)");
             step_reset_pl_ref(step);
             *cursor = payload + payload_len;
             *remaining = left;
-            return PLK2_DECODE_OOM;
+            return PLK2_DECODE_INVALID;
         }
 
-        uint8_t written = 0U;
-        for (uint8_t i = 0U; i < stored_count; ++i) {
-            const uint8_t id = payload[(size_t)i * 3U];
-            const uint8_t value = payload[(size_t)i * 3U + 1U];
-            const uint8_t flags = payload[(size_t)i * 3U + 2U];
-
-            if (pl_is_cart(id) && (policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED)) {
-                continue;
-            }
-
-            seq_plock_entry_t *entry = seq_plock_pool_get(offset, written);
-            if (entry == NULL) {
-                decoder_warn("PLK2 chunk invalid (pool access)");
-                step_reset_pl_ref(step);
-                *cursor = payload + payload_len;
-                *remaining = left;
-                return PLK2_DECODE_INVALID;
-            }
-
-            entry->param_id = id;
-            entry->value = value;
-            entry->flags = flags;
-            ++written;
-        }
-
-        step->pl_ref.offset = offset;
-        step->pl_ref.count = kept;
+        entry->param_id = id;
+        entry->value = value;
+        entry->flags = flags;
     }
+
+    step->pl_ref.offset = offset;
+    step->pl_ref.count = stored_count;
 
     *cursor = payload + payload_len;
     *remaining = left;
