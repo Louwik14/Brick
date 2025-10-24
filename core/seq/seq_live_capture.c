@@ -32,10 +32,25 @@ static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
                                                  uint8_t requested,
                                                  uint8_t note);
 static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture);
+#if SEQ_FEATURE_PLOCK_POOL
+typedef struct {
+    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t vals[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t count;
+} seq_live_capture_plock_buffer_t;
+
+static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
+                                                    seq_live_capture_plock_buffer_t *buf,
+                                                    seq_model_plock_internal_param_t param,
+                                                    uint8_t voice,
+                                                    int32_t value);
+#else
 static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
                                                     uint8_t voice,
                                                     int32_t value);
+#endif
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
                                                       systime_t end_time,
@@ -98,14 +113,6 @@ static uint8_t _seq_live_encode_unsigned(int16_t value, int16_t min_value, int16
     return (uint8_t)(clamped & 0x00FF);
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
-typedef struct {
-    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t count;
-} seq_live_capture_plock_buffer_t;
-
 static bool s_seq_live_capture_plock_error = false;
 
 #if !defined(__arm__) && !defined(__thumb__)
@@ -147,9 +154,9 @@ static void _seq_live_capture_collect_plocks(const seq_model_step_t *step,
     uint8_t value = 0U;
     uint8_t flags = 0U;
     while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
-           (buffer->count < SEQ_MODEL_MAX_PLOCKS_PER_STEP)) {
+           (buffer->count < SEQ_MAX_PLOCKS_PER_STEP)) {
         buffer->ids[buffer->count] = id;
-        buffer->values[buffer->count] = value;
+        buffer->vals[buffer->count] = value;
         buffer->flags[buffer->count] = flags;
         buffer->count++;
     }
@@ -163,7 +170,7 @@ static bool _seq_live_capture_commit_buffer(seq_model_step_t *step,
 
     const uint8_t n = buffer->count;
     const uint8_t *ids = (n > 0U) ? buffer->ids : NULL;
-    const uint8_t *values = (n > 0U) ? buffer->values : NULL;
+    const uint8_t *values = (n > 0U) ? buffer->vals : NULL;
     const uint8_t *flags = (n > 0U) ? buffer->flags : NULL;
 
     const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
@@ -224,8 +231,8 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
             continue;
         }
         found = true;
-        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
-            buffer->values[i] = encoded_value;
+        if ((buffer->vals[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
+            buffer->vals[i] = encoded_value;
             buffer->flags[i] = encoded_flags;
             mutated = true;
         }
@@ -233,12 +240,12 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
     }
 
     if (!found) {
-        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
             _seq_live_capture_plock_flag_error();
             return false;
         }
         buffer->ids[buffer->count] = id;
-        buffer->values[buffer->count] = encoded_value;
+        buffer->vals[buffer->count] = encoded_value;
         buffer->flags[buffer->count] = encoded_flags;
         buffer->count++;
         mutated = true;
@@ -250,7 +257,6 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
 
     return true;
 }
-#endif
 
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
     chDbgCheck(capture != NULL);
@@ -782,9 +788,17 @@ static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture) 
 }
 
 static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
-#if SEQ_FEATURE_PLOCK_POOL
                                                     seq_live_capture_plock_buffer_t *buffer,
-#endif
+                                                    seq_model_plock_internal_param_t param,
+                                                    uint8_t voice,
+                                                    int32_t value) {
+    (void)step;
+    return _seq_live_capture_buffer_upsert_internal(buffer, param, voice, value);
+}
+
+#else  /* SEQ_FEATURE_PLOCK_POOL */
+
+static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
                                                     uint8_t voice,
                                                     int32_t value) {
@@ -792,10 +806,6 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
-    (void)step;
-    return _seq_live_capture_buffer_upsert_internal(buffer, param, voice, value);
-#else
     const int16_t casted = (int16_t)value;
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         seq_model_plock_t *plk = &step->plocks[i];
@@ -823,8 +833,9 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     };
 
     return seq_model_step_add_plock(step, &plock);
-#endif
 }
+
+#endif /* SEQ_FEATURE_PLOCK_POOL */
 
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
