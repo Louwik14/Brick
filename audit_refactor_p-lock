@@ -1,0 +1,96 @@
+1. Résumé exécutif
+
+Verdict : suppression totale du legacy = KO. Deux blocs bloquent le cutover PLK2-only / pool-only :
+
+    Reader continue d’adresser step->plocks[] / plock_count même quand SEQ_FEATURE_PLOCK_POOL=1, ce qui casserait la compilation dès que les symboles legacy sont empoisonnés et fait mentir la spec “Reader pool-first” de l’architecture.
+
+Codec projet : la lecture/écriture appelle toujours decode_track_steps_v1/v2 et sérialise les tableaux legacy, les tests host attendent même l’absence de chunk PLK2. En coupant V1/V2 on perd la capacité à charger des patterns et on viole la feuille de route PLK2-only.
+
+Sans résoudre ces points, l’activation simultanée de SEQ_PROJECT_LEGACY_CODEC=0, SEQ_ENABLE_PLOCK_LEGACY_POISON=1 et SEQ_FEATURE_PLOCK_POOL_STORAGE=1 brisera compilation et persistance.
+2. Carte d’impact
+#	Symbole / dépendance legacy	Fichier · lignes	Rôle (UI/loader/tests…)	Remplacement pooled attendu	Risque si legacy supprimé
+1	legacy_step->plocks, plock_count dans seq_reader_plock_iter_* et seq_reader_pl_next	core/seq/reader/seq_reader.c L324‑451
+Reader hot path (UI, runner, tests)	Itérer exclusivement sur (pl_ref.offset,count) via seq_plock_pool_get() y compris quand count==0	Compilation KO (pragma poison), Reader inutilisable
+2	decode_track_steps_v1/v2, encode_track_steps_v1/v2, stockage plocks[]	core/seq/seq_project.c L711‑1055
+Chargement/sauvegarde patterns	Nouveau codec “V3” ou PLK2-only qui reconstruit le pool et alimente pl_ref	Patterns illisibles / impossible de sauver en PLK2-only
+3	Tests test_load_plk2_missing_fallback_legacy (et similaires) qui exigent le chemin tableau	tests/test_load_plk2_missing_fallback_legacy.c L8‑55
+Validation host	Adapter les tests pour générer/attendre des triplets PLK2	Campagne host échoue (assertions legacy)
+4	_legacy_extract_plock_payload et champs state->plocks (Reader)	core/seq/reader/seq_reader.c L35‑116 & L353‑451
+Encodage UI/runner des IDs 16 bits	LUT 3 o → 16 bits commune au pool, sans dépendance tableau	Behaviour Reader incohérent, impossibilité d’encoder les p-locks
+3. UI / Live Rec
+
+    Toutes les écritures multi-step (hold) collectent les p-locks via seq_reader_pl_open/next et commitent un unique seq_model_step_set_plocks_pooled(...) ; le chemin legacy n’est conservé que sous #if !SEQ_FEATURE_PLOCK_POOL.
+
+Live Rec lit les triplets existants par Reader, bufferise les mutations (_seq_live_capture_collect_plocks) puis commit via seq_model_step_set_plocks_pooled; l’upsert legacy est entièrement dans le #else.
+
+Hold/multi-hold et l’inversion OLED reposent bien sur l’état Reader (pool-first) après commit et ne relisent plus les tableaux legacy.
+
+Live capture n’écrit plus directement dans un tableau legacy en mode pool : seules les branches #else héritées subsistent pour SEQ_FEATURE_PLOCK_POOL=0.
+
+➡️ UI et Live Rec sont prêts pour un run-time pool-only ; aucun blocage identifié côté writers.
+4. Reader
+
+    seq_reader_plock_iter_open/next assignent toujours legacy_step->plocks et plock_count avant de vérifier pl_ref, ce qui déclenchera immédiatement les #pragma GCC poison avec la configuration kill switch.
+
+_legacy_extract_plock_payload reste la source d’encodage 16 bits ; sans tableau, les itérateurs ne renverront plus rien pour les steps “pool-only”.
+
+Le Reader ne propose pas encore d’encodeur LUT 3 o → format 16 bits comme prévu par la carte de migration.
+
+➡️ Tant que ces accès ne sont pas refactorés, le Reader n’est pas compatible pool-only.
+5. Sérialisation (PLK2-only)
+
+    encode_plk2_chunk et decode_plk2_chunk gèrent bien {id,val,flags} et remplissent pl_ref.
+
+MAIS seq_project_track_steps_decode route toujours vers decode_track_steps_v1/v2 en fonction du numéro de version, puis n’utilise PLK2 que comme supplément facultatif. Aucun chemin ne traite “PLK2 seul”.
+
+Les encodeurs V1/V2 continuent d’écrire les tableaux legacy (branchés sous #if !SEQ_FEATURE_PLOCK_POOL), ce qui empêche de générer un payload minimal PLK2-only.
+
+Les tests host valident explicitement l’absence de chunk PLK2 et que pl_ref.count==0, confirmant la dépendance legacy.
+
+➡️ Couper les codecs V1/V2 aujourd’hui rendrait impossible le chargement/sauvegarde des patterns.
+6. Garde-fous produit
+
+    Hot/cold : aucune inclusion de ch.h dans apps/, conformité no cold in TICK préservée.
+
+MIDI invariants : Les writers étudiés (UI, Live Rec) restent confinés au modèle/Reader et ne publient pas de MIDI direct, conforme à SEQ_BEHAVIOR.md (NOTE_OFF jamais droppé, P-lock avant NOTE_ON).
+
+Sections mémoire : aucune déclaration .ram4 / CCMRAM dans le code p-lock (scan négatif).
+
+Docs d’autorité : la migration attendue (pool packé 3 o, Reader pool-first) correspond aux objectifs décrits dans docs/ARCHITECTURE_FR.md (§Reader) et docs/PLOCK_MIGRATION_MAP.md.
+7. Plan minimal de cutover (micro-deltas)
+
+    Reader → pool only
+
+        core/seq/reader/seq_reader.c: remplacer l’initialisation de s_plock_iter_state par une branche unique basée sur pl_ref, supprimer legacy_step->plocks/plock_count, introduire une LUT {id,val,flags} → 16 bits pour _legacy_extract_plock_payload.
+
+Adaptation itérateur Reader rapide
+
+    core/seq/reader/seq_reader.c: revoir seq_reader_pl_next pour qu’il retourne 0 directement quand pl_ref.count==0, sans toucher aux tableaux supprimés. Ajouter une fonction d’encodage pool→Reader (à partager avec l’UI).
+
+Codec projet PLK2-only
+
+    core/seq/seq_project.c: introduire un parseur “V3” (ou version=3) qui consomme uniquement le chunk PLK2 et peuple pl_ref; réécrire track_steps_encode_internal pour générer ce chunk sans écrire V1/V2 ; désactiver decode_track_steps_v1/v2 via #if/suppression quand SEQ_PROJECT_LEGACY_CODEC=0.
+
+    Campagne tests
+
+        tests/test_load_plk2_*: mettre à jour les fixtures pour produire un chunk PLK2 (avec seq_model_step_set_plocks_pooled) et supprimer les assertions sur pl_ref.count==0. Idem pour les autres tests orientés tableau.
+
+    Activer le kill switch
+
+        Modifier la configuration (Makefile / CI) pour builder par défaut avec SEQ_PROJECT_LEGACY_CODEC=0, SEQ_ENABLE_PLOCK_LEGACY_POISON=1, SEQ_FEATURE_PLOCK_POOL=1, SEQ_FEATURE_PLOCK_POOL_STORAGE=1, vérifier que la compilation passe et que les tests host couvrent le parcours PLK2.
+
+8. Conclusion binaire
+
+    Le pool/PLK2 n’est pas encore prêt à être seul : il manque 4 ponts critiques (Reader sans fallback, codec V3, adaptation des tests, kill-switch build) pour respecter la spec pool-first et PLK2-only. Voir blocages #1–#4 ci-dessus.
+
+9. Annexe — emplacements à traiter
+
+    Reader legacy → pool : lignes 324‑451 de core/seq/reader/seq_reader.c (suppression de legacy_step->plocks / _legacy_extract_plock_payload).
+
+Encodeur PLK2 : lignes 376‑418 (écriture) et 253‑338 (lecture) de core/seq/seq_project.c — point de rattachement d’un codec pur triplets.
+
+Décodage V1/V2 à retirer : lignes 711‑1055 de core/seq/seq_project.c.
+
+Tests legacy : lignes 8‑55 de tests/test_load_plk2_missing_fallback_legacy.c.
+
+(Aucun test ni build n’a été lancé pour cette analyse.)
