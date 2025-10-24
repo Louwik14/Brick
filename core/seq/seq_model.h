@@ -18,12 +18,6 @@ typedef struct __attribute__((packed)) {
     uint8_t count;
 } seq_step_plock_ref_t;
 _Static_assert(sizeof(seq_step_plock_ref_t) == 3, "pl_ref must be 3 bytes");
-
-#define SEQ_LEGACY_FORBIDDEN_STR(symbol) \
-    "GCC error \"Forbidden legacy symbol: " #symbol "\""
-#define SEQ_LEGACY_FORBIDDEN(symbol) _Pragma(SEQ_LEGACY_FORBIDDEN_STR(symbol))
-#else
-#define SEQ_LEGACY_FORBIDDEN(symbol)
 #endif
 
 #ifdef __cplusplus
@@ -140,6 +134,20 @@ typedef struct seq_model_step_t {
     seq_model_step_flags_t flags; /**< Cached step flags (playable / automation). */
 } seq_model_step_t;
 
+#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#pragma GCC poison seq_model_step_get_plock
+#pragma GCC poison seq_model_step_add_plock
+#pragma GCC poison seq_model_step_remove_plock
+#pragma GCC poison seq_model_step_plock_count
+#pragma GCC poison plocks
+#pragma GCC poison plock_count
+#pragma GCC poison seq_model_step_legacy_pl_count
+#pragma GCC poison seq_model_step_legacy_pl_set_count
+#pragma GCC poison seq_model_step_legacy_pl_storage
+#pragma GCC poison seq_model_step_legacy_pl_storage_const
+#pragma GCC poison seq_model_step_legacy_pl_get
+#endif
+
 /** Quantization configuration applied during live capture. */
 typedef struct {
     bool enabled;                            /**< Quantize switch. */
@@ -201,59 +209,36 @@ const seq_model_voice_t *seq_model_step_get_voice(const seq_model_step_t *step, 
 /** Replace the voice descriptor at the provided index. */
 bool seq_model_step_set_voice(seq_model_step_t *step, size_t voice_index, const seq_model_voice_t *voice);
 
-/** Append a parameter lock to a step. */
-bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *plock);
 /** Remove all parameter locks from a step. */
 void seq_model_step_clear_plocks(seq_model_step_t *step);
+#if !SEQ_FEATURE_PLOCK_POOL
+/** Append a parameter lock to a step. */
+bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *plock);
 /** Remove a parameter lock at the provided index. */
 bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index);
 /** Retrieve a parameter lock by index. */
 bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out);
-
+/** Return the number of parameter locks attached to a step. */
 uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
 
-#if SEQ_FEATURE_PLOCK_POOL
-#define seq_model_step_legacy_pl_count(...) \
-    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_count)
-#else
 static inline uint8_t seq_model_step_legacy_pl_count(const seq_model_step_t *step) {
     return (step != NULL) ? step->plock_count : 0U;
 }
-#endif
 
-#if SEQ_FEATURE_PLOCK_POOL
-#define seq_model_step_legacy_pl_set_count(...) \
-    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_set_count)
-#else
 static inline void seq_model_step_legacy_pl_set_count(seq_model_step_t *step, uint8_t count) {
     if (step != NULL) {
         step->plock_count = count;
     }
 }
-#endif
 
-#if SEQ_FEATURE_PLOCK_POOL
-#define seq_model_step_legacy_pl_storage(...) \
-    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_storage)
-#else
 static inline seq_model_plock_t *seq_model_step_legacy_pl_storage(seq_model_step_t *step) {
     return (step != NULL) ? step->plocks : NULL;
 }
-#endif
 
-#if SEQ_FEATURE_PLOCK_POOL
-#define seq_model_step_legacy_pl_storage_const(...) \
-    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_storage_const)
-#else
 static inline const seq_model_plock_t *seq_model_step_legacy_pl_storage_const(const seq_model_step_t *step) {
     return (step != NULL) ? step->plocks : NULL;
 }
-#endif
 
-#if SEQ_FEATURE_PLOCK_POOL
-#define seq_model_step_legacy_pl_get(...) \
-    SEQ_LEGACY_FORBIDDEN(seq_model_step_legacy_pl_get)
-#else
 static inline int seq_model_step_legacy_pl_get(const seq_model_step_t *step,
                                                uint8_t index,
                                                uint8_t *out_id,
@@ -279,8 +264,6 @@ bool seq_model_step_has_playable_voice(const seq_model_step_t *step);
 bool seq_model_step_is_automation_only(const seq_model_step_t *step);
 /** Return true when the step exposes at least one parameter lock. */
 bool seq_model_step_has_any_plock(const seq_model_step_t *step);
-/** Return the number of parameter locks attached to a step. */
-uint8_t seq_model_step_plock_count(const seq_model_step_t *step);
 /** Return true when the step exposes at least one sequencer-domain parameter lock. */
 bool seq_model_step_has_seq_plock(const seq_model_step_t *step);
 /** Return true when the step exposes at least one cartridge-domain parameter lock. */
@@ -296,7 +279,7 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
 
 #if SEQ_FEATURE_PLOCK_POOL
 static inline uint8_t seq_model_step_pl_count_poolref(const seq_model_step_t *step) {
-    return seq_model_step_plock_count(step);
+    return (step != NULL) ? step->pl_ref.count : 0U;
 }
 
 static inline uint16_t seq_model_step_pl_offset_poolref(const seq_model_step_t *step) {
