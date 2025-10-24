@@ -139,18 +139,25 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
         return;
     }
 
-    const bool had_plocks = seq_model_step_has_any_plock(step);
-#if !SEQ_FEATURE_PLOCK_POOL
-    memset(step->plocks, 0, sizeof(step->plocks));
-    step->plock_count = 0U;
-#endif
 #if SEQ_FEATURE_PLOCK_POOL
+    const bool had_plocks = step->pl_ref.count > 0U;
+
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
-#endif
+
     if (had_plocks) {
         seq_model_step_recompute_flags(step);
     }
+#else
+    const bool had_plocks = seq_model_step_has_any_plock(step);
+
+    memset(step->plocks, 0, sizeof(step->plocks));
+    step->plock_count = 0U;
+
+    if (had_plocks) {
+        seq_model_step_recompute_flags(step);
+    }
+#endif
 }
 
 void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_offsets_t *offsets) {
