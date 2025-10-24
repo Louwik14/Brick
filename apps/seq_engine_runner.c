@@ -110,7 +110,7 @@ static void _runner_handle_step(uint8_t track,
 static void _runner_queue_event(uint8_t ch, uint8_t note, uint8_t velocity, bool is_on);
 static void _runner_flush_queued_events(void);
 static uint8_t _runner_clamp_u8(int32_t value);
-static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity);
+static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity) __attribute__((unused));
 static void _runner_send_note_off(uint8_t track, uint8_t note);
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id);
 static seq_engine_runner_plock_state_t *_runner_plock_acquire(cart_id_t cart, uint16_t param_id);
@@ -542,6 +542,7 @@ static uint8_t _runner_clamp_u8(int32_t value) {
     return (uint8_t)value;
 }
 
+/* UNUSED: retained for potential diagnostic hooks. */
 static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity) {
     midi_note_on((uint8_t)(track + 1U), note, velocity);
 }

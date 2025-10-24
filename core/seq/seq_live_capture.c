@@ -95,62 +95,6 @@ static uint8_t _seq_live_encode_unsigned(int16_t value, int16_t min_value, int16
     return (uint8_t)(clamped & 0x00FF);
 }
 
-static void _seq_live_pack_plock(const seq_model_plock_t *plock,
-                                 uint8_t *out_id,
-                                 uint8_t *out_value,
-                                 uint8_t *out_flags) {
-    uint8_t id = 0U;
-    uint8_t value = 0U;
-    uint8_t flags = 0U;
-
-    if (plock != NULL) {
-        if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-            id = (uint8_t)(plock->parameter_id & 0x00FFU);
-            value = _seq_live_encode_unsigned(plock->value, 0, 255);
-            flags = (uint8_t)(flags | k_seq_live_pl_flag_domain_cart);
-        } else {
-            id = _seq_live_encode_internal_id(plock->internal_param, plock->voice_index);
-            switch (plock->internal_param) {
-                case SEQ_MODEL_PLOCK_PARAM_NOTE:
-                    value = _seq_live_encode_unsigned(plock->value, 0, 127);
-                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
-                    break;
-                case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
-                    value = _seq_live_encode_unsigned(plock->value, 0, 127);
-                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
-                    break;
-                case SEQ_MODEL_PLOCK_PARAM_LENGTH:
-                    value = _seq_live_encode_unsigned(plock->value, 0, 255);
-                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
-                    break;
-                case SEQ_MODEL_PLOCK_PARAM_MICRO:
-                    value = _seq_live_encode_signed(plock->value, &flags);
-                    flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << k_seq_live_pl_flag_voice_shift));
-                    break;
-                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
-                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
-                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
-                case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
-                    value = _seq_live_encode_signed(plock->value, &flags);
-                    break;
-                default:
-                    value = _seq_live_encode_unsigned(plock->value, 0, 255);
-                    break;
-            }
-        }
-    }
-
-    if (out_id != NULL) {
-        *out_id = id;
-    }
-    if (out_value != NULL) {
-        *out_value = value;
-    }
-    if (out_flags != NULL) {
-        *out_flags = flags;
-    }
-}
-
 #if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
     uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];

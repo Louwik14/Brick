@@ -423,6 +423,7 @@ static bool _seq_led_bridge_decode_cart(uint8_t id,
 }
 #endif
 
+#if !SEQ_FEATURE_PLOCK_POOL
 static void _pack_plock_entry(const seq_model_plock_t *plock,
                                uint8_t *out_id,
                                uint8_t *out_value,
@@ -482,6 +483,7 @@ static void _pack_plock_entry(const seq_model_plock_t *plock,
         *out_flags = flags;
     }
 }
+#endif
 
 #if SEQ_FEATURE_PLOCK_POOL
 static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
