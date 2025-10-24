@@ -239,6 +239,20 @@ static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
         *out_flags = flags;
     }
 }
+
+static uint16_t _encode_plock_id(const seq_model_plock_t *plock) {
+    if (plock == NULL) {
+        return 0U;
+    }
+
+    if (plock->domain == SEQ_MODEL_PLOCK_CART) {
+        return plock->parameter_id;
+    }
+
+    const uint16_t voice = ((uint16_t)(plock->voice_index & 0x03U)) << k_seq_reader_plock_internal_voice_shift;
+    const uint16_t param = (uint16_t)plock->internal_param & 0x00FFU;
+    return (uint16_t)(k_seq_reader_plock_internal_flag | voice | param);
+}
 #endif
 
 static const seq_model_track_t *_resolve_legacy_track(seq_track_handle_t handle) {
@@ -278,20 +292,6 @@ static const seq_model_voice_t *_select_primary_voice(const seq_model_step_t *st
     }
 
     return &step->voices[0];
-}
-
-static uint16_t _encode_plock_id(const seq_model_plock_t *plock) {
-    if (plock == NULL) {
-        return 0U;
-    }
-
-    if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-        return plock->parameter_id;
-    }
-
-    const uint16_t voice = ((uint16_t)(plock->voice_index & 0x03U)) << k_seq_reader_plock_internal_voice_shift;
-    const uint16_t param = (uint16_t)plock->internal_param & 0x00FFU;
-    return (uint16_t)(k_seq_reader_plock_internal_flag | voice | param);
 }
 
 bool seq_reader_get_step(seq_track_handle_t h, uint8_t step, seq_step_view_t *out) {
@@ -413,9 +413,9 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
         return false;
     }
 
-    const seq_model_step_t *legacy_step = &track->steps[step];
-    s_plock_iter_state.off = legacy_step->pl_ref.offset;
-    s_plock_iter_state.count = legacy_step->pl_ref.count;
+    const seq_model_step_t *step_model = &track->steps[step];
+    s_plock_iter_state.off = step_model->pl_ref.offset;
+    s_plock_iter_state.count = step_model->pl_ref.count;
     s_plock_iter_state.i = 0U;
     it->_opaque = &s_plock_iter_state;
     return true;
