@@ -139,13 +139,6 @@ typedef struct seq_model_step_t {
 #pragma GCC poison seq_model_step_add_plock
 #pragma GCC poison seq_model_step_remove_plock
 #pragma GCC poison seq_model_step_plock_count
-#pragma GCC poison plocks
-#pragma GCC poison plock_count
-#pragma GCC poison seq_model_step_legacy_pl_count
-#pragma GCC poison seq_model_step_legacy_pl_set_count
-#pragma GCC poison seq_model_step_legacy_pl_storage
-#pragma GCC poison seq_model_step_legacy_pl_storage_const
-#pragma GCC poison seq_model_step_legacy_pl_get
 #endif
 
 /** Quantization configuration applied during live capture. */
