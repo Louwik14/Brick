@@ -313,7 +313,7 @@ void seq_model_track_set_scale(seq_model_track_t *track, const seq_model_scale_c
     track->config.scale = *config;
 }
 
-static void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets) {
+static __attribute__((unused)) void seq_model_step_reset_offsets(seq_model_step_offsets_t *offsets) {
     if (offsets == NULL) {
         return;
     }

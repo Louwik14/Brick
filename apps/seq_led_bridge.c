@@ -93,9 +93,9 @@ enum {
 };
 
 typedef struct {
-    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
     uint8_t count;
 } seq_led_bridge_plock_buffer_t;
 
@@ -191,7 +191,7 @@ static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
     uint8_t value = 0U;
     uint8_t flags = 0U;
     while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
-           (buffer->count < SEQ_MODEL_MAX_PLOCKS_PER_STEP)) {
+           (buffer->count < SEQ_MAX_PLOCKS_PER_STEP)) {
         buffer->ids[buffer->count] = id;
         buffer->values[buffer->count] = value;
         buffer->flags[buffer->count] = flags;
@@ -277,7 +277,7 @@ static bool _seq_led_bridge_buffer_upsert_internal(seq_led_bridge_plock_buffer_t
     }
 
     if (!found) {
-        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
             _seq_led_bridge_plock_flag_error();
             return false;
         }
@@ -328,7 +328,7 @@ static bool _seq_led_bridge_buffer_upsert_cart(seq_led_bridge_plock_buffer_t *bu
     }
 
     if (!found) {
-        if (buffer->count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+        if (buffer->count >= SEQ_MAX_PLOCKS_PER_STEP) {
             _seq_led_bridge_plock_flag_error();
             return false;
         }
@@ -515,9 +515,9 @@ static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
         return true;
     }
 
-    uint8_t ids[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MODEL_MAX_PLOCKS_PER_STEP];
+    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t values[SEQ_MAX_PLOCKS_PER_STEP];
+    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
 
     for (uint8_t i = 0U; i < count; ++i) {
         _pack_plock_entry(&step->plocks[i], &ids[i], &values[i], &flags[i]);
@@ -1296,7 +1296,7 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
         }
     }
 
-    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+    if (step->plock_count >= SEQ_MAX_PLOCKS_PER_STEP) {
         return false;
     }
 
@@ -1342,7 +1342,7 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
         }
     }
 
-    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
+    if (step->plock_count >= SEQ_MAX_PLOCKS_PER_STEP) {
         return false;
     }
 
@@ -1805,6 +1805,7 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
 #if SEQ_FEATURE_PLOCK_POOL
         const uint16_t absolute_index = (slot != NULL) ? slot->absolute_index
                                                        : (_page_base(g.visible_page) + (uint16_t)i);
+        (void)absolute_index;
         seq_model_step_t snapshot = *step;
         seq_led_bridge_plock_buffer_t buffer;
         _seq_led_bridge_collect_plocks(step, &buffer);
@@ -2090,6 +2091,7 @@ void seq_led_bridge_apply_cart_param(uint16_t parameter_id,
 #if SEQ_FEATURE_PLOCK_POOL
         const uint16_t absolute_index = (slot != NULL) ? slot->absolute_index
                                                        : (_page_base(g.visible_page) + (uint16_t)i);
+        (void)absolute_index;
         seq_model_step_t snapshot = *step;
         seq_led_bridge_plock_buffer_t buffer;
         _seq_led_bridge_collect_plocks(step, &buffer);
