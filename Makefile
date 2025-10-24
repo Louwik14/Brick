@@ -26,13 +26,15 @@ endif
 
 USE_COPT += $(WARNINGS_FLAGS)
 # P1/MP5 — handles flipped ON globally for apps/** (deprecated APIs now error).
-CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
+CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations $(EXTRA_CFLAGS)
+
+PFLAGS := -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=1 -DSEQ_PROJECT_LEGACY_CODEC=0
 
 .PHONY: fw-pooled fw-legacy
 
 fw-pooled:
-	$(MAKE) BUILD_MODE=firmware \
-		CFLAGS+='-DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=1'
+	@$(MAKE) clean
+	@$(MAKE) --no-print-directory all EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(PFLAGS)"
 
 fw-legacy:
 	$(MAKE) BUILD_MODE=firmware \
