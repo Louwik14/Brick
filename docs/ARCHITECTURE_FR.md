@@ -7,7 +7,7 @@ Principes structurants :
 
 * Le **modèle de séquenceur** (`core/seq/seq_model.c`) contient l'état sérialisable d'une **track 64 steps** : 4 voix par pas, p-locks internes (note, vélocité, longueur, micro, offsets "All") et p-locks cart.【F:core/seq/seq_model.h†L17-L174】
 * Le **runner Reader-only** (`apps/seq_engine_runner.c`) parcourt les 16 handles actifs à chaque tick 1/16, lit les flags de step via `seq_reader_get_step()` puis itère `slot=0..SEQ_MODEL_VOICES_PER_STEP-1` avec `seq_reader_get_step_voice()` pour jouer toutes les voix, émet NOTE_ON/OFF par `apps/midi_helpers.h`, applique les p-locks cart locaux et ne modifie jamais le modèle directement ; le tick reste Reader-only (aucun accès cold ni appel UI/backend).
-* **Reader p-locks** : lorsque `step->pl_ref.count > 0`, l'itérateur hot (`seq_reader_plock_iter_*`, `seq_reader_pl_*`) lit séquentiellement le **pool** à partir de `offset` via `seq_plock_pool_get()` et restitue `{param_id, value, flags}` exactement dans l'ordre PLK2 encodé. Si `count == 0`, le Reader retombe sur le chemin legacy (`step->plocks[]`). Le Reader reste **hot-only** et ne touche jamais la façade cold/RTOS sur ce flux.
+* **Reader p-locks** : lorsque `step->pl_ref.count > 0`, l'itérateur hot (`seq_reader_plock_iter_*`, `seq_reader_pl_*`) lit séquentiellement le **pool** à partir de `offset` via `seq_plock_pool_get()` et restitue `{param_id, value, flags}` exactement dans l'ordre PLK2 encodé. Si `count == 0`, l'itérateur ne renvoie aucune entrée ; il n'existe plus de chemin fallback vers `step->plocks[]`. Le Reader reste **hot-only** et ne touche jamais la façade cold/RTOS sur ce flux.
 * L'**UI** (répartition `ui/` + ponts `apps/`) capte boutons/encodeurs/clavier, applique les modifications via `ui_backend.c`, tient à jour les LED via `seq_led_bridge.c` et `ui_led_backend.c`, et publie les événements MIDI en direct pour le mode clavier.
 * Les **cartouches** (`cart/`) reçoivent leurs p-locks via `cart_link.c` qui manipule un shadow de paramètres et sérialise les trames UART.
 * La couche **MIDI** (`midi/midi.c`) fournit les primitives note on/off/CC utilisées par l'UI, le runner et la clock.
@@ -261,28 +261,26 @@ SEQ
 
 ### Sérialisation des tracks (pattern save)
 
-La sérialisation de piste conserve le flux legacy (en-tête de step, voix, offsets) utilisé depuis P7. Lorsque `SEQ_FEATURE_PLOCK_POOL==1`, chaque step effectivement persisté ajoute un chunk optionnel `PLK2` immédiatement après les données legacy.
+La sérialisation de piste repose désormais **exclusivement** sur le codec `PLK2`. L'encodeur parcourt les 64 steps dans l'ordre et n'émet un chunk que lorsque `step->pl_ref.count > 0` :
 
 * **Tag** : quatre octets ASCII `"PLK2"`.
-* **Compteur** : un octet `count` (`0..SEQ_MAX_PLOCKS_PER_STEP`, soit ≤20). Si `count==0`, aucun chunk n'est émis pour le step ; une valeur supérieure déclenche un warning, le chunk est ignoré et le step reste sans p-locks.
-* **Payload** : `count × 3` octets, séquence `{param_id, value, flags}` pour chaque entrée, dans l'ordre du pool (identique à l'itérateur Reader).
+* **Compteur** : un octet `count` (`0..SEQ_MAX_PLOCKS_PER_STEP`, borné à 24). Une valeur hors borne déclenche un avertissement et le step concerné est laissé sans p-locks.
+* **Payload** : `count × 3` octets `{param_id, value, flags}`, dans l'ordre exact du pool (`seq_plock_pool_get(off,i)`). Les valeurs sont déjà compactées en `uint8_t` au moment de leur insertion dans le pool.
 
-Les valeurs stockées sont déjà compactées en `uint8_t` (`pl_u8_from_s8()` appliqué à l'entrée dans le pool). Le flux reste compatible avec les sauvegardes existantes, et l'API host `seq_codec_write_track_with_plk2()` retourne le nombre d'octets écrits ou `-1` en cas de buffer insuffisant et permet de désactiver l'émission du chunk (`enable_plk2=0`) pour les tests de régression.
+L'absence de chunk pour un step signifie simplement qu'il ne transporte aucun p-lock ; aucun en-tête legacy (V1/V2) n'est plus produit.
 
-En lecture (P8c), le décodeur privilégie désormais `PLK2` lorsqu'il est présent après les données legacy du step :
+En lecture, le décodeur consomme ces chunks séquentiellement pendant qu'il itère les steps 0→63 :
 
-* **Flag `SEQ_FEATURE_PLOCK_POOL==1`** : le chunk est reconstruit dans le pool (`seq_plock_pool_alloc()`), puis `step->pl_ref {offset,count}` est renseigné. En cas d'OOM ou de `count` hors borne, le loader journalise un avertissement, laisse `pl_ref={0,0}` et poursuit la piste.
-* **Flag `SEQ_FEATURE_PLOCK_POOL==0`** : le chunk est simplement sauté ; le flux legacy (per-step array) reste la seule source de p-locks.
-* **Fallback legacy** : si aucun chunk n'est trouvé — ou si le chunk est invalide (troncature, count incohérent) — le loader retombe sur la lecture historique. Lorsque le pool est actif, le step reste sans p-locks si la sauvegarde ne contient que `PLK2`.
-* **Ordre garanti** : les entrées sont remises dans le pool exactement dans l'ordre encodé par `PLK2`, ce qui aligne l'itérateur Reader sur l'écriture (`seq_plock_pool_get(off,i)`).
+* Toute anomalie (tag absent, troncature, `count` incohérent, OOM) émet un warning, force `pl_ref={0,0}` pour le step courant et laisse le chargement se poursuivre.
+* Les entrées valides sont restituées dans l'ordre d'encodage, garantissant que Reader et Writer restent strictement alignés.
 
-Les cas d'entrée corrompue déclenchent un warning non bloquant (`stderr` côté host) et la navigation continue sur les steps suivants. L'écriture duale introduite en P8b reste inchangée : les projets plus anciens (sans `PLK2`) demeurent lisibles, tandis que les builds Reader-only profitent du pool dès que le chunk est disponible.
+Aucun parseur V1/V2 n'est conservé : `SEQ_PROJECT_LEGACY_CODEC=0` coupe définitivement la voie legacy.
 
 ### Activation par défaut (firmware F429)
 
-* Le pool packé est désormais la vérité côté firmware : `SEQ_FEATURE_PLOCK_POOL=1` et `SEQ_FEATURE_PLOCK_POOL_STORAGE=1` sont activés par défaut, le flux legacy par step est donc compilé-out.
+* Le pool packé est la configuration unique : `SEQ_FEATURE_PLOCK_POOL=1`, `SEQ_FEATURE_PLOCK_POOL_STORAGE=1` et `SEQ_PROJECT_LEGACY_CODEC=0` sont activés par défaut, supprimant toute voie legacy.
 * La capacité est calculée à la construction (`SEQ_MAX_TRACKS * SEQ_STEPS_PER_TRACK * SEQ_MAX_PLOCKS_PER_STEP`) et bornée via un `_Static_assert` pour garantir des offsets 16-bit (≤ 65535).
-* Le rollback reste disponible : `make fw-legacy` force `SEQ_FEATURE_PLOCK_POOL{,_STORAGE}=0` pour rétablir la variante historique pendant la phase de surveillance.
+* Aucun mode rollback V1/V2 n'est maintenu : les sauvegardes doivent être re-générées dans ce format PLK2-only.
 * Aucun symbole n'est poussé en `.ram4`/CCMRAM : le gain RAM provient exclusivement du packing 3 octets par entrée (param/value/flags) et du header `(offset,count)` par step.
 
 ## 8. Éléments obsolètes ou redondants

@@ -59,61 +59,6 @@ typedef struct __attribute__((packed)) {
     uint16_t capabilities;   /**< Capability mask. */
 } track_payload_header_t;
 
-typedef struct __attribute__((packed)) {
-    uint8_t step_index;  /**< Step index inside the track. */
-    uint8_t flags;       /**< Step flags bitmask. */
-    uint8_t voice_mask;  /**< Mask of enabled voices. */
-    uint8_t plock_count; /**< Number of serialized parameter locks. */
-} track_step_v1_header_t;
-
-typedef struct __attribute__((packed)) {
-    uint8_t note;
-    uint8_t velocity;
-    uint8_t length;
-    int8_t  micro;
-    uint8_t state;
-} track_voice_v1_payload_t;
-
-typedef struct __attribute__((packed)) {
-    int16_t velocity;
-    int8_t  transpose;
-    int8_t  length;
-    int8_t  micro;
-} track_offsets_payload_t;
-
-typedef struct __attribute__((packed)) {
-    int16_t value;
-    uint16_t parameter_id;
-    uint8_t domain;
-    uint8_t voice_index;
-    uint8_t internal_param;
-} track_plock_v1_payload_t;
-
-typedef struct __attribute__((packed)) {
-    uint8_t skip;        /**< Number of neutral steps before this entry. */
-    uint8_t flags;       /**< Step flags bitmask. */
-    uint8_t voice_mask;  /**< Mask of enabled voices. */
-    uint8_t plock_count; /**< Number of serialized parameter locks. */
-} track_step_v2_header_t;
-
-typedef struct __attribute__((packed)) {
-    uint8_t note;
-    uint8_t velocity;
-    uint8_t length;
-    int8_t  micro;
-} track_voice_v2_payload_t;
-
-typedef struct __attribute__((packed)) {
-    int16_t value;
-    uint8_t meta;
-} track_plock_v2_payload_t;
-
-enum {
-    STEP_FLAG_ACTIVE     = 1U << 0,
-    STEP_FLAG_AUTOMATION = 1U << 1,
-    STEP_FLAG_OFFSETS    = 1U << 2
-};
-
 typedef enum {
     TRACK_LOAD_FULL = 0,
     TRACK_LOAD_REMAPPED,
@@ -156,55 +101,6 @@ static uint32_t pattern_offset(uint8_t project_index, uint8_t bank, uint8_t patt
     return project_base(project_index) + (uint32_t)sizeof(seq_project_directory_t) +
            (uint32_t)pattern_linear_index(bank, pattern) * (uint32_t)SEQ_PROJECT_PATTERN_STORAGE_MAX;
 }
-
-static bool offsets_is_zero(const seq_model_step_offsets_t *offsets) {
-    return (offsets->velocity == 0) && (offsets->transpose == 0) &&
-           (offsets->length == 0) && (offsets->micro == 0);
-}
-
-static bool voice_equals_default(const seq_model_voice_t *voice, bool primary) {
-    seq_model_voice_t ref;
-    seq_model_voice_init(&ref, primary);
-    return (voice->state == ref.state) && (voice->note == ref.note) &&
-           (voice->velocity == ref.velocity) && (voice->length == ref.length) &&
-           (voice->micro_offset == ref.micro_offset);
-}
-
-static bool step_needs_persist(const seq_model_step_t *step) {
-    if (step->flags.active || step->flags.automation) {
-        return true;
-    }
-#if !SEQ_FEATURE_PLOCK_POOL
-    if (step->plock_count > 0U) {
-        return true;
-    }
-#endif
-    if (!offsets_is_zero(&step->offsets)) {
-        return true;
-    }
-    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-        if (!voice_equals_default(&step->voices[v], v == 0U)) {
-            return true;
-        }
-    }
-    return false;
-}
-
-#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-static uint8_t compute_voice_payload_mask(const seq_model_step_t *step) {
-    uint8_t mask = 0U;
-    for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-        seq_model_voice_t ref;
-        seq_model_voice_init(&ref, v == 0U);
-        const seq_model_voice_t *voice = &step->voices[v];
-        if ((voice->note != ref.note) || (voice->velocity != ref.velocity) ||
-            (voice->length != ref.length) || (voice->micro_offset != ref.micro_offset)) {
-            mask |= (uint8_t)(1U << v);
-        }
-    }
-    return mask;
-}
-#endif
 
 static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, size_t len) {
     if (*remaining < len) {
@@ -419,236 +315,6 @@ static bool encode_plk2_chunk(const seq_model_step_t *step,
 }
 #endif
 
-#if !BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-static bool encode_track_steps_v1(const seq_model_track_t *track,
-                                  uint8_t **cursor,
-                                  size_t *remaining,
-                                  bool write_plk2) {
-#if !SEQ_FEATURE_PLOCK_POOL
-    (void)write_plk2;
-#endif
-    uint16_t step_count = 0U;
-    uint8_t *count_ptr = *cursor;
-    if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
-        return false;
-    }
-
-    for (uint8_t i = 0U; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {
-        const seq_model_step_t *step = &track->steps[i];
-        if (!step_needs_persist(step)) {
-            continue;
-        }
-
-        track_step_v1_header_t header;
-        header.step_index = i;
-        header.flags = 0U;
-        header.voice_mask = 0U;
-#if !SEQ_FEATURE_PLOCK_POOL
-        header.plock_count = step->plock_count;
-#else
-        header.plock_count = 0U;
-#endif
-
-        if (step->flags.active) {
-            header.flags |= STEP_FLAG_ACTIVE;
-        }
-        if (step->flags.automation) {
-            header.flags |= STEP_FLAG_AUTOMATION;
-        }
-        if (!offsets_is_zero(&step->offsets)) {
-            header.flags |= STEP_FLAG_OFFSETS;
-        }
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if (step->voices[v].state == SEQ_MODEL_VOICE_ENABLED) {
-                header.voice_mask |= (uint8_t)(1U << v);
-            }
-        }
-
-        if (!buffer_write(cursor, remaining, &header, sizeof(header))) {
-            return false;
-        }
-
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            track_voice_v1_payload_t payload;
-            const seq_model_voice_t *voice = &step->voices[v];
-            payload.note = voice->note;
-            payload.velocity = voice->velocity;
-            payload.length = voice->length;
-            payload.micro = voice->micro_offset;
-            payload.state = voice->state;
-            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
-                return false;
-            }
-        }
-
-        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
-            track_offsets_payload_t offsets;
-            offsets.velocity = step->offsets.velocity;
-            offsets.transpose = step->offsets.transpose;
-            offsets.length = step->offsets.length;
-            offsets.micro = step->offsets.micro;
-            if (!buffer_write(cursor, remaining, &offsets, sizeof(offsets))) {
-                return false;
-            }
-        }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-        for (uint8_t p = 0U; p < step->plock_count; ++p) {
-            const seq_model_plock_t *plock = &step->plocks[p];
-            track_plock_v1_payload_t payload;
-            payload.value = plock->value;
-            payload.parameter_id = plock->parameter_id;
-            payload.domain = plock->domain;
-            payload.voice_index = plock->voice_index;
-            payload.internal_param = plock->internal_param;
-            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
-                return false;
-            }
-        }
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
-        if (!encode_plk2_chunk(step, cursor, remaining, write_plk2)) {
-            return false;
-        }
-#endif
-
-        ++step_count;
-    }
-
-    memcpy(count_ptr, &step_count, sizeof(step_count));
-    return true;
-}
-#endif
-
-#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-static bool encode_track_steps_v2(const seq_model_track_t *track,
-                                  uint8_t **cursor,
-                                  size_t *remaining,
-                                  bool write_plk2) {
-#if !SEQ_FEATURE_PLOCK_POOL
-    (void)write_plk2;
-#endif
-    uint16_t step_count = 0U;
-    uint8_t *count_ptr = *cursor;
-    if (!buffer_write(cursor, remaining, &step_count, sizeof(step_count))) {
-        return false;
-    }
-
-    int16_t previous_index = -1;
-
-    for (uint8_t i = 0U; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {
-        const seq_model_step_t *step = &track->steps[i];
-        if (!step_needs_persist(step)) {
-            continue;
-        }
-
-        const uint8_t skip = (uint8_t)(i - (uint8_t)(previous_index + 1));
-        const uint8_t payload_mask = compute_voice_payload_mask(step);
-        track_step_v2_header_t header;
-        header.skip = skip;
-        header.flags = 0U;
-        header.voice_mask = 0U;
-#if !SEQ_FEATURE_PLOCK_POOL
-        header.plock_count = step->plock_count;
-#else
-        header.plock_count = 0U;
-#endif
-
-        if (step->flags.active) {
-            header.flags |= STEP_FLAG_ACTIVE;
-        }
-        if (step->flags.automation) {
-            header.flags |= STEP_FLAG_AUTOMATION;
-        }
-        if (!offsets_is_zero(&step->offsets)) {
-            header.flags |= STEP_FLAG_OFFSETS;
-        }
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if (step->voices[v].state == SEQ_MODEL_VOICE_ENABLED) {
-                header.voice_mask |= (uint8_t)(1U << v);
-            }
-        }
-
-        header.flags |= (uint8_t)((payload_mask & 0x0FU) << 3);
-
-        if (!buffer_write(cursor, remaining, &header, sizeof(header))) {
-            return false;
-        }
-
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if ((payload_mask & (uint8_t)(1U << v)) == 0U) {
-                continue;
-            }
-            track_voice_v2_payload_t payload;
-            const seq_model_voice_t *voice = &step->voices[v];
-            payload.note = voice->note;
-            payload.velocity = voice->velocity;
-            payload.length = voice->length;
-            payload.micro = voice->micro_offset;
-            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
-                return false;
-            }
-        }
-
-        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
-            track_offsets_payload_t offsets;
-            offsets.velocity = step->offsets.velocity;
-            offsets.transpose = step->offsets.transpose;
-            offsets.length = step->offsets.length;
-            offsets.micro = step->offsets.micro;
-            if (!buffer_write(cursor, remaining, &offsets, sizeof(offsets))) {
-                return false;
-            }
-        }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-        for (uint8_t p = 0U; p < step->plock_count; ++p) {
-            const seq_model_plock_t *plock = &step->plocks[p];
-            track_plock_v2_payload_t payload;
-            uint8_t meta = (uint8_t)(plock->voice_index & 0x03U);
-            if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-                meta |= (1U << 2);
-            } else {
-                meta |= (uint8_t)((plock->internal_param & 0x07U) << 3);
-            }
-            payload.value = plock->value;
-            payload.meta = meta;
-            if (!buffer_write(cursor, remaining, &payload, sizeof(payload))) {
-                return false;
-            }
-            if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-                if (!buffer_write(cursor, remaining, &plock->parameter_id, sizeof(plock->parameter_id))) {
-                    return false;
-                }
-            }
-        }
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
-        if (!encode_plk2_chunk(step, cursor, remaining, write_plk2)) {
-            return false;
-        }
-#endif
-
-        previous_index = (int16_t)i;
-        ++step_count;
-    }
-
-    memcpy(count_ptr, &step_count, sizeof(step_count));
-    return true;
-}
-#endif
-
-static bool encode_track_steps_dispatch(const seq_model_track_t *track,
-                                        uint8_t **cursor,
-                                        size_t *remaining,
-                                        bool write_plk2) {
-#if BRICK_EXPERIMENTAL_PATTERN_CODEC_V2
-    return encode_track_steps_v2(track, cursor, remaining, write_plk2);
-#else
-    return encode_track_steps_v1(track, cursor, remaining, write_plk2);
-#endif
-}
-
 static bool track_steps_encode_internal(const seq_model_track_t *track,
                                         uint8_t *buffer,
                                         size_t buffer_size,
@@ -662,23 +328,30 @@ static bool track_steps_encode_internal(const seq_model_track_t *track,
     size_t remaining = buffer_size;
 
     if (track == NULL) {
-        if (buffer_size < sizeof(uint16_t)) {
-            return false;
-        }
-        uint16_t zero = 0U;
-        memcpy(cursor, &zero, sizeof(zero));
-        *written = sizeof(zero);
+        *written = 0U;
         return true;
     }
 
-    if (!encode_track_steps_dispatch(track, &cursor, &remaining, write_plk2)) {
-        return false;
+#if SEQ_FEATURE_PLOCK_POOL
+    if (!write_plk2) {
+        *written = 0U;
+        return true;
     }
+
+    for (uint8_t i = 0U; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {
+        const seq_model_step_t *step = &track->steps[i];
+        if (!encode_plk2_chunk(step, &cursor, &remaining, write_plk2)) {
+            return false;
+        }
+    }
+#else
+    (void)track;
+    (void)write_plk2;
+#endif
 
     *written = buffer_size - remaining;
     return true;
 }
-
 static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *saved, seq_project_cart_ref_t *resolved) {
     *resolved = *saved;
     resolved->flags &= (uint8_t)~SEQ_PROJECT_CART_FLAG_MUTED;
@@ -708,288 +381,39 @@ static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *sav
     return TRACK_LOAD_ABSENT;
 }
 
-static bool decode_track_steps_v1(seq_model_track_t *track,
+#if SEQ_FEATURE_PLOCK_POOL
+static bool decode_track_steps_plk2(seq_model_track_t *track,
                                     const uint8_t *payload,
                                     uint32_t payload_size,
                                     track_load_policy_t policy) {
+    if ((track == NULL) || (payload == NULL)) {
+        return false;
+    }
+
     const uint8_t *cursor = payload;
     size_t remaining = payload_size;
 
-    uint16_t step_count = 0U;
-    if (remaining < sizeof(step_count)) {
-        return false;
-    }
-    memcpy(&step_count, cursor, sizeof(step_count));
-    cursor += sizeof(step_count);
-    remaining -= sizeof(step_count);
-
     seq_model_track_init(track);
 
-    for (uint16_t s = 0U; s < step_count; ++s) {
-        if (remaining < sizeof(track_step_v1_header_t)) {
-            return false;
-        }
-        track_step_v1_header_t header;
-        memcpy(&header, cursor, sizeof(header));
-        cursor += sizeof(header);
-        remaining -= sizeof(header);
-
-        if (header.step_index >= SEQ_MODEL_STEPS_PER_TRACK) {
-            return false;
-        }
-
-        seq_model_step_t *step = &track->steps[header.step_index];
-
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if (remaining < sizeof(track_voice_v1_payload_t)) {
-                return false;
-            }
-            track_voice_v1_payload_t voice_payload;
-            memcpy(&voice_payload, cursor, sizeof(voice_payload));
-            cursor += sizeof(voice_payload);
-            remaining -= sizeof(voice_payload);
-
-            seq_model_voice_t *voice = &step->voices[v];
-            voice->note = voice_payload.note;
-            voice->velocity = voice_payload.velocity;
-            voice->length = voice_payload.length;
-            voice->micro_offset = voice_payload.micro;
-            voice->state = voice_payload.state;
-        }
-
-        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
-            if (remaining < sizeof(track_offsets_payload_t)) {
-                return false;
-            }
-            track_offsets_payload_t offsets;
-            memcpy(&offsets, cursor, sizeof(offsets));
-            cursor += sizeof(offsets);
-            remaining -= sizeof(offsets);
-
-            step->offsets.velocity = offsets.velocity;
-            step->offsets.transpose = offsets.transpose;
-            step->offsets.length = offsets.length;
-            step->offsets.micro = offsets.micro;
-        }
-
-        uint8_t stored_plocks = header.plock_count;
-        if (stored_plocks > SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
-            return false;
-        }
-
-        uint8_t effective_plocks = 0U;
-        for (uint8_t p = 0U; p < stored_plocks; ++p) {
-            if (remaining < sizeof(track_plock_v1_payload_t)) {
-                return false;
-            }
-            track_plock_v1_payload_t payload_plock;
-            memcpy(&payload_plock, cursor, sizeof(payload_plock));
-            cursor += sizeof(payload_plock);
-            remaining -= sizeof(payload_plock);
-
-            if ((policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED) &&
-                (payload_plock.domain == SEQ_MODEL_PLOCK_CART)) {
-                continue;
-            }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-            seq_model_plock_t *plock = &step->plocks[effective_plocks];
-            plock->value = payload_plock.value;
-            plock->parameter_id = payload_plock.parameter_id;
-            plock->domain = payload_plock.domain;
-            plock->voice_index = payload_plock.voice_index;
-            plock->internal_param = payload_plock.internal_param;
-            ++effective_plocks;
-#else
-            (void)policy;
-#endif
-        }
-#if !SEQ_FEATURE_PLOCK_POOL
-        step->plock_count = effective_plocks;
-#else
-        (void)effective_plocks;
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
+    for (uint8_t i = 0U; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {
+        seq_model_step_t *step = &track->steps[i];
         (void)decode_plk2_chunk(step, &cursor, &remaining, policy);
-#else
-        skip_plk2_chunk(&cursor, &remaining);
-#endif
-
-        if (policy == TRACK_LOAD_ABSENT) {
-            for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-                seq_model_voice_t *voice = &step->voices[v];
-                voice->state = SEQ_MODEL_VOICE_DISABLED;
-                voice->velocity = 0U;
-            }
-        }
-
-        seq_model_step_recompute_flags(step);
     }
 
     return true;
 }
-
-static bool decode_track_steps_v2(seq_model_track_t *track,
+#else
+static bool decode_track_steps_plk2(seq_model_track_t *track,
                                     const uint8_t *payload,
                                     uint32_t payload_size,
                                     track_load_policy_t policy) {
-    const uint8_t *cursor = payload;
-    size_t remaining = payload_size;
-
-    uint16_t step_count = 0U;
-    if (remaining < sizeof(step_count)) {
-        return false;
-    }
-    memcpy(&step_count, cursor, sizeof(step_count));
-    cursor += sizeof(step_count);
-    remaining -= sizeof(step_count);
-
-    seq_model_track_init(track);
-    int16_t current_index = -1;
-
-    for (uint16_t s = 0U; s < step_count; ++s) {
-        if (remaining < sizeof(track_step_v2_header_t)) {
-            return false;
-        }
-        track_step_v2_header_t header;
-        memcpy(&header, cursor, sizeof(header));
-        cursor += sizeof(header);
-        remaining -= sizeof(header);
-
-        current_index += (int16_t)header.skip + 1;
-        if ((current_index < 0) || (current_index >= (int16_t)SEQ_MODEL_STEPS_PER_TRACK)) {
-            return false;
-        }
-
-        seq_model_step_t *step = &track->steps[current_index];
-        seq_model_step_init(step);
-
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            seq_model_voice_t *voice = &step->voices[v];
-            if ((header.voice_mask & (uint8_t)(1U << v)) != 0U) {
-                voice->state = SEQ_MODEL_VOICE_ENABLED;
-            }
-        }
-
-        const uint8_t payload_mask = (uint8_t)((header.flags >> 3) & 0x0FU);
-
-        for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-            if ((payload_mask & (uint8_t)(1U << v)) == 0U) {
-                continue;
-            }
-            if (remaining < sizeof(track_voice_v2_payload_t)) {
-                return false;
-            }
-            track_voice_v2_payload_t voice_payload;
-            memcpy(&voice_payload, cursor, sizeof(voice_payload));
-            cursor += sizeof(voice_payload);
-            remaining -= sizeof(voice_payload);
-
-            seq_model_voice_t *voice = &step->voices[v];
-            voice->note = voice_payload.note;
-            voice->velocity = voice_payload.velocity;
-            voice->length = voice_payload.length;
-            voice->micro_offset = voice_payload.micro;
-        }
-
-        if ((header.flags & STEP_FLAG_OFFSETS) != 0U) {
-            if (remaining < sizeof(track_offsets_payload_t)) {
-                return false;
-            }
-            track_offsets_payload_t offsets;
-            memcpy(&offsets, cursor, sizeof(offsets));
-            cursor += sizeof(offsets);
-            remaining -= sizeof(offsets);
-
-            step->offsets.velocity = offsets.velocity;
-            step->offsets.transpose = offsets.transpose;
-            step->offsets.length = offsets.length;
-            step->offsets.micro = offsets.micro;
-        }
-
-        uint8_t stored_plocks = header.plock_count;
-        if (stored_plocks > SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
-            return false;
-        }
-
-        uint8_t effective_plocks = 0U;
-        for (uint8_t p = 0U; p < stored_plocks; ++p) {
-            if (remaining < sizeof(track_plock_v2_payload_t)) {
-                return false;
-            }
-            track_plock_v2_payload_t payload_plock;
-            memcpy(&payload_plock, cursor, sizeof(payload_plock));
-            cursor += sizeof(payload_plock);
-            remaining -= sizeof(payload_plock);
-
-            const bool is_cart = ((payload_plock.meta & (1U << 2)) != 0U);
-            uint16_t parameter_id = 0U;
-            if (is_cart) {
-                if (remaining < sizeof(parameter_id)) {
-                    return false;
-                }
-                memcpy(&parameter_id, cursor, sizeof(parameter_id));
-                cursor += sizeof(parameter_id);
-                remaining -= sizeof(parameter_id);
-            }
-
-            if ((policy != TRACK_LOAD_FULL) && (policy != TRACK_LOAD_REMAPPED) && is_cart) {
-                continue;
-            }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-            if (effective_plocks >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
-                return false;
-            }
-
-            seq_model_plock_t *plock = &step->plocks[effective_plocks];
-            plock->value = payload_plock.value;
-            plock->voice_index = (uint8_t)(payload_plock.meta & 0x03U);
-            if (is_cart) {
-                plock->domain = SEQ_MODEL_PLOCK_CART;
-                plock->parameter_id = parameter_id;
-                plock->internal_param = 0U;
-            } else {
-                plock->domain = SEQ_MODEL_PLOCK_INTERNAL;
-                plock->parameter_id = 0U;
-                plock->internal_param = (uint8_t)((payload_plock.meta >> 3) & 0x07U);
-            }
-            ++effective_plocks;
-#else
-            (void)parameter_id;
-#endif
-        }
-#if !SEQ_FEATURE_PLOCK_POOL
-        step->plock_count = effective_plocks;
-#else
-        (void)effective_plocks;
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
-        (void)decode_plk2_chunk(step, &cursor, &remaining, policy);
-#else
-        skip_plk2_chunk(&cursor, &remaining);
-#endif
-
-        if (policy == TRACK_LOAD_ABSENT) {
-            for (uint8_t v = 0U; v < SEQ_MODEL_VOICES_PER_STEP; ++v) {
-                seq_model_voice_t *voice = &step->voices[v];
-                voice->state = SEQ_MODEL_VOICE_DISABLED;
-                voice->velocity = 0U;
-            }
-        }
-
-        if ((header.flags & STEP_FLAG_ACTIVE) != 0U) {
-            step->flags.active = true;
-        }
-        if ((header.flags & STEP_FLAG_AUTOMATION) != 0U) {
-            step->flags.automation = true;
-        }
-
-        seq_model_step_recompute_flags(step);
-    }
-
-    return true;
+    (void)track;
+    (void)payload;
+    (void)payload_size;
+    (void)policy;
+    return false;
 }
+#endif
 
 bool seq_project_track_steps_encode(const seq_model_track_t *track,
                                       uint8_t *buffer,
@@ -1043,16 +467,16 @@ bool seq_project_track_steps_decode(seq_model_track_t *track,
         return false;
     }
 
-    switch (version) {
-    case 1U:
-        return decode_track_steps_v1(track, buffer, (uint32_t)buffer_size, policy);
-    case 2U:
-        return decode_track_steps_v2(track, buffer, (uint32_t)buffer_size, policy);
-    default:
-        break;
+#if SEQ_FEATURE_PLOCK_POOL
+    if (version != SEQ_PROJECT_PATTERN_VERSION) {
+        return false;
     }
-
+    return decode_track_steps_plk2(track, buffer, (uint32_t)buffer_size, policy);
+#else
+    (void)version;
+    (void)policy;
     return false;
+#endif
 }
 
 void seq_project_init(seq_project_t *project) {
@@ -1510,7 +934,7 @@ bool seq_pattern_load(uint8_t bank, uint8_t pattern) {
     if (header.magic != SEQ_PROJECT_PATTERN_MAGIC) {
         return false;
     }
-    if ((header.version != 1U) && (header.version != 2U)) {
+    if (header.version != SEQ_PROJECT_PATTERN_VERSION) {
         return false;
     }
 
