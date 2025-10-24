@@ -102,10 +102,10 @@ static int32_t _pool_decode_plock_value(uint8_t value, uint8_t flags) {
     return (int32_t)value;
 }
 
-static inline void _pool_pack_entry_triplet(const seq_plock_entry_t *entry,
-                                            uint8_t *out_id,
-                                            uint8_t *out_val,
-                                            uint8_t *out_flags) {
+static inline void reader_pack_from_pool(const seq_plock_entry_t *entry,
+                                         uint8_t *out_id,
+                                         uint8_t *out_val,
+                                         uint8_t *out_flags) {
     if (out_id != NULL) {
         *out_id = entry->param_id;
     }
@@ -431,12 +431,10 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
         return false;
     }
 
-    const seq_plock_entry_t *entry = seq_plock_pool_get(state->off, state->i);
+    const seq_plock_entry_t *entry = seq_plock_pool_get(state->off, state->i++);
     if (entry == NULL) {
         return false;
     }
-
-    state->i++;
 
     if (param_id != NULL) {
         *param_id = _pool_encode_plock_id(entry->param_id, entry->flags);
@@ -514,7 +512,7 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
         return 0;
     }
 
-    _pool_pack_entry_triplet(entry, out_id, out_val, out_flags);
+    reader_pack_from_pool(entry, out_id, out_val, out_flags);
     return 1;
 }
 #else
