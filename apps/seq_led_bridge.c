@@ -25,6 +25,8 @@
 #include "core/ram_audit.h"
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_ids.h"
+#include "core/seq/seq_plock_pool.h"
+#pragma GCC poison plocks plock_count SEQ_MODEL_MAX_PLOCKS_PER_STEP
 #endif
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -182,19 +184,20 @@ static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
         return;
     }
 
-    seq_reader_pl_it_t it;
-    if (seq_reader_pl_open(&it, step) <= 0) {
-        return;
-    }
+    const uint8_t count = step->pl_ref.count;
+    const uint16_t offset = step->pl_ref.offset;
 
-    uint8_t id = 0U;
-    uint8_t value = 0U;
-    uint8_t flags = 0U;
-    while ((seq_reader_pl_next(&it, &id, &value, &flags) != 0) &&
-           (buffer->count < SEQ_MAX_PLOCKS_PER_STEP)) {
-        buffer->ids[buffer->count] = id;
-        buffer->values[buffer->count] = value;
-        buffer->flags[buffer->count] = flags;
+    for (uint8_t i = 0U; (i < count) && (buffer->count < SEQ_MAX_PLOCKS_PER_STEP); ++i) {
+        const uint16_t absolute = (uint16_t)(offset + i);
+        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        if (entry == NULL) {
+            _seq_led_bridge_plock_flag_error();
+            break;
+        }
+
+        buffer->ids[buffer->count] = entry->param_id;
+        buffer->values[buffer->count] = entry->value;
+        buffer->flags[buffer->count] = entry->flags;
         buffer->count++;
     }
 }
@@ -709,22 +712,25 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
     }
 
 #if SEQ_FEATURE_PLOCK_POOL
-    seq_reader_pl_it_t it;
-    if (seq_reader_pl_open(&it, step) <= 0) {
-        return fallback;
-    }
+    const uint8_t count = step->pl_ref.count;
+    const uint16_t offset = step->pl_ref.offset;
 
-    uint8_t id = 0U;
-    uint8_t stored_value = 0U;
-    uint8_t flags = 0U;
-    while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
-        if ((flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+    for (uint8_t i = 0U; i < count; ++i) {
+        const uint16_t absolute = (uint16_t)(offset + i);
+        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        if ((entry == NULL) ||
+            ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
             continue;
         }
         seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
         uint8_t target_voice = 0U;
         int32_t decoded = 0;
-        if (!_seq_led_bridge_decode_internal(id, stored_value, flags, &param, &target_voice, &decoded)) {
+        if (!_seq_led_bridge_decode_internal(entry->param_id,
+                                             entry->value,
+                                             entry->flags,
+                                             &param,
+                                             &target_voice,
+                                             &decoded)) {
             continue;
         }
         if ((param == SEQ_MODEL_PLOCK_PARAM_NOTE) && (target_voice == voice)) {
@@ -1053,29 +1059,34 @@ static void _hold_collect_step(const seq_model_step_t *step,
         values[pid] = plk->value;
     }
 #else
-    seq_reader_pl_it_t it;
-    if (seq_reader_pl_open(&it, step) > 0) {
-        uint8_t id = 0U;
-        uint8_t stored_value = 0U;
-        uint8_t flags = 0U;
-        while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
-            if ((flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
-                continue;
-            }
-            seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
-            uint8_t voice = 0U;
-            int32_t decoded = 0;
-            if (!_seq_led_bridge_decode_internal(id, stored_value, flags, &param, &voice, &decoded)) {
-                continue;
-            }
-            const seq_hold_param_id_t pid = _hold_param_for_internal(param, voice);
-            if (pid >= SEQ_HOLD_PARAM_COUNT) {
-                continue;
-            }
-            present[pid] = true;
-            plocked[pid] = true;
-            values[pid] = decoded;
+    const uint8_t count = step->pl_ref.count;
+    const uint16_t offset = step->pl_ref.offset;
+
+    for (uint8_t i = 0U; i < count; ++i) {
+        const uint16_t absolute = (uint16_t)(offset + i);
+        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        if ((entry == NULL) ||
+            ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
+            continue;
         }
+        seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
+        uint8_t voice = 0U;
+        int32_t decoded = 0;
+        if (!_seq_led_bridge_decode_internal(entry->param_id,
+                                             entry->value,
+                                             entry->flags,
+                                             &param,
+                                             &voice,
+                                             &decoded)) {
+            continue;
+        }
+        const seq_hold_param_id_t pid = _hold_param_for_internal(param, voice);
+        if (pid >= SEQ_HOLD_PARAM_COUNT) {
+            continue;
+        }
+        present[pid] = true;
+        plocked[pid] = true;
+        values[pid] = decoded;
     }
 #endif
 }
@@ -1106,35 +1117,43 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
         }
     }
 #else
-    seq_reader_pl_it_t it;
-    if (seq_reader_pl_open(&it, step) > 0) {
-        uint8_t id = 0U;
-        uint8_t stored_value = 0U;
-        uint8_t flags = 0U;
-        while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
-            if ((flags & k_seq_led_bridge_pl_flag_domain_cart) == 0U && !pl_is_cart(id)) {
-                continue;
-            }
-            uint16_t param_id = 0U;
-            uint8_t track = 0U;
-            uint8_t encoded_value = 0U;
-            if (!_seq_led_bridge_decode_cart(id, flags, stored_value, &param_id, &track, &encoded_value)) {
-                continue;
-            }
-            (void)track;
-            seq_led_bridge_hold_cart_entry_t *entry =
-                _hold_cart_entry_get(param_id, true);
-            if (entry == NULL) {
-                continue;
-            }
-            entry->match_count++;
-            if (!entry->view.available) {
-                entry->view.available = true;
-                entry->view.value = encoded_value;
-                entry->view.mixed = false;
-            } else if (entry->view.value != encoded_value) {
-                entry->view.mixed = true;
-            }
+    const uint8_t count = step->pl_ref.count;
+    const uint16_t offset = step->pl_ref.offset;
+
+    for (uint8_t i = 0U; i < count; ++i) {
+        const uint16_t absolute = (uint16_t)(offset + i);
+        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        if (entry == NULL) {
+            continue;
+        }
+        if (((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) == 0U) && !pl_is_cart(entry->param_id)) {
+            continue;
+        }
+
+        uint16_t param_id = 0U;
+        uint8_t track = 0U;
+        uint8_t encoded_value = 0U;
+        if (!_seq_led_bridge_decode_cart(entry->param_id,
+                                         entry->flags,
+                                         entry->value,
+                                         &param_id,
+                                         &track,
+                                         &encoded_value)) {
+            continue;
+        }
+        (void)track;
+        seq_led_bridge_hold_cart_entry_t *cart_entry =
+            _hold_cart_entry_get(param_id, true);
+        if (cart_entry == NULL) {
+            continue;
+        }
+        cart_entry->match_count++;
+        if (!cart_entry->view.available) {
+            cart_entry->view.available = true;
+            cart_entry->view.value = encoded_value;
+            cart_entry->view.mixed = false;
+        } else if (cart_entry->view.value != encoded_value) {
+            cart_entry->view.mixed = true;
         }
     }
 #endif
@@ -1666,7 +1685,12 @@ void seq_led_bridge_step_set_has_plock(uint8_t i, bool on) {
             mutated = true;
         }
     }
-#if !SEQ_FEATURE_PLOCK_POOL
+#if SEQ_FEATURE_PLOCK_POOL
+    else if (step->pl_ref.count > 0U) {
+        seq_model_step_clear_plocks(step);
+        mutated = true;
+    }
+#else
     else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
@@ -1724,7 +1748,12 @@ void seq_led_bridge_set_step_param_only(uint8_t i, bool on) {
             mutated = true;
         }
     }
-#if !SEQ_FEATURE_PLOCK_POOL
+#if SEQ_FEATURE_PLOCK_POOL
+    else if (step->pl_ref.count > 0U) {
+        seq_model_step_clear_plocks(step);
+        mutated = true;
+    }
+#else
     else if (step->plock_count > 0U) {
         seq_model_step_clear_plocks(step);
         mutated = true;
