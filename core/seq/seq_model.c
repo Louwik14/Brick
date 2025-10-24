@@ -134,27 +134,6 @@ bool seq_model_step_set_voice(seq_model_step_t *step, size_t voice_index, const 
     return true;
 }
 
-#if !SEQ_FEATURE_PLOCK_POOL
-bool seq_model_step_add_plock(seq_model_step_t *step, const seq_model_plock_t *plock) {
-    if ((step == NULL) || (plock == NULL)) {
-        return false;
-    }
-
-    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
-        return false;
-    }
-
-    if (plock->voice_index >= SEQ_MODEL_VOICES_PER_STEP) {
-        return false;
-    }
-
-    step->plocks[step->plock_count] = *plock;
-    ++step->plock_count;
-    seq_model_step_recompute_flags(step);
-    return true;
-}
-#endif
-
 void seq_model_step_clear_plocks(seq_model_step_t *step) {
     if (step == NULL) {
         return;
@@ -173,33 +152,6 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
         seq_model_step_recompute_flags(step);
     }
 }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-bool seq_model_step_remove_plock(seq_model_step_t *step, size_t index) {
-    if ((step == NULL) || (index >= step->plock_count)) {
-        return false;
-    }
-
-    for (size_t i = index; i + 1U < step->plock_count; ++i) {
-        step->plocks[i] = step->plocks[i + 1U];
-    }
-    memset(&step->plocks[step->plock_count - 1U], 0, sizeof(seq_model_plock_t));
-    --step->plock_count;
-    seq_model_step_recompute_flags(step);
-    return true;
-}
-#endif
-
-#if !SEQ_FEATURE_PLOCK_POOL
-bool seq_model_step_get_plock(const seq_model_step_t *step, size_t index, seq_model_plock_t *out) {
-    if ((step == NULL) || (index >= step->plock_count) || (out == NULL)) {
-        return false;
-    }
-
-    *out = step->plocks[index];
-    return true;
-}
-#endif
 
 void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_offsets_t *offsets) {
     if ((step == NULL) || (offsets == NULL)) {
@@ -244,16 +196,6 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
     return step->plock_count > 0U;
 #endif
 }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-uint8_t seq_model_step_plock_count(const seq_model_step_t *step) {
-    if (step == NULL) {
-        return 0U;
-    }
-
-    return step->plock_count;
-}
-#endif
 
 bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
     if (step == NULL) {

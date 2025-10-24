@@ -708,8 +708,38 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
         return fallback;
     }
 
+#if SEQ_FEATURE_PLOCK_POOL
+    seq_reader_pl_it_t it;
+    if (seq_reader_pl_open(&it, step) <= 0) {
+        return fallback;
+    }
+
+    uint8_t id = 0U;
+    uint8_t stored_value = 0U;
+    uint8_t flags = 0U;
+    while (seq_reader_pl_next(&it, &id, &stored_value, &flags) != 0) {
+        if ((flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+            continue;
+        }
+        seq_model_plock_internal_param_t param = SEQ_MODEL_PLOCK_PARAM_NOTE;
+        uint8_t target_voice = 0U;
+        int32_t decoded = 0;
+        if (!_seq_led_bridge_decode_internal(id, stored_value, flags, &param, &target_voice, &decoded)) {
+            continue;
+        }
+        if ((param == SEQ_MODEL_PLOCK_PARAM_NOTE) && (target_voice == voice)) {
+            if (decoded < 0) {
+                decoded = 0;
+            } else if (decoded > 127) {
+                decoded = 127;
+            }
+            return (uint8_t)decoded;
+        }
+    }
+
+    return fallback;
+#else
     (void)voice;
-#if !SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->plock_count; ++i) {
         const seq_model_plock_t *plk = &step->plocks[i];
         if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
@@ -1278,7 +1308,10 @@ static bool _ensure_internal_plock_value(seq_model_step_t *step,
         .internal_param = param
     };
 
-    return seq_model_step_add_plock(step, &plock);
+    seq_model_plock_t *slot = &step->plocks[step->plock_count];
+    *slot = plock;
+    step->plock_count++;
+    return true;
 #endif
 }
 
@@ -1321,7 +1354,10 @@ static bool _ensure_cart_plock_value(seq_model_step_t *step,
         .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
     };
 
-    return seq_model_step_add_plock(step, &plock);
+    seq_model_plock_t *slot = &step->plocks[step->plock_count];
+    *slot = plock;
+    step->plock_count++;
+    return true;
 #endif
 }
 
