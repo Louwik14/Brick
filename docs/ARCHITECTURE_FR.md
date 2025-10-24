@@ -260,14 +260,14 @@ SEQ
 La sérialisation de piste conserve le flux legacy (en-tête de step, voix, offsets) utilisé depuis P7. Lorsque `SEQ_FEATURE_PLOCK_POOL==1`, chaque step effectivement persisté ajoute un chunk optionnel `PLK2` immédiatement après les données legacy.
 
 * **Tag** : quatre octets ASCII `"PLK2"`.
-* **Compteur** : un octet `count` (0..255). Si `count==0`, aucun chunk n'est émis pour le step.
+* **Compteur** : un octet `count` (`0..SEQ_MAX_PLOCKS_PER_STEP`, soit ≤20). Si `count==0`, aucun chunk n'est émis pour le step ; une valeur supérieure déclenche un warning, le chunk est ignoré et le step reste sans p-locks.
 * **Payload** : `count × 3` octets, séquence `{param_id, value, flags}` pour chaque entrée, dans l'ordre du pool (identique à l'itérateur Reader).
 
 Les valeurs stockées sont déjà compactées en `uint8_t` (`pl_u8_from_s8()` appliqué à l'entrée dans le pool). Le flux reste compatible avec les sauvegardes existantes, et l'API host `seq_codec_write_track_with_plk2()` retourne le nombre d'octets écrits ou `-1` en cas de buffer insuffisant et permet de désactiver l'émission du chunk (`enable_plk2=0`) pour les tests de régression.
 
 En lecture (P8c), le décodeur privilégie désormais `PLK2` lorsqu'il est présent après les données legacy du step :
 
-* **Flag `SEQ_FEATURE_PLOCK_POOL==1`** : le chunk est reconstruit dans le pool (`seq_plock_pool_alloc()`), puis `step->pl_ref {offset,count}` est renseigné. En cas d'OOM, le loader journalise un avertissement, laisse `pl_ref={0,0}` et poursuit la piste.
+* **Flag `SEQ_FEATURE_PLOCK_POOL==1`** : le chunk est reconstruit dans le pool (`seq_plock_pool_alloc()`), puis `step->pl_ref {offset,count}` est renseigné. En cas d'OOM ou de `count` hors borne, le loader journalise un avertissement, laisse `pl_ref={0,0}` et poursuit la piste.
 * **Flag `SEQ_FEATURE_PLOCK_POOL==0`** : le chunk est simplement sauté ; le flux legacy (per-step array) reste la seule source de p-locks.
 * **Fallback legacy** : si aucun chunk n'est trouvé — ou si le chunk est invalide (troncature, count incohérent) — le loader retombe sur la lecture historique. Lorsque le pool est actif, le step reste sans p-locks si la sauvegarde ne contient que `PLK2`.
 * **Ordre garanti** : les entrées sont remises dans le pool exactement dans l'ordre encodé par `PLK2`, ce qui aligne l'itérateur Reader sur l'écriture (`seq_plock_pool_get(off,i)`).
