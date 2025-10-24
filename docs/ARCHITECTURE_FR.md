@@ -186,7 +186,7 @@ SEQ
 4. Les steps verts (actifs ou contenant des p-locks SEQ) conservent leur note et leur vélocité (`seq_model_step_make_neutral()`), les steps bleus (automation pure) ont vélocité voix1 = 0.
 5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback.
 6. **Writers pooled** : QuickStep/Hold collecte pour chaque step ≤ `SEQ_MAX_PLOCKS_PER_STEP` triplets `{id,val,flags}` (dernier gagnant sur doublon) avant de lancer un unique `seq_model_step_set_plocks_pooled(...)`. En cas d’OOM, le snapshot du step est restauré, un warning est journalisé (stderr côté host) et le multi-hold reste best-effort (les steps appliqués conservent leur mutation, ceux en échec sont ignorés).
-7. **Reader pool-first** : la LED bridge lit d’abord le pool (`pl_ref`) pour refléter l’état p-locké (libellés inversés, multi-hold `—`, handlers All harmonisés). Les writers restent côté cold/UI ; Reader et Runner demeurent hot-only conformément au split défini dans la passe précédente.
+7. **Reader pool-only** : quand `SEQ_FEATURE_PLOCK_POOL=1`, la LED bridge lit exclusivement le pool (`pl_ref`) pour refléter l’état p-locké (libellés inversés, multi-hold `—`, handlers All harmonisés). Les writers restent côté cold/UI ; Reader et Runner demeurent hot-only conformément au split défini dans la passe précédente. Le chemin legacy (`step->plocks[]`) n’est conservé qu’en build sans pool.
 
 ### 4.3 Lecture et classification
 * `seq_led_bridge_publish()` agrège la track active et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.【F:apps/seq_led_bridge.c†L824-L889】
