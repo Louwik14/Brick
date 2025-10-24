@@ -1,3 +1,101 @@
+Résumé exécutif
+
+    Les macros pool sont présentes et l’offset 16 bits est garanti, mais SEQ_FEATURE_PLOCK_POOL_STORAGE reste à 0 tant que la cible n’appelle pas fw-pooled, et la limite 24 p-locks/UI n’est pas alignée sur les 20 attendus.
+
+La sérialisation PLK2 émet/charge le triplet {id,val,flags} dans l’ordre du pool avec warnings sur les anomalies, mais les erreurs de decode ne sont pas propagées au chargeur.
+
+Le Reader passe bien par le pool avant le chemin legacy et ne re-décode plus en 32 bits.
+
+Les writers UI/Live dédupliquent et commitent en un appel, mais le tampon UI reste dimensionné à 24 et la piscine ne possède aucun reset runtime, ce qui risque une croissance monotone.
+
+Les reliques legacy sont confinées derrière #if !SEQ_FEATURE_PLOCK_POOL et protégées par #pragma poison, mais le flag SEQ_PROJECT_LEGACY_CODEC n’existe pas encore.
+
+Côté hot/cold, aucun apps/ n’inclut ch.h, les buffers hold restent hors .ram4 et les audits CCRAM sont toujours actifs.
+1) Flags & configuration “pool”
+
+    Constat code. SEQ_FEATURE_PLOCK_POOL et les bornes piste/step/20 p-locks sont posés dans seq_config.h; la piscine statique s_pool[] + _Static_assert 16 bits sont en place, mais SEQ_FEATURE_PLOCK_POOL_STORAGE n’est monté à 1 que via la cible fw-pooled et SEQ_MODEL_MAX_PLOCKS_PER_STEP reste à 24 (tampons UI/Live idem).
+
+Référence attendue. Les docs exigent activation par défaut (SEQ_FEATURE_PLOCK_POOL{,_STORAGE}=1), refs 3 o (offset,count) et ≤ 20 p-locks/step.
+
+Écart / risque. Build générique sans cible dédiée compile avec le stockage OFF, les buffers acceptent 24 entrées et la capacité calculée (×20) peut être dépassée silencieusement. SEQ_PROJECT_LEGACY_CODEC n’existe pas pour verrouiller l’ancien flux.
+
+    Recommandation. Définir SEQ_FEATURE_PLOCK_POOL_STORAGE=1 dans la config firmware par défaut, ramener SEQ_MODEL_MAX_PLOCKS_PER_STEP (et les buffers UI/Live) à SEQ_MAX_PLOCKS_PER_STEP, introduire le flag SEQ_PROJECT_LEGACY_CODEC pour contrôler explicitement l’ancien codec.
+
+2) Sérialisation PLK2
+
+    Constat code. L’encodeur écrit PLK2 + count + triplets issus du pool, les décodeurs vérifient taille, max=20, OOM et injectent via seq_plock_pool_alloc/get, laissant pl_ref={0,0} sur erreur.
+
+Référence attendue. PLK2 doit suivre la spéc (count u8, triplets, ordre encode=ordre Reader, warning sur invalides, OOM → warn + pl_ref nul).
+
+Écart / risque. Les résultats PLK2_DECODE_* sont ignorés : le chargeur poursuit même après OOM/invalid, sans remonter de statut ou rollback global.
+
+    Recommandation. Propager le statut de decode_plk2_chunk au chargeur (trace + traitement policy), et envisager un reset piscine lors du chargement d’un track/pattern pour éviter la dérive cumulative.
+
+3) Reader pool-first
+
+    Constat code. seq_reader_plock_iter_open/next basculent vers seq_plock_pool_get(off,i) dès que pl_ref.count>0; sinon le chemin legacy reste disponible. Aucun remap/tri supplémentaire ni élargissement 32 bits.
+
+Référence attendue. Reader hot-only consommant d’abord le pool et respectant l’ordre PLK2.
+
+    Écart / risque. RAS fonctionnellement ; seul subsiste le fallback legacy pour les builds sans pool.
+
+    Recommandation. Garder ce chemin en l’état mais prévoir, côté tests, une couverture d’itération mixte (steps sans p-locks) pour verrouiller la priorité pool.
+
+4) Writers UI / Live Rec
+
+    Constat code. Les buffers collectent via le Reader, dédupliquent “dernier gagnant”, limitent la taille, et un seul appel seq_model_step_set_plocks_pooled commit (avec rollback snapshot + warn sur OOM).
+
+Référence attendue. Writers pooled, multi-hold best-effort, aucun drop NOTE_OFF/CC123, OOM → warn + rollback.
+
+Écart / risque. Les tampons autorisent 24 entrées, dépassant la limite doc et la capacité pool calculée, et seq_model_step_set_plocks_pooled ne libère jamais les blocs lorsque le nombre change : la piscine ne reset pas durant l’usage (aucun appel hors tests), menant à un remplissage monotone.
+
+    Recommandation. Réduire les buffers à 20, faire appliquer cette borne dans seq_model_step_set_plocks_pooled, et introduire un seq_plock_pool_reset() lors des resets projet/track pour éviter la fuite monotone.
+
+5) Reliques legacy & “poison”
+
+    Constat code. Les fonctions legacy (add/remove/get, plock_count) ne sont compilées que quand le pool est OFF et sont marquées #pragma GCC poison; les codecs decode_track_steps_v1/v2 sont toujours présents pour compat V1/V2.
+
+Référence attendue. Migration progressive avec poison limité aux APIs legacy.
+
+    Écart / risque. Absence de SEQ_PROJECT_LEGACY_CODEC complique la désactivation explicite de la voie héritée.
+
+    Recommandation. Introduire le flag manquant pour conditionner clairement la voie legacy (et documenter l’état dans ARCHITECTURE_FR.md).
+
+6) Barrière hot/cold et dépendances UI
+
+    Constat code. Aucun fichier apps/ n’inclut ch.h; le pont LED manipule des snapshots + Reader, hold slots placés via macro neutre (CCM_DATA redéfini vide) ; pas d’appel seq_runtime_cold_* ni d’accès direct cold dans le tick UI.
+
+Référence attendue. UI Reader-only, pas de RTOS côté apps, CCRAM neutralisée.
+
+    Écart / risque. RAS identifié ; les pointeurs track restent obtenus via la façade seq_access.
+
+    Recommandation. Continuer à limiter les includes UI à seq_access.h et surveiller les accès à g.track (penser à la future façade handles cold/hot).
+
+7) RAM/sections (inspection déclarative)
+
+    Constat code. Les symboles hold/cart sont en SRAM standard (CCM_DATA vide), aucune annotation .ram4; les scripts d’audit CCRAM restent fournis et valident VMA/NOLOAD via tools/check_ccram.py & tools/audit/*.
+
+Référence attendue. .ram4 neutralisée, audits actifs, budget hot surveillé.
+
+    Écart / risque. Aucun : la section .ram4 est toujours vide par design.
+
+    Recommandation. Conserver les audits NOLOAD et, à la prochaine passe mémoire, documenter tout éventuel retour en CCRAM.
+
+Conclusion
+
+Le socle pool/PLK2 est opérationnel (encode/Reader/Writers) mais plusieurs verrous restent ouverts : activation storage dépendante du build, buffers 24 entrées, absence de reset piscine et statut decode PLK2 silencieux. Les prochaines passes devraient (i) fixer la config par défaut (pool storage + bornes 20), (ii) ajouter un cycle de vie clair pour la piscine (reset sur load/clear), (iii) exposer le flag SEQ_PROJECT_LEGACY_CODEC, puis (iv) renforcer la détection d’erreurs PLK2. Propositions de passes :
+
+    Pass A : aligner les bornes (20) + reset piscine + statut decode.
+
+    Pass B : introduire le flag legacy codec et mettre à jour la doc/CI.
+
+    Pass C : audit de long terme (soak) pour valider absence de fuite après reset.
+
+Suggestion doc. Ajouter dans ARCHITECTURE_FR.md une note temporaire rappelant que SEQ_FEATURE_PLOCK_POOL_STORAGE reste désactivé tant que la cible legacy est supportée et qu’un reset piscine est requis à chaque load, afin d’aligner la spec sur l’état actuel jusqu’à correction.
+
+Aucun test ni build exécuté (conformément au mandat)
+
+
 1. Résumé exécutif
 
 Verdict : suppression totale du legacy = KO. Deux blocs bloquent le cutover PLK2-only / pool-only :
