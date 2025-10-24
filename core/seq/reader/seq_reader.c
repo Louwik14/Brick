@@ -26,6 +26,12 @@ typedef struct {
     uint8_t count;
     uint8_t i;
 } seq_reader_plock_iter_state_t;
+
+typedef struct {
+    uint8_t param_id;
+    uint8_t value;
+    uint8_t flags;
+} seq_reader_plock_item_t;
 #else
 typedef struct {
     const seq_model_plock_t *plocks;
@@ -103,18 +109,14 @@ static int32_t _pool_decode_plock_value(uint8_t value, uint8_t flags) {
 }
 
 static inline void reader_pack_from_pool(const seq_plock_entry_t *entry,
-                                         uint8_t *out_id,
-                                         uint8_t *out_val,
-                                         uint8_t *out_flags) {
-    if (out_id != NULL) {
-        *out_id = entry->param_id;
+                                         seq_reader_plock_item_t *out) {
+    if ((entry == NULL) || (out == NULL)) {
+        return;
     }
-    if (out_val != NULL) {
-        *out_val = entry->value;
-    }
-    if (out_flags != NULL) {
-        *out_flags = entry->flags;
-    }
+
+    out->param_id = entry->param_id;
+    out->value = entry->value;
+    out->flags = entry->flags;
 }
 
 #else
@@ -416,6 +418,10 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
     const seq_model_step_t *step_model = &track->steps[step];
     s_plock_iter_state.off = step_model->pl_ref.offset;
     s_plock_iter_state.count = step_model->pl_ref.count;
+    if (s_plock_iter_state.count == 0U) {
+        it->_opaque = NULL;
+        return false;
+    }
     s_plock_iter_state.i = 0U;
     it->_opaque = &s_plock_iter_state;
     return true;
@@ -436,11 +442,14 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
         return false;
     }
 
+    seq_reader_plock_item_t item;
+    reader_pack_from_pool(entry, &item);
+
     if (param_id != NULL) {
-        *param_id = _pool_encode_plock_id(entry->param_id, entry->flags);
+        *param_id = _pool_encode_plock_id(item.param_id, item.flags);
     }
     if (value != NULL) {
-        *value = _pool_decode_plock_value(entry->value, entry->flags);
+        *value = _pool_decode_plock_value(item.value, item.flags);
     }
     return true;
 }
@@ -512,7 +521,18 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
         return 0;
     }
 
-    reader_pack_from_pool(entry, out_id, out_val, out_flags);
+    seq_reader_plock_item_t item;
+    reader_pack_from_pool(entry, &item);
+
+    if (out_id != NULL) {
+        *out_id = item.param_id;
+    }
+    if (out_val != NULL) {
+        *out_val = item.value;
+    }
+    if (out_flags != NULL) {
+        *out_flags = item.flags;
+    }
     return 1;
 }
 #else

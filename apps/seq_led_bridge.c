@@ -1967,7 +1967,6 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             _seq_led_bridge_plock_clear_error();
             continue;
         }
-#if SEQ_FEATURE_PLOCK_POOL
         if (buffer_mutated) {
             if (!_seq_led_bridge_commit_plock_buffer(step, &buffer)) {
                 if (slot != NULL) {
@@ -1983,8 +1982,6 @@ void seq_led_bridge_apply_plock_param(seq_hold_param_id_t param_id,
             }
             _seq_led_bridge_plock_clear_error();
         }
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
         step_mutated |= buffer_mutated;
 #endif
         if (step_mutated) {
