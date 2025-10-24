@@ -22,9 +22,9 @@ enum {
 
 #if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
-    uint16_t offset;
+    uint16_t off;
     uint8_t count;
-    uint8_t index;
+    uint8_t i;
 } seq_reader_plock_iter_state_t;
 #else
 typedef struct {
@@ -100,6 +100,21 @@ static int32_t _pool_decode_plock_value(uint8_t value, uint8_t flags) {
         return (int32_t)pl_s8_from_u8(value);
     }
     return (int32_t)value;
+}
+
+static inline void _pool_pack_entry_triplet(const seq_plock_entry_t *entry,
+                                            uint8_t *out_id,
+                                            uint8_t *out_val,
+                                            uint8_t *out_flags) {
+    if (out_id != NULL) {
+        *out_id = entry->param_id;
+    }
+    if (out_val != NULL) {
+        *out_val = entry->value;
+    }
+    if (out_flags != NULL) {
+        *out_flags = entry->flags;
+    }
 }
 
 #else
@@ -399,9 +414,9 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
     }
 
     const seq_model_step_t *legacy_step = &track->steps[step];
-    s_plock_iter_state.offset = legacy_step->pl_ref.offset;
+    s_plock_iter_state.off = legacy_step->pl_ref.offset;
     s_plock_iter_state.count = legacy_step->pl_ref.count;
-    s_plock_iter_state.index = 0U;
+    s_plock_iter_state.i = 0U;
     it->_opaque = &s_plock_iter_state;
     return true;
 }
@@ -412,16 +427,16 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
     }
 
     seq_reader_plock_iter_state_t *state = (seq_reader_plock_iter_state_t *)it->_opaque;
-    if (state->index >= state->count) {
+    if (state->i >= state->count) {
         return false;
     }
 
-    const seq_plock_entry_t *entry = seq_plock_pool_get(state->offset, state->index);
+    const seq_plock_entry_t *entry = seq_plock_pool_get(state->off, state->i);
     if (entry == NULL) {
         return false;
     }
 
-    state->index++;
+    state->i++;
 
     if (param_id != NULL) {
         *param_id = _pool_encode_plock_id(entry->param_id, entry->flags);
@@ -499,15 +514,7 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
         return 0;
     }
 
-    if (out_id != NULL) {
-        *out_id = entry->param_id;
-    }
-    if (out_val != NULL) {
-        *out_val = entry->value;
-    }
-    if (out_flags != NULL) {
-        *out_flags = entry->flags;
-    }
+    _pool_pack_entry_triplet(entry, out_id, out_val, out_flags);
     return 1;
 }
 #else
