@@ -27,6 +27,13 @@
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_plock_pool.h"
 #pragma GCC poison plocks plock_count SEQ_MODEL_MAX_PLOCKS_PER_STEP
+static inline uint8_t _pool_count(const seq_model_step_t *s) {
+    return s->pl_ref.count;
+}
+
+static inline const seq_plock_entry_t *_pool_entry(const seq_model_step_t *s, uint8_t i) {
+    return seq_plock_pool_get((uint16_t)(s->pl_ref.offset + i), 0U);
+}
 #endif
 
 #ifdef BRICK_DEBUG_PLOCK
@@ -184,12 +191,10 @@ static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
         return;
     }
 
-    const uint8_t count = step->pl_ref.count;
-    const uint16_t offset = step->pl_ref.offset;
+    const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; (i < count) && (buffer->count < SEQ_MAX_PLOCKS_PER_STEP); ++i) {
-        const uint16_t absolute = (uint16_t)(offset + i);
-        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        const seq_plock_entry_t *entry = _pool_entry(step, i);
         if (entry == NULL) {
             _seq_led_bridge_plock_flag_error();
             break;
@@ -712,12 +717,10 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
     }
 
 #if SEQ_FEATURE_PLOCK_POOL
-    const uint8_t count = step->pl_ref.count;
-    const uint16_t offset = step->pl_ref.offset;
+    const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const uint16_t absolute = (uint16_t)(offset + i);
-        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        const seq_plock_entry_t *entry = _pool_entry(step, i);
         if ((entry == NULL) ||
             ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
             continue;
@@ -1059,12 +1062,10 @@ static void _hold_collect_step(const seq_model_step_t *step,
         values[pid] = plk->value;
     }
 #else
-    const uint8_t count = step->pl_ref.count;
-    const uint16_t offset = step->pl_ref.offset;
+    const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const uint16_t absolute = (uint16_t)(offset + i);
-        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        const seq_plock_entry_t *entry = _pool_entry(step, i);
         if ((entry == NULL) ||
             ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
             continue;
@@ -1117,12 +1118,10 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
         }
     }
 #else
-    const uint8_t count = step->pl_ref.count;
-    const uint16_t offset = step->pl_ref.offset;
+    const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const uint16_t absolute = (uint16_t)(offset + i);
-        const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
+        const seq_plock_entry_t *entry = _pool_entry(step, i);
         if (entry == NULL) {
             continue;
         }
