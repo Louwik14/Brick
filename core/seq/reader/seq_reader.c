@@ -20,19 +20,89 @@ enum {
     k_seq_reader_plock_internal_voice_shift = 8U,
 };
 
-typedef struct {
-    const seq_model_plock_t *plocks;
 #if SEQ_FEATURE_PLOCK_POOL
-    uint16_t pool_offset;
-    uint8_t use_pool;
-#endif
+typedef struct {
+    uint16_t offset;
     uint8_t count;
     uint8_t index;
 } seq_reader_plock_iter_state_t;
+#else
+typedef struct {
+    const seq_model_plock_t *plocks;
+    uint8_t count;
+    uint8_t index;
+} seq_reader_plock_iter_state_t;
+#endif
 
 static seq_reader_plock_iter_state_t s_plock_iter_state;
 
-#if !SEQ_FEATURE_PLOCK_POOL
+#if SEQ_FEATURE_PLOCK_POOL
+static seq_model_plock_internal_param_t _pool_internal_param_from_id(uint8_t id) {
+    if ((id >= PL_INT_NOTE_V0) && (id <= PL_INT_NOTE_V3)) {
+        return SEQ_MODEL_PLOCK_PARAM_NOTE;
+    }
+    if ((id >= PL_INT_VEL_V0) && (id <= PL_INT_VEL_V3)) {
+        return SEQ_MODEL_PLOCK_PARAM_VELOCITY;
+    }
+    if ((id >= PL_INT_LEN_V0) && (id <= PL_INT_LEN_V3)) {
+        return SEQ_MODEL_PLOCK_PARAM_LENGTH;
+    }
+    if ((id >= PL_INT_MIC_V0) && (id <= PL_INT_MIC_V3)) {
+        return SEQ_MODEL_PLOCK_PARAM_MICRO;
+    }
+
+    switch (id) {
+        case PL_INT_ALL_TRANSP:
+            return SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR;
+        case PL_INT_ALL_VEL:
+            return SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE;
+        case PL_INT_ALL_LEN:
+            return SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE;
+        case PL_INT_ALL_MIC:
+            return SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI;
+        default:
+            break;
+    }
+
+    return SEQ_MODEL_PLOCK_PARAM_NOTE;
+}
+
+static uint8_t _pool_internal_voice_from_id(uint8_t id, uint8_t flags) {
+    if ((id >= PL_INT_NOTE_V0) && (id <= PL_INT_NOTE_V3)) {
+        return (uint8_t)(id - PL_INT_NOTE_V0);
+    }
+    if ((id >= PL_INT_VEL_V0) && (id <= PL_INT_VEL_V3)) {
+        return (uint8_t)(id - PL_INT_VEL_V0);
+    }
+    if ((id >= PL_INT_LEN_V0) && (id <= PL_INT_LEN_V3)) {
+        return (uint8_t)(id - PL_INT_LEN_V0);
+    }
+    if ((id >= PL_INT_MIC_V0) && (id <= PL_INT_MIC_V3)) {
+        return (uint8_t)(id - PL_INT_MIC_V0);
+    }
+
+    return (uint8_t)((flags & SEQ_READER_PL_FLAG_VOICE_MASK) >> SEQ_READER_PL_FLAG_VOICE_SHIFT);
+}
+
+static uint16_t _pool_encode_plock_id(uint8_t param_id, uint8_t flags) {
+    if (pl_is_cart(param_id) || ((flags & SEQ_READER_PL_FLAG_DOMAIN_CART) != 0U)) {
+        return (uint16_t)param_id;
+    }
+
+    const uint8_t voice = _pool_internal_voice_from_id(param_id, flags) & 0x03U;
+    const seq_model_plock_internal_param_t param = _pool_internal_param_from_id(param_id);
+    const uint16_t voice_bits = ((uint16_t)voice) << k_seq_reader_plock_internal_voice_shift;
+    return (uint16_t)(k_seq_reader_plock_internal_flag | voice_bits | (uint16_t)param);
+}
+
+static int32_t _pool_decode_plock_value(uint8_t value, uint8_t flags) {
+    if ((flags & SEQ_READER_PL_FLAG_SIGNED) != 0U) {
+        return (int32_t)pl_s8_from_u8(value);
+    }
+    return (int32_t)value;
+}
+
+#else
 static int16_t _clamp_i16(int16_t value, int16_t min_value, int16_t max_value) {
     if (value < min_value) {
         return min_value;
@@ -316,6 +386,52 @@ bool seq_reader_count_step_voices(seq_track_handle_t h, uint8_t step, uint8_t *o
     return true;
 }
 
+#if SEQ_FEATURE_PLOCK_POOL
+bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
+    if (it == NULL) {
+        return false;
+    }
+
+    const seq_model_track_t *track = _resolve_legacy_track(h);
+    if ((track == NULL) || (step >= SEQ_MODEL_STEPS_PER_TRACK)) {
+        it->_opaque = NULL;
+        return false;
+    }
+
+    const seq_model_step_t *legacy_step = &track->steps[step];
+    s_plock_iter_state.offset = legacy_step->pl_ref.offset;
+    s_plock_iter_state.count = legacy_step->pl_ref.count;
+    s_plock_iter_state.index = 0U;
+    it->_opaque = &s_plock_iter_state;
+    return true;
+}
+
+bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_t *value) {
+    if ((it == NULL) || (it->_opaque == NULL)) {
+        return false;
+    }
+
+    seq_reader_plock_iter_state_t *state = (seq_reader_plock_iter_state_t *)it->_opaque;
+    if (state->index >= state->count) {
+        return false;
+    }
+
+    const seq_plock_entry_t *entry = seq_plock_pool_get(state->offset, state->index);
+    if (entry == NULL) {
+        return false;
+    }
+
+    state->index++;
+
+    if (param_id != NULL) {
+        *param_id = _pool_encode_plock_id(entry->param_id, entry->flags);
+    }
+    if (value != NULL) {
+        *value = _pool_decode_plock_value(entry->value, entry->flags);
+    }
+    return true;
+}
+#else
 bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
     if (it == NULL) {
         return false;
@@ -330,16 +446,6 @@ bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_it
     const seq_model_step_t *legacy_step = &track->steps[step];
     s_plock_iter_state.plocks = legacy_step->plocks;
     s_plock_iter_state.count = legacy_step->plock_count;
-#if SEQ_FEATURE_PLOCK_POOL
-    s_plock_iter_state.use_pool = 0U;
-    s_plock_iter_state.pool_offset = 0U;
-    if (legacy_step->pl_ref.count > 0U) {
-        s_plock_iter_state.plocks = NULL;
-        s_plock_iter_state.count = legacy_step->pl_ref.count;
-        s_plock_iter_state.use_pool = 1U;
-        s_plock_iter_state.pool_offset = legacy_step->pl_ref.offset;
-    }
-#endif
     s_plock_iter_state.index = 0U;
     it->_opaque = &s_plock_iter_state;
     return true;
@@ -351,35 +457,9 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
     }
 
     seq_reader_plock_iter_state_t *state = (seq_reader_plock_iter_state_t *)it->_opaque;
-#if SEQ_FEATURE_PLOCK_POOL
-    if ((state->index >= state->count)) {
-        return false;
-    }
-    if (state->use_pool != 0U) {
-        const seq_plock_entry_t *entry = seq_plock_pool_get(state->pool_offset, state->index);
-        if (entry == NULL) {
-            return false;
-        }
-        state->index++;
-        if (param_id != NULL) {
-            *param_id = entry->param_id;
-        }
-        if (value != NULL) {
-            *value = (int32_t)entry->value;
-        }
-        return true;
-    }
-#else
     if ((state->plocks == NULL) || (state->index >= state->count)) {
         return false;
     }
-#endif
-
-#if SEQ_FEATURE_PLOCK_POOL
-    if ((state->plocks == NULL) || (state->index >= state->count)) {
-        return false;
-    }
-#endif
 
     const seq_model_plock_t *plock = &state->plocks[state->index];
     state->index++;
@@ -393,7 +473,44 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
 
     return true;
 }
+#endif
 
+#if SEQ_FEATURE_PLOCK_POOL
+int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
+    if ((it == NULL) || (step == NULL)) {
+        return 0;
+    }
+
+    it->step = NULL;
+    it->i = 0U;
+    it->off = step->pl_ref.offset;
+    it->n = step->pl_ref.count;
+    it->use_pool = (uint8_t)((it->n > 0U) ? 1U : 0U);
+    return (it->n > 0U) ? 1 : 0;
+}
+
+int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags) {
+    if ((it == NULL) || (it->i >= it->n)) {
+        return 0;
+    }
+
+    const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
+    if (entry == NULL) {
+        return 0;
+    }
+
+    if (out_id != NULL) {
+        *out_id = entry->param_id;
+    }
+    if (out_val != NULL) {
+        *out_val = entry->value;
+    }
+    if (out_flags != NULL) {
+        *out_flags = entry->flags;
+    }
+    return 1;
+}
+#else
 int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     if ((it == NULL) || (step == NULL)) {
         return 0;
@@ -404,16 +521,6 @@ int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     it->off = 0U;
     it->n = 0U;
     it->use_pool = 0U;
-
-#if SEQ_FEATURE_PLOCK_POOL
-    if (step->pl_ref.count > 0U) {
-        it->use_pool = 1U;
-        it->off = step->pl_ref.offset;
-        it->n = step->pl_ref.count;
-        return 1;
-    }
-#endif
-    it->use_pool = 0U;
     it->n = step->plock_count;
     return (it->n > 0U) ? 1 : 0;
 }
@@ -422,25 +529,6 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     if ((it == NULL) || (it->i >= it->n)) {
         return 0;
     }
-
-#if SEQ_FEATURE_PLOCK_POOL
-    if (it->use_pool != 0U) {
-        const seq_plock_entry_t *entry = seq_plock_pool_get(it->off, it->i++);
-        if (entry == NULL) {
-            return 0;
-        }
-        if (out_id != NULL) {
-            *out_id = entry->param_id;
-        }
-        if (out_val != NULL) {
-            *out_val = entry->value;
-        }
-        if (out_flags != NULL) {
-            *out_flags = entry->flags;
-        }
-        return 1;
-    }
-#endif
 
     if ((it->step == NULL) || (it->i >= it->n)) {
         return 0;
@@ -451,6 +539,7 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
     return 1;
 }
+#endif
 
 const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {
     const seq_model_track_t *track = _resolve_legacy_track(h);
