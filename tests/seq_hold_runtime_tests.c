@@ -13,6 +13,7 @@
 #include "core/seq/reader/seq_reader.h"
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_runtime.h"
+#include "tests/runtime_compat.h"
 #include "core/clock_manager.h"
 #include "midi/midi.h"
 #include "ui/ui_led_backend.h"
@@ -118,7 +119,7 @@ static void reset_runtime(void) {
     g_keyboard_led_omni = false;
     seq_runtime_init();
     seq_led_bridge_init();
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     if (project != NULL) {
         uint8_t active_bank = seq_project_get_active_bank(project);
         uint8_t active_pattern = seq_project_get_active_pattern_index(project);

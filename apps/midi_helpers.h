@@ -16,7 +16,11 @@
 __attribute__((weak)) void midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2);
 static inline void midi_tx3_weak_impl(uint8_t b0, uint8_t b1, uint8_t b2) { (void)b0; (void)b1; (void)b2; }
 static inline void _midi_tx3(uint8_t b0, uint8_t b1, uint8_t b2) {
-  if ((void*)&midi_tx3) midi_tx3(b0,b1,b2); else midi_tx3_weak_impl(b0,b1,b2);
+  if (midi_tx3 != NULL) {
+    midi_tx3(b0, b1, b2);
+  } else {
+    midi_tx3_weak_impl(b0, b1, b2);
+  }
 }
 
 /* Helpers API (canal 1..16) */

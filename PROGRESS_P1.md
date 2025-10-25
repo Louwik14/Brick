@@ -1,5 +1,18 @@
 # PROGRESS_P1 — Handles + Reader (journal)
 
+## [2025-11-06 15:00] MP17 — PLK2 codec host compat polish
+### Étapes réalisées
+- Codec PLK2 : l’encodeur émet désormais un chunk par step (count=0 inclus) et le décodeur filtre directement dans le pool selon la politique (full / drop cart / absent) sans laisser d’entrées orphelines.
+- Ajout du shim `tests/runtime_compat.h` pour encapsuler les accès runtime dépréciés côté host, mise à jour des bancs UI/Reader/Runner.
+- Nettoyage des warnings pedantic : helpers MIDI (`midi_tx3` NULL-safe), macro Live Rec convertie en fonction variadique inline, palette LED initialisée en littéraux.
+- Tests codec : comparaison PLK2 consciente (`tests/seq_track_codec_tests.c`) et cart IDs mappés côté LED bridge pour refléter les slots 0x40+.
+### Tests
+- make -j8 all : ⚠️ KO (toolchain `arm-none-eabi-gcc` absente dans l’environnement).
+- make -j8 check-host : OK (`seq_track_codec_tests`, PLK2 roundtrip/minifuzz, live_rec_sanity et bancs existants).
+- bash tools/size_sanity.sh build/ch.elf : ⚠️ KO (firmware non généré → ELF absent).
+### Audits mémoire
+- Inchangés — travail limité aux binaires host/tests, aucun binaire cible produit.
+
 ## [2025-10-21 11:30] MP0 — Façade handles + reader skeleton
 ### Contexte lu
 - ARCHITECTURE_FR.md — séparation UI/Engine, contrainte pipeline Reader → Scheduler → Player.

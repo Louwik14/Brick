@@ -7,6 +7,7 @@
 #include "ui/ui_shortcuts.h"
 #include "apps/seq_led_bridge.h"
 #include "core/seq/seq_access.h"
+#include "tests/runtime_compat.h"
 #include "ui/ui_led_backend.h"
 #include "ui/ui_input.h"
 #include "tests/stubs/ch.h"
@@ -86,7 +87,7 @@ static void test_track_metadata_initialisation(void)
     reset_led_state();
     seq_runtime_init();
     seq_led_bridge_init();
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     if (project != NULL) {
         uint8_t active_bank = seq_project_get_active_bank(project);
         uint8_t active_pattern = seq_project_get_active_pattern_index(project);
@@ -120,7 +121,7 @@ static void test_track_select_focus_updates(void)
     reset_led_state();
     seq_runtime_init();
     seq_led_bridge_init();
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     if (project != NULL) {
         uint8_t active_bank = seq_project_get_active_bank(project);
         uint8_t active_pattern = seq_project_get_active_pattern_index(project);

@@ -12,6 +12,7 @@
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_runtime.h"
+#include "tests/runtime_compat.h"
 
 /* -------------------------------------------------------------------------- */
 /* Stubs (host)                                                               */
@@ -23,7 +24,7 @@ static uint8_t g_stub_active_pattern = 0U;
 void seq_led_bridge_set_active(uint8_t bank, uint8_t pattern) {
     g_stub_active_bank = bank;
     g_stub_active_pattern = pattern;
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     if (project != NULL) {
         (void)seq_project_set_active_slot(project, bank, pattern);
     }
@@ -120,12 +121,12 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out_id) {
 static void prepare_pattern(void) {
     seq_runtime_init();
 
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     assert(project != NULL);
     (void)seq_project_set_active_slot(project, 0U, 0U);
     (void)seq_project_set_active_track(project, 0U);
 
-    seq_model_track_t *track = seq_runtime_access_track_mut(0U);
+    seq_model_track_t *track = seq_runtime_compat_access_track_mut(0U);
     assert(track != NULL);
 
     for (uint8_t step = 0U; step < SEQ_MODEL_STEPS_PER_TRACK; ++step) {

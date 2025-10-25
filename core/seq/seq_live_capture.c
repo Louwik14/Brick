@@ -8,6 +8,7 @@
 #include <string.h>
 #if !defined(__arm__) && !defined(__thumb__)
 #include <stdio.h>
+#include <stdarg.h>
 #endif
 
 #include "core/seq/seq_plock_ids.h"
@@ -117,10 +118,18 @@ static uint8_t _seq_live_encode_unsigned(int16_t value, int16_t min_value, int16
 }
 
 static bool s_seq_live_capture_plock_error = false;
-#define SEQ_LIVE_CAPTURE_WARN(fmt, ...) \
-    fprintf(stderr, "[seq_live_capture] " fmt "\n", ##__VA_ARGS__)
+#if !defined(__arm__) && !defined(__thumb__)
+static inline void seq_live_capture_warn_impl(const char *fmt, ...) {
+    va_list args;
+    va_start(args, fmt);
+    fprintf(stderr, "[seq_live_capture] ");
+    vfprintf(stderr, fmt, args);
+    fprintf(stderr, "\n");
+    va_end(args);
+}
+#define SEQ_LIVE_CAPTURE_WARN(...) seq_live_capture_warn_impl(__VA_ARGS__)
 #else
-#define SEQ_LIVE_CAPTURE_WARN(fmt, ...) ((void)0)
+#define SEQ_LIVE_CAPTURE_WARN(...) ((void)0)
 #endif
 
 static void _seq_live_capture_plock_clear_error(void) {

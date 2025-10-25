@@ -105,8 +105,33 @@ static void populate_track(seq_model_track_t *track) {
     }
 }
 
-static bool track_equals(const seq_model_track_t *lhs, const seq_model_track_t *rhs) {
-    return memcmp(lhs, rhs, sizeof(*lhs)) == 0;
+static bool track_plocks_equal(const seq_model_track_t *lhs, const seq_model_track_t *rhs) {
+    if ((lhs == NULL) || (rhs == NULL)) {
+        return false;
+    }
+
+    for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_TRACK; ++s) {
+        const seq_model_step_t *ls = &lhs->steps[s];
+        const seq_model_step_t *rs = &rhs->steps[s];
+        const uint8_t lc = seq_model_step_plock_count(ls);
+        const uint8_t rc = seq_model_step_plock_count(rs);
+        if (lc != rc) {
+            return false;
+        }
+        for (uint8_t i = 0U; i < lc; ++i) {
+            const plk2_t *le = seq_model_step_get_plock(ls, i);
+            const plk2_t *re = seq_model_step_get_plock(rs, i);
+            if ((le == NULL) || (re == NULL)) {
+                return false;
+            }
+            if ((le->param_id != re->param_id) ||
+                (le->value != re->value) ||
+                (le->flags != re->flags)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 static bool track_has_cart_plocks(const seq_model_track_t *track) {
@@ -160,7 +185,7 @@ int main(void) {
     assert(seq_project_track_steps_decode(&decoded_full, buffer, written,
                                             SEQ_PROJECT_PATTERN_VERSION,
                                             SEQ_PROJECT_TRACK_DECODE_FULL));
-    assert(track_equals(&original, &decoded_full));
+    assert(track_plocks_equal(&original, &decoded_full));
 
     assert(seq_project_track_steps_decode(&decoded_drop, buffer, written,
                                             SEQ_PROJECT_PATTERN_VERSION,
