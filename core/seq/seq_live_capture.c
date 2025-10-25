@@ -10,14 +10,15 @@
 #include <stdio.h>
 #endif
 
-#include "ch.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_plock_pool.h"
-#pragma GCC poison plocks
+#if SEQ_FEATURE_PLOCK_POOL
 #pragma GCC poison plock_count
-#pragma GCC poison SEQ_MODEL_MAX_PLOCKS_PER_STEP
+#pragma GCC poison plocks
+_Static_assert(SEQ_MAX_PLOCKS_PER_STEP == 24, "cap must match UI/Reader");
 #endif
+
+_Static_assert(SEQ_FEATURE_PLOCK_POOL, "live capture requires pooled p-locks");
 
 #define MICRO_OFFSET_MIN   (-12)
 #define MICRO_OFFSET_MAX   (12)
@@ -35,7 +36,6 @@ static uint8_t _seq_live_capture_pick_voice_slot(const seq_model_step_t *step,
                                                  uint8_t requested,
                                                  uint8_t note);
 static void _seq_live_capture_clear_voice_trackers(seq_live_capture_t *capture);
-#if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
     uint16_t id;
     uint16_t value;
@@ -57,20 +57,11 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
                                                     seq_model_plock_internal_param_t param,
                                                     uint8_t voice,
                                                     int32_t value);
-#endif  /* SEQ_FEATURE_PLOCK_POOL */
-
-#if !SEQ_FEATURE_PLOCK_POOL
-static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
-                                                    seq_model_plock_internal_param_t param,
-                                                    uint8_t voice,
-                                                    int32_t value);
-#endif  /* !SEQ_FEATURE_PLOCK_POOL */
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
                                                       systime_t end_time,
                                                       systime_t step_duration_snapshot);
 
-#if SEQ_FEATURE_PLOCK_POOL
 enum {
     k_seq_live_pl_flag_domain_cart = 0x01U,
     k_seq_live_pl_flag_signed = 0x02U,
@@ -128,8 +119,6 @@ static uint8_t _seq_live_encode_unsigned(int16_t value, int16_t min_value, int16
 }
 
 static bool s_seq_live_capture_plock_error = false;
-
-#if !defined(__arm__) && !defined(__thumb__)
 #define SEQ_LIVE_CAPTURE_WARN(fmt, ...) \
     fprintf(stderr, "[seq_live_capture] " fmt "\n", ##__VA_ARGS__)
 #else
@@ -210,6 +199,51 @@ static bool _seq_live_capture_commit_buffer(seq_model_step_t *step,
         return false;
     }
 
+    return true;
+}
+
+static bool _seq_live_capture_flush_buffer(seq_model_step_t *step,
+                                           const seq_live_capture_plock_buffer_t *buffer,
+                                           const seq_model_step_t *snapshot,
+                                           size_t step_index,
+                                           bool mutated,
+                                           const char *context) {
+    if ((step == NULL) || (buffer == NULL)) {
+        return false;
+    }
+
+    if (_seq_live_capture_plock_has_error()) {
+        if (snapshot != NULL) {
+            *step = *snapshot;
+        }
+        if (context != NULL) {
+            SEQ_LIVE_CAPTURE_WARN("%s p-lock upsert failed on step %u",
+                                   context,
+                                   (unsigned)step_index);
+        }
+        _seq_live_capture_plock_clear_error();
+        return false;
+    }
+
+    if (!mutated) {
+        _seq_live_capture_plock_clear_error();
+        return true;
+    }
+
+    if (!_seq_live_capture_commit_buffer(step, buffer)) {
+        if (snapshot != NULL) {
+            *step = *snapshot;
+        }
+        if (context != NULL) {
+            SEQ_LIVE_CAPTURE_WARN("%s p-lock commit failed on step %u",
+                                   context,
+                                   (unsigned)step_index);
+        }
+        _seq_live_capture_plock_clear_error();
+        return false;
+    }
+
+    _seq_live_capture_plock_clear_error();
     return true;
 }
 
@@ -297,7 +331,9 @@ static bool _seq_live_capture_buffer_upsert_internal(seq_live_capture_plock_buff
 }
 
 void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_config_t *config) {
-    chDbgCheck(capture != NULL);
+    if (capture == NULL) {
+        return;
+    }
 
     _seq_live_capture_reset_context(capture);
 
@@ -307,13 +343,17 @@ void seq_live_capture_init(seq_live_capture_t *capture, const seq_live_capture_c
 }
 
 void seq_live_capture_attach_track(seq_live_capture_t *capture, seq_model_track_t *track) {
-    chDbgCheck(capture != NULL);
+    if (capture == NULL) {
+        return;
+    }
 
     _seq_live_capture_bind_track(capture, track);
 }
 
 void seq_live_capture_override_quantize(seq_live_capture_t *capture, const seq_model_quantize_config_t *config) {
-    chDbgCheck(capture != NULL);
+    if (capture == NULL) {
+        return;
+    }
 
     if (config != NULL) {
         capture->quantize = *config;
@@ -321,7 +361,9 @@ void seq_live_capture_override_quantize(seq_live_capture_t *capture, const seq_m
 }
 
 void seq_live_capture_set_recording(seq_live_capture_t *capture, bool enabled) {
-    chDbgCheck(capture != NULL);
+    if (capture == NULL) {
+        return;
+    }
 
     capture->recording = enabled;
 }
@@ -335,7 +377,9 @@ bool seq_live_capture_is_recording(const seq_live_capture_t *capture) {
 }
 
 void seq_live_capture_update_clock(seq_live_capture_t *capture, const clock_step_info_t *info) {
-    chDbgCheck((capture != NULL) && (info != NULL));
+    if ((capture == NULL) || (info == NULL)) {
+        return;
+    }
 
     capture->clock_step_time = info->now;
     capture->clock_step_duration = info->step_st;
@@ -498,47 +542,26 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
             return false;
         }
 
-#if SEQ_FEATURE_PLOCK_POOL
         seq_model_step_t snapshot = *step;
         seq_live_capture_plock_buffer_t buffer;
         _seq_live_capture_collect_plocks(step, &buffer);
         _seq_live_capture_plock_clear_error();
-        bool buffer_mutated = false;
-#endif
 
-        bool applied_length = false;
-#if SEQ_FEATURE_PLOCK_POOL
-        applied_length = _seq_live_capture_upsert_internal_plock(step,
-                                                                 &buffer,
-                                                                 SEQ_MODEL_PLOCK_PARAM_LENGTH,
-                                                                 slot,
-                                                                 length_steps);
-        buffer_mutated |= applied_length;
-#else
-        applied_length = _seq_live_capture_upsert_internal_plock(step,
-                                                                 SEQ_MODEL_PLOCK_PARAM_LENGTH,
-                                                                 slot,
-                                                                 length_steps);
-#endif
-        (void)applied_length;
+        bool buffer_mutated = _seq_live_capture_upsert_internal_plock(step,
+                                                                      &buffer,
+                                                                      SEQ_MODEL_PLOCK_PARAM_LENGTH,
+                                                                      slot,
+                                                                      length_steps);
 
-#if SEQ_FEATURE_PLOCK_POOL
-        if (_seq_live_capture_plock_has_error()) {
-            *step = snapshot;
-            SEQ_LIVE_CAPTURE_WARN("length p-lock upsert failed on step %u", (unsigned)target_step);
-            _seq_live_capture_plock_clear_error();
+        if (!_seq_live_capture_flush_buffer(step,
+                                            &buffer,
+                                            &snapshot,
+                                            target_step,
+                                            buffer_mutated,
+                                            "length")) {
             return false;
         }
-        if (buffer_mutated) {
-            if (!_seq_live_capture_commit_buffer(step, &buffer)) {
-                *step = snapshot;
-                SEQ_LIVE_CAPTURE_WARN("length p-lock commit failed on step %u", (unsigned)target_step);
-                _seq_live_capture_plock_clear_error();
-                return false;
-            }
-            _seq_live_capture_plock_clear_error();
-        }
-#endif
+
         capture->voices[slot].active = false;
         capture->voices[slot].note = 0U;
         capture->voices[slot].start_time_raw = 0U;
@@ -578,61 +601,37 @@ bool seq_live_capture_commit_plan(seq_live_capture_t *capture,
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     seq_model_step_t snapshot = *step;
     seq_live_capture_plock_buffer_t buffer;
     _seq_live_capture_collect_plocks(step, &buffer);
     _seq_live_capture_plock_clear_error();
+
     bool buffer_mutated = false;
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
-    bool applied_note = _seq_live_capture_upsert_internal_plock(step,
+    buffer_mutated |= _seq_live_capture_upsert_internal_plock(step,
                                                                &buffer,
                                                                SEQ_MODEL_PLOCK_PARAM_NOTE,
                                                                slot,
                                                                voice.note);
-    buffer_mutated |= applied_note;
-    bool applied_velocity = _seq_live_capture_upsert_internal_plock(step,
-                                                                    &buffer,
-                                                                    SEQ_MODEL_PLOCK_PARAM_VELOCITY,
-                                                                    slot,
-                                                                    voice.velocity);
-    buffer_mutated |= applied_velocity;
-    bool applied_micro = _seq_live_capture_upsert_internal_plock(step,
-                                                                 &buffer,
-                                                                 SEQ_MODEL_PLOCK_PARAM_MICRO,
-                                                                 slot,
-                                                                 voice.micro_offset);
-    buffer_mutated |= applied_micro;
-#else
-    (void)_seq_live_capture_upsert_internal_plock(step, SEQ_MODEL_PLOCK_PARAM_NOTE, slot, voice.note);
-    (void)_seq_live_capture_upsert_internal_plock(step,
-                                                  SEQ_MODEL_PLOCK_PARAM_VELOCITY,
-                                                  slot,
-                                                  voice.velocity);
-    (void)_seq_live_capture_upsert_internal_plock(step,
-                                                  SEQ_MODEL_PLOCK_PARAM_MICRO,
-                                                  slot,
-                                                  voice.micro_offset);
-#endif
+    buffer_mutated |= _seq_live_capture_upsert_internal_plock(step,
+                                                               &buffer,
+                                                               SEQ_MODEL_PLOCK_PARAM_VELOCITY,
+                                                               slot,
+                                                               voice.velocity);
+    buffer_mutated |= _seq_live_capture_upsert_internal_plock(step,
+                                                               &buffer,
+                                                               SEQ_MODEL_PLOCK_PARAM_MICRO,
+                                                               slot,
+                                                               voice.micro_offset);
 
-#if SEQ_FEATURE_PLOCK_POOL
-    if (_seq_live_capture_plock_has_error()) {
-        *step = snapshot;
-        SEQ_LIVE_CAPTURE_WARN("note p-lock upsert failed on step %u", (unsigned)plan->step_index);
-        _seq_live_capture_plock_clear_error();
+    if (!_seq_live_capture_flush_buffer(step,
+                                        &buffer,
+                                        &snapshot,
+                                        plan->step_index,
+                                        buffer_mutated,
+                                        "note")) {
         return false;
     }
-    if (buffer_mutated) {
-        if (!_seq_live_capture_commit_buffer(step, &buffer)) {
-            *step = snapshot;
-            SEQ_LIVE_CAPTURE_WARN("note p-lock commit failed on step %u", (unsigned)plan->step_index);
-            _seq_live_capture_plock_clear_error();
-            return false;
-        }
-        _seq_live_capture_plock_clear_error();
-    }
-#endif
+
     capture->voices[slot].active = true;
     capture->voices[slot].step_index = plan->step_index;
     capture->voices[slot].start_time = plan->scheduled_time;
@@ -833,52 +832,6 @@ static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
     (void)step;
     return _seq_live_capture_buffer_upsert_internal(buffer, param, voice, value);
 }
-
-#endif
-
-#if !SEQ_FEATURE_PLOCK_POOL
-
-static bool _seq_live_capture_upsert_internal_plock(seq_model_step_t *step,
-                                                    seq_model_plock_internal_param_t param,
-                                                    uint8_t voice,
-                                                    int32_t value) {
-    if (step == NULL) {
-        return false;
-    }
-
-    const int16_t casted = (int16_t)value;
-    for (uint8_t i = 0U; i < step->plock_count; ++i) {
-        seq_model_plock_t *plk = &step->plocks[i];
-        if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
-            (plk->internal_param == param) &&
-            (plk->voice_index == voice)) {
-            if (plk->value != casted) {
-                plk->value = casted;
-                return true;
-            }
-            return false;
-        }
-    }
-
-    if (step->plock_count >= SEQ_MODEL_MAX_PLOCKS_PER_STEP) {
-        return false;
-    }
-
-    seq_model_plock_t plock = {
-        .domain = SEQ_MODEL_PLOCK_INTERNAL,
-        .voice_index = voice,
-        .parameter_id = 0U,
-        .value = casted,
-        .internal_param = param,
-    };
-
-    seq_model_plock_t *slot = &step->plocks[step->plock_count];
-    *slot = plock;
-    step->plock_count++;
-    return true;
-}
-
-#endif /* !SEQ_FEATURE_PLOCK_POOL */
 
 static uint8_t _seq_live_capture_compute_length_steps(const seq_live_capture_t *capture,
                                                       systime_t start_time,
