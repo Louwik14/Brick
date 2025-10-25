@@ -31,8 +31,8 @@ static inline uint8_t _pool_count(const seq_model_step_t *s) {
     return s->pl_ref.count;
 }
 
-static inline const seq_plock_entry_t *_pool_entry(const seq_model_step_t *s, uint8_t i) {
-    return seq_plock_pool_get((uint16_t)(s->pl_ref.offset + i), 0U);
+static inline const plk2_t *_pool_entry(const seq_model_step_t *s, uint8_t i) {
+    return seq_plock_pool_get(s->pl_ref.offset, i);
 }
 #endif
 
@@ -102,9 +102,7 @@ enum {
 };
 
 typedef struct {
-    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
+    plk2_t entries[SEQ_MAX_PLOCKS_PER_STEP];
     uint8_t count;
 } seq_led_bridge_plock_buffer_t;
 
@@ -194,15 +192,13 @@ static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
     const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; (i < count) && (buffer->count < SEQ_MAX_PLOCKS_PER_STEP); ++i) {
-        const seq_plock_entry_t *entry = _pool_entry(step, i);
+        const plk2_t *entry = _pool_entry(step, i);
         if (entry == NULL) {
             _seq_led_bridge_plock_flag_error();
             break;
         }
 
-        buffer->ids[buffer->count] = entry->param_id;
-        buffer->values[buffer->count] = entry->value;
-        buffer->flags[buffer->count] = entry->flags;
+        buffer->entries[buffer->count] = *entry;
         buffer->count++;
     }
 }
@@ -214,11 +210,9 @@ static bool _seq_led_bridge_commit_plock_buffer(seq_model_step_t *step,
     }
 
     const uint8_t n = buffer->count;
-    const uint8_t *ids = (n > 0U) ? buffer->ids : NULL;
-    const uint8_t *values = (n > 0U) ? buffer->values : NULL;
-    const uint8_t *flags = (n > 0U) ? buffer->flags : NULL;
+    const plk2_t *entries = (n > 0U) ? buffer->entries : NULL;
 
-    const int rc = seq_model_step_set_plocks_pooled(step, ids, values, flags, n);
+    const int rc = seq_model_step_set_plocks_pooled(step, entries, n);
     if (rc < 0) {
         _seq_led_bridge_plock_flag_error();
         return false;
@@ -269,16 +263,17 @@ static bool _seq_led_bridge_buffer_upsert_internal(seq_led_bridge_plock_buffer_t
     bool found = false;
     bool mutated = false;
     for (uint8_t i = 0U; i < buffer->count; ++i) {
-        if ((buffer->flags[i] & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
+        plk2_t *entry = &buffer->entries[i];
+        if ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U) {
             continue;
         }
-        if (buffer->ids[i] != id) {
+        if (entry->param_id != id) {
             continue;
         }
         found = true;
-        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
-            buffer->values[i] = encoded_value;
-            buffer->flags[i] = encoded_flags;
+        if ((entry->value != encoded_value) || (entry->flags != encoded_flags)) {
+            entry->value = encoded_value;
+            entry->flags = encoded_flags;
             mutated = true;
         }
         break;
@@ -289,9 +284,10 @@ static bool _seq_led_bridge_buffer_upsert_internal(seq_led_bridge_plock_buffer_t
             _seq_led_bridge_plock_flag_error();
             return false;
         }
-        buffer->ids[buffer->count] = id;
-        buffer->values[buffer->count] = encoded_value;
-        buffer->flags[buffer->count] = encoded_flags;
+        plk2_t *entry = &buffer->entries[buffer->count];
+        entry->param_id = id;
+        entry->value = encoded_value;
+        entry->flags = encoded_flags;
         buffer->count++;
         mutated = true;
     }
@@ -320,16 +316,17 @@ static bool _seq_led_bridge_buffer_upsert_cart(seq_led_bridge_plock_buffer_t *bu
     bool found = false;
     bool mutated = false;
     for (uint8_t i = 0U; i < buffer->count; ++i) {
-        if ((buffer->flags[i] & k_seq_led_bridge_pl_flag_domain_cart) == 0U) {
+        plk2_t *entry = &buffer->entries[i];
+        if ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) == 0U) {
             continue;
         }
-        if (buffer->ids[i] != id) {
+        if (entry->param_id != id) {
             continue;
         }
         found = true;
-        if ((buffer->values[i] != encoded_value) || (buffer->flags[i] != encoded_flags)) {
-            buffer->values[i] = encoded_value;
-            buffer->flags[i] = encoded_flags;
+        if ((entry->value != encoded_value) || (entry->flags != encoded_flags)) {
+            entry->value = encoded_value;
+            entry->flags = encoded_flags;
             mutated = true;
         }
         break;
@@ -340,9 +337,10 @@ static bool _seq_led_bridge_buffer_upsert_cart(seq_led_bridge_plock_buffer_t *bu
             _seq_led_bridge_plock_flag_error();
             return false;
         }
-        buffer->ids[buffer->count] = id;
-        buffer->values[buffer->count] = encoded_value;
-        buffer->flags[buffer->count] = encoded_flags;
+        plk2_t *entry = &buffer->entries[buffer->count];
+        entry->param_id = id;
+        entry->value = encoded_value;
+        entry->flags = encoded_flags;
         buffer->count++;
         mutated = true;
     }
@@ -633,7 +631,7 @@ static uint8_t _resolve_step_note(const seq_model_step_t *step, uint8_t voice, u
     const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const seq_plock_entry_t *entry = _pool_entry(step, i);
+        const plk2_t *entry = _pool_entry(step, i);
         if ((entry == NULL) ||
             ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
             continue;
@@ -940,7 +938,7 @@ static void _hold_collect_step(const seq_model_step_t *step,
     const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const seq_plock_entry_t *entry = _pool_entry(step, i);
+        const plk2_t *entry = _pool_entry(step, i);
         if ((entry == NULL) ||
             ((entry->flags & k_seq_led_bridge_pl_flag_domain_cart) != 0U)) {
             continue;
@@ -974,7 +972,7 @@ static void _hold_collect_cart_plocks(const seq_model_step_t *step) {
     const uint8_t count = _pool_count(step);
 
     for (uint8_t i = 0U; i < count; ++i) {
-        const seq_plock_entry_t *entry = _pool_entry(step, i);
+        const plk2_t *entry = _pool_entry(step, i);
         if (entry == NULL) {
             continue;
         }

@@ -104,15 +104,13 @@ int main(void) {
     seq_model_step_set_voice(step0, 0U, &voice);
 
     const uint8_t count = 255U;
-    uint8_t ids[255];
-    uint8_t values[255];
-    uint8_t flags[255];
+    plk2_t entries[255];
     for (uint16_t i = 0U; i < count; ++i) {
-        ids[i] = (uint8_t)(0x40U + (i & 0x3FU));
-        values[i] = (uint8_t)i;
-        flags[i] = (uint8_t)(i & 0x0FU);
+        entries[i].param_id = (uint8_t)(0x40U + (i & 0x3FU));
+        entries[i].value = (uint8_t)i;
+        entries[i].flags = (uint8_t)(i & 0x0FU);
     }
-    assert(seq_model_step_set_plocks_pooled(step0, ids, values, flags, count) == 0);
+    assert(seq_model_step_set_plocks_pooled(step0, entries, count) == 0);
 
     uint8_t legacy_buffer[4096];
     ssize_t legacy_written = seq_codec_write_track_with_plk2(legacy_buffer, sizeof(legacy_buffer), &track, 0);
@@ -130,14 +128,14 @@ int main(void) {
     assert(pos < (size_t)written);
     assert(pos + expected_delta <= (size_t)written);
     assert(buffer[pos + 4U] == count);
-    assert(buffer[pos + 5U] == ids[0]);
-    assert(buffer[pos + 6U] == values[0]);
-    assert(buffer[pos + 7U] == flags[0]);
+    assert(buffer[pos + 5U] == entries[0].param_id);
+    assert(buffer[pos + 6U] == entries[0].value);
+    assert(buffer[pos + 7U] == entries[0].flags);
 
     const size_t last_offset = pos + 5U + (size_t)(count - 1U) * 3U;
-    assert(buffer[last_offset] == ids[count - 1U]);
-    assert(buffer[last_offset + 1U] == values[count - 1U]);
-    assert(buffer[last_offset + 2U] == flags[count - 1U]);
+    assert(buffer[last_offset] == entries[count - 1U].param_id);
+    assert(buffer[last_offset + 1U] == entries[count - 1U].value);
+    assert(buffer[last_offset + 2U] == entries[count - 1U].flags);
 
     assert(seq_codec_write_track_with_plk2(buffer, (size_t)written - 1U, &track, 1) == -1);
 

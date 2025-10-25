@@ -12,23 +12,25 @@ static void test_ui_helper_success(void) {
     seq_model_step_t step;
     seq_model_step_init(&step);
 
-    const uint8_t ids[3] = {
-        PL_INT_ALL_TRANSP,
-        (uint8_t)(PL_INT_NOTE_V0 + 1U),
-        0x45U,
-    };
-    const uint8_t values[3] = {
-        pl_u8_from_s8(-5),
-        64U,
-        0x7FU,
-    };
-    const uint8_t flags[3] = {
-        0x02U,
-        (uint8_t)(1U << 2),
-        0x01U,
+    const plk2_t entries[3] = {
+        {
+            .param_id = PL_INT_ALL_TRANSP,
+            .value = pl_u8_from_s8(-5),
+            .flags = 0x02U,
+        },
+        {
+            .param_id = (uint8_t)(PL_INT_NOTE_V0 + 1U),
+            .value = 64U,
+            .flags = (uint8_t)(1U << 2),
+        },
+        {
+            .param_id = 0x45U,
+            .value = 0x7FU,
+            .flags = 0x01U,
+        },
     };
 
-    assert(seq_model_step_set_plocks_pooled(&step, ids, values, flags, 3U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, entries, 3U) == 0);
     assert(step.pl_ref.count == 3U);
 
     seq_reader_pl_it_t it;
@@ -39,13 +41,13 @@ static void test_ui_helper_success(void) {
     uint8_t flag = 0U;
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == ids[0] && value == values[0] && flag == flags[0]);
+    assert(id == entries[0].param_id && value == entries[0].value && flag == entries[0].flags);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == ids[1] && value == values[1] && flag == flags[1]);
+    assert(id == entries[1].param_id && value == entries[1].value && flag == entries[1].flags);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == ids[2] && value == values[2] && flag == flags[2]);
+    assert(id == entries[2].param_id && value == entries[2].value && flag == entries[2].flags);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 0);
 }
@@ -56,20 +58,20 @@ static void test_live_capture_helper_success(void) {
     seq_model_step_t step;
     seq_model_step_init(&step);
 
-    const uint8_t ids[2] = {
-        (uint8_t)(PL_INT_NOTE_V0 + 2U),
-        (uint8_t)(PL_INT_MIC_V0 + 2U),
-    };
-    const uint8_t values[2] = {
-        90U,
-        pl_u8_from_s8(3),
-    };
-    const uint8_t flags[2] = {
-        (uint8_t)(2U << 2),
-        (uint8_t)((2U << 2) | 0x02U),
+    const plk2_t entries[2] = {
+        {
+            .param_id = (uint8_t)(PL_INT_NOTE_V0 + 2U),
+            .value = 90U,
+            .flags = (uint8_t)(2U << 2),
+        },
+        {
+            .param_id = (uint8_t)(PL_INT_MIC_V0 + 2U),
+            .value = pl_u8_from_s8(3),
+            .flags = (uint8_t)((2U << 2) | 0x02U),
+        },
     };
 
-    assert(seq_model_step_set_plocks_pooled(&step, ids, values, flags, 2U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, entries, 2U) == 0);
     assert(step.pl_ref.count == 2U);
 
     seq_reader_pl_it_t it;
@@ -80,10 +82,10 @@ static void test_live_capture_helper_success(void) {
     uint8_t flag = 0U;
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == ids[0] && value == values[0] && flag == flags[0]);
+    assert(id == entries[0].param_id && value == entries[0].value && flag == entries[0].flags);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == ids[1] && value == values[1] && flag == flags[1]);
+    assert(id == entries[1].param_id && value == entries[1].value && flag == entries[1].flags);
 
     assert(seq_reader_pl_next(&it, &id, &value, &flag) == 0);
 }
@@ -114,17 +116,15 @@ static void test_helper_oom_fallback(void) {
     assert(seq_model_step_add_plock(&step, &velocity_plock));
 
     const uint8_t requested = (uint8_t)(SEQ_PLOCK_POOL_CAPACITY_TEST + 1U);
-    uint8_t ids[SEQ_PLOCK_POOL_CAPACITY_TEST + 1U];
-    uint8_t values[SEQ_PLOCK_POOL_CAPACITY_TEST + 1U];
-    uint8_t flags[SEQ_PLOCK_POOL_CAPACITY_TEST + 1U];
+    plk2_t entries[SEQ_PLOCK_POOL_CAPACITY_TEST + 1U];
 
     for (uint16_t i = 0U; i < (uint16_t)requested; ++i) {
-        ids[i] = (uint8_t)(0x40U + (i & 0x1FU));
-        values[i] = (uint8_t)(i & 0xFFU);
-        flags[i] = 0x01U;
+        entries[i].param_id = (uint8_t)(0x40U + (i & 0x1FU));
+        entries[i].value = (uint8_t)(i & 0xFFU);
+        entries[i].flags = 0x01U;
     }
 
-    assert(seq_model_step_set_plocks_pooled(&step, ids, values, flags, requested) == -1);
+    assert(seq_model_step_set_plocks_pooled(&step, entries, requested) == -1);
     assert(step.pl_ref.count == 0U);
 
     seq_reader_pl_it_t it;

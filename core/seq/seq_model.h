@@ -12,12 +12,25 @@
 
 #include "seq_config.h"
 
+#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#pragma GCC poison plock_count
+#pragma GCC poison plocks
+#endif
+
 #if SEQ_FEATURE_PLOCK_POOL
+#include "seq_plock_pool.h"
+
+typedef seq_plock_entry_t plk2_t;
+
 typedef struct __attribute__((packed)) {
     uint16_t offset;
     uint8_t count;
-} seq_step_plock_ref_t;
-_Static_assert(sizeof(seq_step_plock_ref_t) == 3, "pl_ref must be 3 bytes");
+} pl_ref_t;
+
+typedef pl_ref_t seq_step_plock_ref_t;
+
+_Static_assert(sizeof(pl_ref_t) == 3, "pl_ref_t must be 3 bytes (packed)");
+_Static_assert(SEQ_MAX_PLOCKS_PER_STEP == 24, "cap mismatch");
 #endif
 
 #ifdef __cplusplus
@@ -28,10 +41,6 @@ extern "C" {
 #define SEQ_MODEL_STEPS_PER_TRACK   64U
 /** Maximum number of voices per step. */
 #define SEQ_MODEL_VOICES_PER_STEP     4U
-/** Maximum number of parameter locks attached to a step. */
-#if !SEQ_FEATURE_PLOCK_POOL
-#define SEQ_MODEL_MAX_PLOCKS_PER_STEP 24U
-#endif
 
 /** Default velocity applied to the first voice when arming a step. */
 #define SEQ_MODEL_DEFAULT_VELOCITY_PRIMARY   100U
@@ -126,26 +135,27 @@ typedef struct {
 typedef struct seq_model_step_t {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
 #if SEQ_FEATURE_PLOCK_POOL
-    seq_step_plock_ref_t pl_ref;  /**< Reference into the packed p-lock pool. */
+    pl_ref_t pl_ref;  /**< Reference into the packed p-lock pool. */
 #endif
     seq_model_step_offsets_t offsets; /**< Per-step offsets. */
     seq_model_step_flags_t flags; /**< Cached step flags (playable / automation). */
 } seq_model_step_t;
 
-#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
-#pragma GCC poison seq_model_step_get_plock
-#pragma GCC poison seq_model_step_add_plock
-#pragma GCC poison seq_model_step_remove_plock
-#pragma GCC poison seq_model_step_plock_count
-#endif
-
 #if SEQ_FEATURE_PLOCK_POOL
-#if defined(__GNUC__)
-#pragma GCC poison SEQ_MODEL_MAX_PLOCKS_PER_STEP
-#pragma GCC poison plocks
-#pragma GCC poison plock_count
-#endif
-_Static_assert(sizeof(((seq_model_step_t*)0)->pl_ref) == 3, "pl_ref must be 3 bytes");
+static inline uint8_t seq_model_step_plock_count(const seq_model_step_t *step) {
+    return (step != NULL) ? step->pl_ref.count : 0U;
+}
+
+static inline uint16_t seq_model_step_plock_offset(const seq_model_step_t *step) {
+    return (step != NULL) ? step->pl_ref.offset : 0U;
+}
+
+static inline const plk2_t *seq_model_step_get_plock(const seq_model_step_t *step, uint8_t index) {
+    if ((step == NULL) || (index >= step->pl_ref.count)) {
+        return NULL;
+    }
+    return seq_plock_pool_get(step->pl_ref.offset, index);
+}
 #endif
 
 /** Quantization configuration applied during live capture. */
@@ -230,20 +240,8 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step);
 void seq_model_step_recompute_flags(seq_model_step_t *step);
 
 int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
-                                     const uint8_t *ids,
-                                     const uint8_t *vals,
-                                     const uint8_t *flags,
+                                     const plk2_t *entries,
                                      uint8_t n);
-
-#if SEQ_FEATURE_PLOCK_POOL
-static inline uint8_t seq_model_step_pl_count_poolref(const seq_model_step_t *step) {
-    return (step != NULL) ? step->pl_ref.count : 0U;
-}
-
-static inline uint16_t seq_model_step_pl_offset_poolref(const seq_model_step_t *step) {
-    return (step != NULL) ? step->pl_ref.offset : 0U;
-}
-#endif
 
 #if SEQ_MODEL_ENABLE_DEBUG_COUNTER
 void seq_model_debug_reset_recompute_counter(void);

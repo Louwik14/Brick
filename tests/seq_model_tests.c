@@ -196,12 +196,21 @@ static void test_pool_automation_helpers(void) {
     assert(!seq_model_step_is_automation_only(&step));
     assert(seq_model_step_plock_count(&step) == 0U);
 
-    const uint8_t ids_cart[2] = { 0x40U, 0x41U };
-    const uint8_t vals_cart[2] = { 0x10U, 0x20U };
-    const uint8_t flags_cart[2] = { 0x01U, 0x01U };
+    const plk2_t entries_cart[2] = {
+        {
+            .param_id = 0x40U,
+            .value = 0x10U,
+            .flags = 0x01U,
+        },
+        {
+            .param_id = 0x41U,
+            .value = 0x20U,
+            .flags = 0x01U,
+        },
+    };
 
     seq_model_debug_reset_recompute_counter();
-    assert(seq_model_step_set_plocks_pooled(&step, ids_cart, vals_cart, flags_cart, 2U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, entries_cart, 2U) == 0);
     assert(seq_model_debug_get_recompute_counter() == 1U);
     assert(seq_model_step_plock_count(&step) == 2U);
     assert(seq_model_step_has_any_plock(&step));
@@ -210,23 +219,27 @@ static void test_pool_automation_helpers(void) {
     seq_model_step_make_neutral(&step);
     assert(seq_model_step_has_playable_voice(&step));
 
-    const uint8_t ids_single[1] = { 0x08U };
-    const uint8_t vals_single[1] = { 64U };
-    const uint8_t flags_single[1] = { 0U };
+    const plk2_t entry_single[1] = {
+        {
+            .param_id = 0x08U,
+            .value = 64U,
+            .flags = 0U,
+        },
+    };
 
     seq_model_debug_reset_recompute_counter();
-    assert(seq_model_step_set_plocks_pooled(&step, ids_single, vals_single, flags_single, 1U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, entry_single, 1U) == 0);
     assert(seq_model_debug_get_recompute_counter() == 1U);
     assert(seq_model_step_plock_count(&step) == 1U);
     assert(!seq_model_step_is_automation_only(&step));
 
     seq_model_debug_reset_recompute_counter();
-    assert(seq_model_step_set_plocks_pooled(&step, ids_single, vals_single, flags_single, 1U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, entry_single, 1U) == 0);
     assert(seq_model_debug_get_recompute_counter() == 0U);
     assert(seq_model_step_plock_count(&step) == 1U);
 
     seq_model_debug_reset_recompute_counter();
-    assert(seq_model_step_set_plocks_pooled(&step, NULL, NULL, NULL, 0U) == 0);
+    assert(seq_model_step_set_plocks_pooled(&step, NULL, 0U) == 0);
     assert(seq_model_debug_get_recompute_counter() == 1U);
     assert(seq_model_step_plock_count(&step) == 0U);
     assert(!seq_model_step_has_any_plock(&step));

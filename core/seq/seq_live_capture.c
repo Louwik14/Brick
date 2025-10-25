@@ -178,22 +178,18 @@ static bool _seq_live_capture_commit_buffer(seq_model_step_t *step,
     }
 
     const uint8_t n = buffer->count;
-    uint8_t ids[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t values[SEQ_MAX_PLOCKS_PER_STEP];
-    uint8_t flags[SEQ_MAX_PLOCKS_PER_STEP];
+    plk2_t entries[SEQ_MAX_PLOCKS_PER_STEP];
 
     for (uint8_t i = 0U; i < n; ++i) {
         const seq_live_capture_plk_cap_t *slot = &buffer->entries[i];
-        ids[i] = (uint8_t)(slot->id & 0x00FFU);
-        values[i] = (uint8_t)(slot->value & 0x00FFU);
-        flags[i] = slot->flags;
+        entries[i].param_id = (uint8_t)(slot->id & 0x00FFU);
+        entries[i].value = (uint8_t)(slot->value & 0x00FFU);
+        entries[i].flags = slot->flags;
     }
 
-    const uint8_t *ids_ptr = (n > 0U) ? ids : NULL;
-    const uint8_t *vals_ptr = (n > 0U) ? values : NULL;
-    const uint8_t *flags_ptr = (n > 0U) ? flags : NULL;
+    const plk2_t *entries_ptr = (n > 0U) ? entries : NULL;
 
-    const int rc = seq_model_step_set_plocks_pooled(step, ids_ptr, vals_ptr, flags_ptr, n);
+    const int rc = seq_model_step_set_plocks_pooled(step, entries_ptr, n);
     if (rc < 0) {
         _seq_live_capture_plock_flag_error();
         return false;

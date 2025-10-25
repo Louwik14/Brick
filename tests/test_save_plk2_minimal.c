@@ -103,10 +103,19 @@ int main(void) {
     voice.velocity = 110U;
     seq_model_step_set_voice(step0, 0U, &voice);
 
-    const uint8_t ids[2] = {PL_INT_ALL_VEL, 0x40U};
-    const uint8_t values[2] = {pl_u8_from_s8(5), 127U};
-    const uint8_t flags[2] = {0x00U, 0x01U};
-    assert(seq_model_step_set_plocks_pooled(step0, ids, values, flags, 2U) == 0);
+    const plk2_t entries[2] = {
+        {
+            .param_id = PL_INT_ALL_VEL,
+            .value = pl_u8_from_s8(5),
+            .flags = 0x00U,
+        },
+        {
+            .param_id = 0x40U,
+            .value = 127U,
+            .flags = 0x01U,
+        },
+    };
+    assert(seq_model_step_set_plocks_pooled(step0, entries, 2U) == 0);
 
     uint8_t buffer[1024];
     ssize_t written = seq_codec_write_track_with_plk2(buffer, sizeof(buffer), &track, 1);
@@ -121,12 +130,12 @@ int main(void) {
     const size_t chunk_len = 4U + 1U + (size_t)2U * 3U;
     assert(pos + chunk_len <= (size_t)written);
     assert(buffer[pos + 4U] == 2U);
-    assert(buffer[pos + 5U] == ids[0]);
-    assert(buffer[pos + 6U] == values[0]);
-    assert(buffer[pos + 7U] == flags[0]);
-    assert(buffer[pos + 8U] == ids[1]);
-    assert(buffer[pos + 9U] == values[1]);
-    assert(buffer[pos + 10U] == flags[1]);
+    assert(buffer[pos + 5U] == entries[0].param_id);
+    assert(buffer[pos + 6U] == entries[0].value);
+    assert(buffer[pos + 7U] == entries[0].flags);
+    assert(buffer[pos + 8U] == entries[1].param_id);
+    assert(buffer[pos + 9U] == entries[1].value);
+    assert(buffer[pos + 10U] == entries[1].flags);
 
     const size_t after_chunk = pos + chunk_len;
     assert(find_plk2(buffer + after_chunk, (size_t)written - after_chunk) == ((size_t)written - after_chunk));
