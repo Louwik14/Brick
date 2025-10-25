@@ -226,7 +226,7 @@ USE_CCM = yes
 ##############################################################################
 # Common rules
 #
-LDFLAGS += -Wl,-Map=$(BUILD)/ch.map,--print-memory-usage
+LDFLAGS += -Wl,-Map=build/ch.map,--print-memory-usage
 
 RULESPATH = board
 
@@ -255,6 +255,10 @@ lint-cppcheck:
 ##############################################################################
 # Custom rules
 #
+
+.PHONY: bss-top
+bss-top: $(BUILDDIR)/$(PROJECT).elf
+	tools/bss_top.sh
 
 #
 # Custom rules
