@@ -53,8 +53,14 @@ static bool     s_kbd_omni = false;
 
 /* Pré-calcul des couleurs accords Omnichord → stockées en Flash (.rodata). */
 static const led_color_t k_omni_chord_colors[8] = {
-    UI_LED_COL_CHORD_1, UI_LED_COL_CHORD_2, UI_LED_COL_CHORD_3, UI_LED_COL_CHORD_4,
-    UI_LED_COL_CHORD_5, UI_LED_COL_CHORD_6, UI_LED_COL_CHORD_7, UI_LED_COL_CHORD_8
+    {0,   255,   0},
+    {255,   0,   0},
+    {0,   128, 128},
+    {64,  255,   0},
+    {255, 255,   0},
+    {255,   0, 255},
+    {0,   200, 200},
+    {180,   0, 120},
 };
 
 typedef struct {

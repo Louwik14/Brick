@@ -64,3 +64,18 @@
 - build monolithique pool-only, sans flags conditionnels ni chemins legacy cachés.
 - Makefile `fw-pooled` aligné sur `all`, sérialisation/Reader/tests couvrant uniquement PLK2.
 - future régression sur `plocks`/`plock_count` bloquée par les `#pragma GCC poison` restants.
+
+---
+
+# Passe 7 — Polish final
+
+## Changements réalisés
+- nettoyage des includes hérités (`apps/seq_led_bridge.c` n’importe plus `seq_engine_runner.h` inutile sur le chemin pool-only).【F:apps/seq_led_bridge.c†L1-L40】
+- ajout des tests host légers `plk2_roundtrip`, `plk2_minifuzz` et `live_rec_sanity` + intégration `Makefile` (`check-host`).【F:tests/plk2_roundtrip.c†L1-L64】【F:tests/plk2_minifuzz.c†L1-L92】【F:tests/live_rec_sanity.c†L1-L109】【F:Makefile†L305-L414】
+- script utilitaire `tools/size_sanity.sh` (audit `text/data/bss`, seuil `.bss` 80 KiB) documenté dans `ARCHITECTURE_FR.md`.【F:tools/size_sanity.sh†L1-L16】【F:docs/ARCHITECTURE_FR.md†L244-L255】
+- documentation (`ARCHITECTURE_FR.md`, `PLOCK_MIGRATION_MAP.md`) mise à jour pour refléter l’état final pool-only (pas de flags, check-list PLK2 + tableau avant/après).【F:docs/ARCHITECTURE_FR.md†L17-L205】【F:docs/PLOCK_MIGRATION_MAP.md†L1-L62】
+
+## Effets attendus
+- `make check-host` couvre la sérialisation PLK2 (round-trip + fuzz) et le rollback Live Rec, évitant toute régression silencieuse.
+- audit RAM rapide via `tools/size_sanity.sh`, détection immédiate d’un retour des buffers legacy.
+- docs alignées sur la situation finale : plus de branches conditionnelles, pool PLK2 unique, invariants runner rappelés (STOP→CC123, NOTE_OFF garantis).

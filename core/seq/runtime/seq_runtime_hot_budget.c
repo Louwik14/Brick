@@ -3,9 +3,9 @@
 #include "core/seq/runtime/seq_runtime_layout.h"
 #include "core/seq/seq_model.h"
 
-// Local replica of the private Reader scratch state declared in seq_reader.c.
+// Local replica of the private Reader scratch state déclaré dans seq_reader.c (pool-only).
 typedef struct {
-    const seq_model_plock_t *plocks;
+    uint16_t base;
     uint8_t count;
     uint8_t index;
 } seq_reader_plock_iter_state_sizeof_t;

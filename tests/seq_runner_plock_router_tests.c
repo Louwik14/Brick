@@ -11,6 +11,7 @@
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_runtime.h"
+#include "tests/runtime_compat.h"
 
 /* -------------------------------------------------------------------------- */
 /* Stubs                                                                      */
@@ -266,12 +267,12 @@ int main(void) {
     memset(g_cart_shadow, 0, sizeof(g_cart_shadow));
 
     seq_runtime_init();
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     assert(project != NULL);
     (void)seq_project_set_active_slot(project, 0U, 0U);
     (void)seq_project_set_active_track(project, 0U);
 
-    seq_model_track_t *track = seq_runtime_access_track_mut(0U);
+    seq_model_track_t *track = seq_runtime_compat_access_track_mut(0U);
     assert(track != NULL);
 
     neutralise_track(track);

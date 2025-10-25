@@ -7,6 +7,7 @@
 
 #include "core/seq/reader/seq_reader.h"
 #include "core/seq/seq_runtime.h"
+#include "tests/runtime_compat.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_plock_pool.h"
@@ -78,7 +79,7 @@ static void prepare_track(void) {
     seq_runtime_init();
     seq_plock_pool_reset();
 
-    seq_model_track_t *track = seq_runtime_access_track_mut(0U);
+    seq_model_track_t *track = seq_runtime_compat_access_track_mut(0U);
     assert(track != NULL);
 
     seq_model_step_t *step = &track->steps[0U];

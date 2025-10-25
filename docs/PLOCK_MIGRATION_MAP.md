@@ -1,39 +1,38 @@
 # Carte de migration P-locks (pool packé 3 o)
 
-## A. Stockage actuel
-- Chaque step contient un tableau fixe de `SEQ_MODEL_MAX_PLOCKS_PER_STEP = 24` entrées `seq_model_plock_t` (8 o chacune : valeur 16 bits, id 16 bits, domaine, voix, param interne) intégré directement dans `seq_model_step_t`.【F:core/seq/seq_model.h†L41-L120】
-- La structure complète d'un step occupe 222 o (4 voix × 5 o + 24 p-locks × 8 o + compteurs/offsets/flags). `seq_model_track_t` regroupe 64 steps et pèse 14 224 o : 12 288 o sont réservés aux p-locks même quand un step n'en utilise aucun.【F:out/plock_symbols_baseline.txt†L18-L22】【F:out/plock_mem_budget.md†L7-L13】
-- `g_seq_runtime` agrège le projet et `SEQ_RUNTIME_TRACK_CAPACITY` tracks héritées (par défaut 2) dans `.bss`; les patterns complets (16 tracks) sont chargés/déchargés via `seq_project`. L'audit mémoire confirme 101 448 o consommés en SRAM principale, aucune donnée en `.ram4`.【F:core/seq/seq_runtime.c†L15-L58】【F:docs/ARCHITECTURE_FR.md†L34-L52】【F:docs/ARCHITECTURE_FR.md†L70-L78】
-- Les patterns persistés utilisent deux codecs (`track_step_v1/v2`) qui recopient le tableau fixe : les p-locks sont écrits/relus séquentiellement et bornés par `SEQ_MODEL_MAX_PLOCKS_PER_STEP`.【F:core/seq/seq_project.c†L229-L381】【F:core/seq/seq_project.c†L489-L680】
+## A. Résumé pool-only actuel
+- `seq_model_step_t` ne contient plus que `pl_ref {offset,count}` (3 octets packés) vers le pool global PLK2. Les tableaux `plocks[]`/`plock_count` ont disparu et `_Static_assert(SEQ_MAX_PLOCKS_PER_STEP == 24)` verrouille la capacité.【F:core/seq/seq_model.h†L22-L61】【F:core/seq/seq_model.c†L329-L361】
+- Le pool (`seq_plock_pool.c`) alloue des triplets `(param_id,value,flags)` contigus, offset 16 bits, taille configurable pour les tests. Aucun flag de feature n’est requis ; firmware et hôte partagent la même implémentation.【F:core/seq/seq_plock_pool.c†L1-L60】
+- L’encodeur/décodeur projet sérialise uniquement des chunks `PLK2` : chaque step écrit `count` + payload 3 o, et le décodeur remplit le pool en restaurant `pl_ref`. Aucun codec legacy V1/V2 n’est exposé côté build.【F:core/seq/seq_project.c†L200-L408】
 
-## B. Points d'écriture & de lecture
-- **UI hold / quick-step** : `_ensure_internal_plock_value()` et `_ensure_cart_plock_value()` insèrent/patchent les p-locks lors d'un maintien de pad ou d'une édition de page All/Voix dans `seq_led_bridge`. Chaque mutation réutilise la structure `seq_model_plock_t` du step puis recalcule les flags via `seq_model_step_recompute_flags()`.【F:apps/seq_led_bridge.c†L720-L782】【F:core/seq/seq_model.c†L111-L205】
-- **Live recording** : `_seq_live_capture_upsert_internal_plock()` ajoute les overrides de longueur/vélocité/micro captés depuis le clavier ou l'ARP directement sur le tableau local du step avant commit. Les offsets “All” restent dans `seq_model_step_offsets_t`.【F:core/seq/seq_live_capture.c†L500-L544】【F:SEQ_BEHAVIOR.md†L98-L109】
-- **Décodage pattern** : `decode_track_steps_v{1,2}` réinstancient les p-locks à partir du flux binaire en les recopiant dans le tableau fixe puis en ajustant `plock_count`. Le codec V2 conserve un champ `meta` pour distinguer cart/interne mais reste limité à 24 entrées par step.【F:core/seq/seq_project.c†L489-L680】
-- **Lecture Reader** : `seq_reader_get_step()` expose une vue compacte (flags, note primaire) tandis que `seq_reader_plock_iter_open/next()` itère directement sur le tableau `step->plocks[]` en projetant les internes dans l'espace 16 bits (bit 15 = interne, bits 10:8 = voix).【F:core/seq/reader/seq_reader.c†L65-L225】
-- **Runner** : `seq_engine_runner_on_clock_step()` lit chaque track via handles Reader, joue les voix actives puis invoque `_runner_apply_plocks()` qui filtre l'itérateur Reader sur les IDs cart avant d'envoyer `cart_link_param_changed()`. Les offsets “All” et p-locks internes sont appliqués côté voix avant NOTE_ON/OFF (clamp local).【F:apps/seq_engine_runner.c†L130-L353】
+## B. Writers & Reader
+- **UI Hold / QuickStep** : collecte ≤24 triplets `{id,val,flags}`, dédup “dernier gagnant” puis commit unique via `seq_model_step_set_plocks_pooled()` ; un OOM restaure le snapshot et journalise un avertissement.【F:apps/seq_led_bridge.c†L104-L535】
+- **Live recording** : `seq_live_capture_commit_plan()` réutilise la même bufferisation, assure un seul commit, et restaure le step + voice trackers si le pool refuse l’allocation.【F:core/seq/seq_live_capture.c†L468-L617】
+- **Reader / Runner** : l’itérateur `seq_reader_pl_*` parcourt exclusivement le pool et le runner applique les p-locks cart/SEQ avant NOTE_ON ; l’ordre encode→decode est strictement conservé.【F:core/seq/reader/seq_reader.c†L1-L214】【F:apps/seq_engine_runner.c†L130-L353】
 
-## C. Routage & sémantique
-- Domaine `SEQ_MODEL_PLOCK_INTERNAL` couvre NOTE/VEL/LEN/MIC + offsets globaux (`GLOBAL_TR/VE/LE/MI`). Les valeurs restent signées pour les offsets et non signées pour note/len/vel en cohérence avec la spec SEQ. Les cartouches (`SEQ_MODEL_PLOCK_CART`) stockent un identifiant 16 bits passé tel quel au Cart Bus.【F:core/seq/seq_model.h†L41-L120】【F:SEQ_BEHAVIOR.md†L40-L66】
-- Au tick : le runner avance d'abord l'état des p-locks actifs pour restaurer les valeurs précédentes, calcule les NOTE_OFF planifiés, joue les NOTE_ON si le step n'est pas automation-only, puis pousse les p-locks cart du step courant (clamp 0..127) avant de vider les files NOTE_ON/OFF et terminer par le CC123 lors d'un STOP. Cette séquence garantit “p-locks avant NOTE_ON” et “NOTE_OFF jamais droppé”.【F:apps/seq_engine_runner.c†L130-L353】【F:SEQ_BEHAVIOR.md†L54-L66】
-- Les steps automation-only conservent `flags.automation` et un masque de voix vides, ce qui permet au runner d'appliquer uniquement les p-locks (aucun NOTE_ON/OFF). Les offsets “All” sont lus via `seq_model_step_get_offsets()` au moment du rendu UI et de la planification Reader (transpose/velocity).【F:core/seq/seq_model.c†L200-L384】【F:SEQ_BEHAVIOR.md†L40-L66】
+## C. État final (check-list)
+- [x] Stockage par step legacy supprimé, `pl_ref` packé 3 o partout.
+- [x] Pool PLK2 global unique (`seq_plock_pool_*`) utilisé par writers, reader, encodeur/décodeur.
+- [x] Sérialisation pattern : chunks `PLK2` uniquement, pas de garde `BRICK_EXPERIMENTAL_PATTERN_CODEC_V2`.
+- [x] Writers UI & Live Rec → buffer pool-only + commit unique + rollback sur échec.
+- [x] Reader/Runner → itération pool-only (ordre encode==lecture) ; invariants playback maintenus (p-locks avant NOTE_ON, NOTE_OFF jamais droppé, STOP → CC#123).
 
-## D. Cibles de migration (pool packé 3 o)
-- **Entrées** : chaque p-lock devient un enregistrement de 3 o `(param_id, value, flags)`. Le champ `flags` encode le domaine (interne/cart), l'index voix (0-3) et un bit “signed”. Les valeurs signées (offsets global/voix, micro) seront converties `s8 ↔ u8` via un offset `+128`. Les paramètres purement non signés (note, vélocité, longueur, cart) restent 0..127/255.
-- **Espace d'ID** : réserver `0x00–0x3F` aux internes (combinaisons `NOTE/VEL/LEN/MIC` par voix + offsets All, soit ≤32 entrées) et `0x40–0xFF` aux cartouches. Ce mapping épouse l'encodeur Reader actuel (bit 15 = interne, bits 10:8 = voix) tout en supprimant les mots 16 bits. Une table statique `seq_plock_param_lut[]` fera la correspondance lors de la migration.【F:core/seq/reader/seq_reader.c†L65-L225】
-- **Index `(offset,count)`** : chaque step possède 3 o (24 bit) contenant l'offset de début dans le pool (17 bits suffisent pour 128 k entrées) et le nombre de p-locks actifs (5 bits → max 31). Cette paire remplace `plocks[]` et `plock_count` dans `seq_model_step_t`.
-- **Capacité** : le budget théorique chute de 196 608 o → 64 512 o pour un pattern 16×64 (20 p-locks réels/step) et reste inférieur au tableau fixe même si l'on pousse à 32 p-locks ou 1 024 steps/track, d'après les tableaux de projection.【F:out/plock_mem_budget.md†L7-L18】
+## D. Avant → Après (mémoire & API)
 
-## E. Chemins à modifier (passes futures)
-1. **Modèle & runtime** : introduire une vue `seq_plock_pool_t` dans `seq_model_step_t`, stockée dans `g_seq_runtime` (hot SRAM) avec allocation statique. Ajuster `seq_model_step_*` pour lire/écrire via la nouvelle structure et fournir des helpers de conversion signée. Fichiers : `core/seq/seq_model.{h,c}`, `core/seq/seq_runtime.c`.
-2. **Reader** : étendre `seq_reader_plock_iter_*` pour itérer sur le pool (déréférencement `(offset,count)` → plage d'entrées). Prévoir un encodeur 8 bits→16 bits rétro-compatible pour le runner existant. Fichiers : `core/seq/reader/seq_reader.c`, `core/seq/seq_views.h`.
-3. **UI & Live capture** : adapter `seq_led_bridge`, `seq_live_capture` et `ui_backend` pour appeler les nouveaux helpers `seq_model_step_upsert_plock()` (pool) au lieu d'écrire dans un tableau statique. Fichiers : `apps/seq_led_bridge.c`, `core/seq/seq_live_capture.c`, `apps/ui_backend.c`.
-4. **Runner & cart link** : faire consommer l'API Reader mise à jour, préparer la restauration des p-locks cart via la nouvelle représentation. Fichiers : `apps/seq_engine_runner.c`, `cart/cart_link.c` (shadow inchangé).
-5. **Sérialisation** : ajouter un codec V3 capable d'encoder/décoder le pool packé tout en lisant V1/V2. Implique `core/seq/seq_project.c` et les tests `seq_track_codec_tests`.
-6. **Outils/tests** : mettre à jour les bancs host (`seq_hold_runtime_tests`, `seq_reader_tests`, `seq_runner_smoke_tests`) pour vérifier la compatibilité, et ajouter un audit `tools/plock_scan.py` (optionnel) pour lister les symboles du pool.
+| Champ | Avant (tableau fixe) | Après (pool PLK2) | Notes |
+| --- | --- | --- | --- |
+| Stockage step | 24 × `seq_model_plock_t` (8 o) intégrés dans `seq_model_step_t` | `pl_ref {offset,count}` (3 o) + pool global 3 o/entrée | Gain ≈9 o par step actif ; plus de RAM réservée quand il n’y a pas de p-lock.【F:core/seq/seq_model.h†L22-L61】【F:out/plock_mem_budget.md†L7-L18】 |
+| Pattern 16×64 | 196 608 o de p-locks réservés même à vide | 64 512 o pour 20 p-locks effectifs, extensible à 101 376 o pour 32 | D’après la projection `plock_mem_budget` ; aucun buffer cold requis.【F:out/plock_mem_budget.md†L7-L18】 |
+| API Reader | `seq_reader_plock_iter_*` sur tableau statique | `seq_reader_plock_iter_*` sur pool `{offset,count}` | Ordre encode→decode garanti, mêmes flags (cart/signed/voice).【F:core/seq/reader/seq_reader.c†L1-L214】 |
+| Sérialisation | Codecs `track_step_v1/v2` (copie du tableau) | Chunk `PLK2` unique (3 o/entrée) | Plus de branches legacy dans `seq_project.c`.【F:core/seq/seq_project.c†L200-L408】 |
+| Writers | Upsert direct dans `step->plocks[]` | Buffer `{id,val,flags}` + commit pool | Rollback propre sur OOM (UI & Live Rec).【F:apps/seq_led_bridge.c†L104-L535】【F:core/seq/seq_live_capture.c†L468-L617】 |
 
-## F. Risques & mitigations
-- **Hot SRAM uniquement** : le pool reste dans la zone hot pour respecter la contrainte no-cold-in-tick. Un éventuel cache cold (par track ou par pattern) ne sera envisagé qu'après validation des temps p99 Reader et instrumentation existante (`seq_rt_timing_tests`).【F:docs/ARCHITECTURE_FR.md†L34-L68】【F:SEQ_BEHAVIOR.md†L54-L66】
-- **Compat sérialisation** : le firmware devra continuer à lire les patterns V1/V2 (tableaux fixes) et réécrire en V3 packé. Une migration progressive (lecture legacy → conversion → écriture V3) évite toute perte de données sur les cartouches ou offsets All.【F:core/seq/seq_project.c†L489-L680】
-- **Perfs & invariants MIDI** : la suppression du tableau fixe réduit les accès mémoire par step. Il faudra néanmoins vérifier l'absence de régressions sur `_runner_apply_plocks()` (p99) et maintenir l'ordre “p-lock avant NOTE_ON / CC123 à STOP / NOTE_OFF jamais droppé” via les tests stress & soak existants (`make check-host`).【F:apps/seq_engine_runner.c†L130-L353】【F:SEQ_BEHAVIOR.md†L54-L66】【786120†L1-L101】
-- **Zéro `.ram4`** : la passe n'introduit aucune donnée CCMRAM et conserve les audits `.ram4` vides ; toute allocation du pool devra rester dans la SRAM principale documentée précédemment.【F:docs/ARCHITECTURE_FR.md†L70-L78】
+## E. Outils & tests de régression
+- `tests/plk2_roundtrip.c` : encode → decode → encode, comparaison stricte du payload pour 0/1/24 p-locks (ordre inclus).【F:tests/plk2_roundtrip.c†L1-L64】
+- `tests/plk2_minifuzz.c` : mini-fuzz borné (2 000 itérations) validant clamps du décodeur et absence d’UB sur inputs aléatoires.【F:tests/plk2_minifuzz.c†L1-L92】
+- `tests/live_rec_sanity.c` : simulateur Live Rec (last-wins, commit unique, rollback en cas d’échec d’allocation).【F:tests/live_rec_sanity.c†L1-L109】
+
+## F. Points de vigilance
+- Le pool est monotone par design ; `seq_plock_pool_reset()` doit être appelé lors des resets projet/track pour éviter la dérive (déjà fait dans les chemins init/tests).【F:core/seq/seq_plock_pool.c†L37-L53】【F:core/seq/seq_project.c†L320-L360】
+- Les encodeurs doivent rester alignés sur la cap 24 : tout ajout de paramètres nécessitera d’ajuster `SEQ_MAX_PLOCKS_PER_STEP` et les tests associés.
+- Sur host, les bancs PLK2 et Live Rec sont intégrés à `make check-host` pour détecter rapidement toute régression de sérialisation ou de rollback.【F:Makefile†L305-L414】【F:docs/ARCHITECTURE_FR.md†L244-L255】

@@ -9,17 +9,18 @@
 
 #include "core/seq/seq_access.h"
 #include "core/seq/seq_plock_pool.h"
+#include "tests/runtime_compat.h"
 
 static void seed_test_pattern(void) {
     seq_runtime_init();
     seq_plock_pool_reset();
 
-    seq_project_t *project = seq_runtime_access_project_mut();
+    seq_project_t *project = seq_runtime_compat_access_project_mut();
     assert(project != NULL);
     assert(seq_project_set_active_slot(project, 0U, 0U));
     assert(seq_project_set_active_track(project, 0U));
 
-    seq_model_track_t *track = seq_runtime_access_track_mut(0U);
+    seq_model_track_t *track = seq_runtime_compat_access_track_mut(0U);
     assert(track != NULL);
 
     for (size_t i = 0; i < SEQ_MODEL_STEPS_PER_TRACK; ++i) {

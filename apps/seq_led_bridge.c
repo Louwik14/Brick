@@ -18,7 +18,6 @@
 #include "core/seq/runtime/seq_sections.h"
 #include "core/seq/seq_access.h"
 #include "seq_led_bridge.h"
-#include "seq_engine_runner.h"
 #include "seq_recorder.h"
 #include "ui_mute_backend.h"
 #include "ui_led_backend.h"
@@ -305,7 +304,11 @@ static bool _seq_led_bridge_buffer_upsert_cart(seq_led_bridge_plock_buffer_t *bu
         return false;
     }
 
-    const uint8_t id = (uint8_t)(parameter_id & 0x00FFU);
+    uint16_t encoded = (uint16_t)(0x40U + (parameter_id & 0x00FFU));
+    if (encoded > 0xFFU) {
+        encoded = 0xFFU;
+    }
+    const uint8_t id = (uint8_t)encoded;
     uint8_t encoded_flags = k_seq_led_bridge_pl_flag_domain_cart;
     encoded_flags = (uint8_t)(encoded_flags |
                                ((track & 0x03U) << k_seq_led_bridge_pl_flag_voice_shift));
