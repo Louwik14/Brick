@@ -88,8 +88,9 @@ static void drivers_and_cart_init(void) {
 
   /* Enregistre les cartouches disponibles */
   cart_registry_register(CART1, &CART_XVA1);
-  // cart_registry_register(CART2, &CART_FX);
-  // cart_registry_register(CART3, &CART_SAMPLER);
+  cart_registry_register(CART2, &CART_XVA1);
+  cart_registry_register(CART3, &CART_XVA1);
+  cart_registry_register(CART4, &CART_XVA1);
 }
 
 /**

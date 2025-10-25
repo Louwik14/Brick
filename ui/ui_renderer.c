@@ -157,6 +157,9 @@ static void _copy_project_name(const seq_project_t *project, char *dst, size_t d
 
 static void _draw_track_mode_placeholder(const seq_project_t *project,
                                          const ui_mode_context_t *ctx) {
+    const uint8_t project_tracks = (project != NULL)
+                                       ? seq_project_get_track_count(project)
+                                       : 0U;
     for (int slot = 0; slot < 4; ++slot) {
         int x = k_param_frame_x_offsets[slot];
         int y = k_param_frame_y;
@@ -174,11 +177,14 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
             uint8_t track_idx = (uint8_t)(slot * 4 + row);
             const seq_model_track_t *track_model =
                 (project != NULL) ? seq_project_get_track_const(project, track_idx) : NULL;
-            const bool present = (track_model != NULL);
+            const bool track_in_range = (track_idx < project_tracks);
+            const bool present = track_in_range && (track_model != NULL);
             const bool active = present && ctx && (track_idx == ctx->seq.track_index);
 
             char line[12];
-            if (!present) {
+            if (!track_in_range) {
+                line[0] = '\0';
+            } else if (!present) {
                 (void)snprintf(line, sizeof(line), "--");
             } else {
                 (void)snprintf(line, sizeof(line), "%cT%02u",
@@ -187,6 +193,10 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
             }
 
         int y_line = y + 10 + row * (FONT_4X6.height + 1);
+            if (!track_in_range) {
+                continue;
+            }
+
             if (active) {
                 int tw_line = text_width_px(&FONT_4X6, line);
                 draw_filled_rect(x + 2, y_line - 1, tw_line + 2, FONT_4X6.height + 2);

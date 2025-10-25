@@ -27,6 +27,13 @@
 #define SEQ_MAX_TRACKS 16
 #endif
 
+/* --- Track capacity (runtime/shared) ------------------------------------ */
+#undef  SEQ_RUNTIME_TRACK_CAPACITY
+#define SEQ_RUNTIME_TRACK_CAPACITY 16U
+
+#undef  SEQ_LED_BRIDGE_TRACK_CAPACITY
+#define SEQ_LED_BRIDGE_TRACK_CAPACITY SEQ_RUNTIME_TRACK_CAPACITY
+
 #ifndef SEQ_STEPS_PER_TRACK
 #define SEQ_STEPS_PER_TRACK 64   /* garder 64 pour le F429 */
 #endif

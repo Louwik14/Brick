@@ -21,6 +21,15 @@
 
 #include "ui_spec.h"
 
+/** Nombre de pistes desservies par une cartouche XVA1. */
+#define CART_XVA1_TRACKS_PER_CART 4U
+
+/** Nombre total de cartouches XVA1 gérées simultanément. */
+#define CART_XVA1_CART_COUNT      4U
+
+/** Nombre total de pistes XVA1 disponibles (cart × pistes/cart). */
+#define CART_XVA1_TOTAL_TRACKS    (CART_XVA1_TRACKS_PER_CART * CART_XVA1_CART_COUNT)
+
 /* =======================================================
  *   Tables de labels (définies dans cart_xva1_spec.c)
  * ======================================================= */
