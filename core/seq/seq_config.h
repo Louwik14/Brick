@@ -27,6 +27,15 @@
 #define SEQ_MAX_TRACKS 16
 #endif
 
+/* --- Cartridge topology -------------------------------------------------- */
+#ifndef SEQ_CARTS_ACTIVE
+#define SEQ_CARTS_ACTIVE 4U
+#endif
+
+#ifndef XVA1_TRACKS_PER_CART
+#define XVA1_TRACKS_PER_CART 4U
+#endif
+
 /* --- Track capacity (runtime/shared) ------------------------------------ */
 #undef  SEQ_RUNTIME_TRACK_CAPACITY
 #define SEQ_RUNTIME_TRACK_CAPACITY 16U

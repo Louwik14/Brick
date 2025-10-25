@@ -4,6 +4,8 @@
  */
 
 #include "seq_project.h"
+#include "core/cart/cart_registry_access.h"
+#include "core/seq/seq_config.h"
 
 #include <string.h>
 
@@ -69,6 +71,14 @@ typedef enum {
 static seq_project_t *s_active_project;
 static CCM_DATA uint8_t s_pattern_buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
 UI_RAM_AUDIT(s_pattern_buffer);
+
+enum { SEQ_PROJECT_CART_NAME_MAX = 24U };
+
+typedef struct {
+    char label[SEQ_PROJECT_CART_NAME_MAX];
+} seq_project_cart_name_cache_t;
+
+static seq_project_cart_name_cache_t s_cart_name_cache[CART_COUNT];
 
 static void pattern_desc_reset(seq_project_pattern_desc_t *desc) {
     if (desc == NULL) {
@@ -525,11 +535,129 @@ const seq_model_track_t *seq_project_get_active_track_const(const seq_project_t 
     return (project != NULL) ? seq_project_get_track_const(project, seq_project_get_active_track_index(project)) : NULL;
 }
 
-uint8_t seq_project_get_track_count(const seq_project_t *project) {
+uint8_t seq_project_get_cart_count(const seq_project_t *project) {
     if (project == NULL) {
         return 0U;
     }
-    return project->track_count;
+
+    bool seen[CART_COUNT] = {false};
+    const uint16_t total_tracks = seq_project_get_track_count(project);
+    for (uint16_t idx = 0U; idx < total_tracks; ++idx) {
+        const seq_project_cart_ref_t *cart = seq_project_get_track_cart(project, (uint8_t)idx);
+        if ((cart != NULL) && (cart->slot_id < (uint8_t)CART_COUNT)) {
+            seen[cart->slot_id] = true;
+        }
+    }
+
+    uint8_t count = 0U;
+    for (cart_id_t slot = 0; slot < CART_COUNT; ++slot) {
+        if (seen[slot]) {
+            ++count;
+        }
+    }
+
+    if (count == 0U) {
+        const uint8_t configured = (SEQ_CARTS_ACTIVE <= CART_COUNT) ? SEQ_CARTS_ACTIVE : (uint8_t)CART_COUNT;
+        return configured;
+    }
+
+    return count;
+}
+
+const char* seq_project_get_cart_name(const seq_project_t *project, uint8_t cart_index) {
+    (void)project;
+    if (cart_index >= (uint8_t)CART_COUNT) {
+        return NULL;
+    }
+
+    seq_project_cart_name_cache_t *cache = &s_cart_name_cache[cart_index];
+    char buffer[SEQ_PROJECT_CART_NAME_MAX];
+    bool have_name = false;
+    if (cart_registry_cart_name != NULL) {
+        have_name = cart_registry_cart_name(cart_index, buffer, (uint8_t)sizeof(buffer));
+    }
+    if (!have_name) {
+        buffer[0] = '\0';
+    }
+
+    size_t len = strlen(buffer);
+    if (len >= sizeof(cache->label)) {
+        len = sizeof(cache->label) - 1U;
+    }
+    memcpy(cache->label, buffer, len);
+    cache->label[len] = '\0';
+
+    if (cache->label[0] == '\0') {
+        return NULL;
+    }
+    return cache->label;
+}
+
+bool seq_project_get_cart_track_span(const seq_project_t *project,
+                                     uint8_t cart_index,
+                                     uint16_t *start_track,
+                                     uint16_t *track_count) {
+    if ((project == NULL) || (start_track == NULL) || (track_count == NULL)) {
+        return false;
+    }
+    if (cart_index >= (uint8_t)CART_COUNT) {
+        *start_track = 0U;
+        *track_count = 0U;
+        return false;
+    }
+
+    const uint16_t total_tracks = seq_project_get_track_count(project);
+    if (total_tracks == 0U) {
+        *start_track = 0U;
+        *track_count = 0U;
+        return false;
+    }
+
+    bool found = false;
+    bool closed = false;
+    uint16_t span_start = 0U;
+    uint16_t span_end = 0U;
+
+    for (uint16_t idx = 0U; idx < total_tracks; ++idx) {
+        const seq_project_cart_ref_t *cart = seq_project_get_track_cart(project, (uint8_t)idx);
+        if ((cart == NULL) || (cart->slot_id >= (uint8_t)CART_COUNT)) {
+            continue;
+        }
+        if (cart->slot_id == cart_index) {
+            if (closed) {
+                return false;
+            }
+            if (!found) {
+                span_start = idx;
+                span_end = idx;
+                found = true;
+            } else {
+                if (idx != (uint16_t)(span_end + 1U)) {
+                    return false;
+                }
+                span_end = idx;
+            }
+        } else if (found) {
+            closed = true;
+        }
+    }
+
+    if (!found) {
+        *start_track = 0U;
+        *track_count = 0U;
+        return false;
+    }
+
+    *start_track = span_start;
+    *track_count = (uint16_t)(span_end - span_start + 1U);
+    return true;
+}
+
+uint16_t seq_project_get_track_count(const seq_project_t *project) {
+    if (project == NULL) {
+        return 0U;
+    }
+    return (uint16_t)project->track_count;
 }
 
 void seq_project_clear_track(seq_project_t *project, uint8_t track_index) {
