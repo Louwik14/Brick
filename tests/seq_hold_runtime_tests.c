@@ -10,10 +10,8 @@
 #include "apps/seq_recorder.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_live_capture.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/reader/seq_reader.h"
 #include "core/seq/seq_plock_ids.h"
-#endif
 #include "core/seq/seq_runtime.h"
 #include "core/clock_manager.h"
 #include "midi/midi.h"
@@ -321,7 +319,6 @@ static void test_live_capture_records_length(void) {
     assert(voice->length > 1U);
 
     bool has_length_plock = false;
-#if SEQ_FEATURE_PLOCK_POOL
     seq_reader_pl_it_t it;
     if (seq_reader_pl_open(&it, step) > 0) {
         uint8_t id = 0U;
@@ -334,17 +331,6 @@ static void test_live_capture_records_length(void) {
             }
         }
     }
-#else
-    for (uint8_t i = 0U; i < step->plock_count; ++i) {
-        const seq_model_plock_t *plk = &step->plocks[i];
-        if ((plk->domain == SEQ_MODEL_PLOCK_INTERNAL) &&
-            (plk->internal_param == SEQ_MODEL_PLOCK_PARAM_LENGTH) &&
-            (plk->voice_index == 0U)) {
-            has_length_plock = true;
-            assert(plk->value == (int16_t)voice->length);
-        }
-    }
-#endif
     assert(has_length_plock);
 }
 

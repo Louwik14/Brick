@@ -7,9 +7,7 @@
 #include "cart/cart_bus.h"
 #include "cart/cart_registry.h"
 #include "core/seq/seq_model.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
-#endif
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_runtime.h"
@@ -212,7 +210,6 @@ static void configure_voice_step(seq_model_step_t *step) {
     voice->length = 2U;
     voice->state = SEQ_MODEL_VOICE_ENABLED;
 
-#if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.count = 0U;
     const uint8_t ids[] = {
         PL_INT_ALL_TRANSP,
@@ -241,29 +238,6 @@ static void configure_voice_step(seq_model_step_t *step) {
     }
     step->pl_ref.offset = offset;
     step->pl_ref.count = (uint8_t)count;
-#else
-    step->plock_count = 5U;
-    step->plocks[0].domain = SEQ_MODEL_PLOCK_INTERNAL;
-    step->plocks[0].internal_param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR;
-    step->plocks[0].value = 2;
-
-    step->plocks[1].domain = SEQ_MODEL_PLOCK_INTERNAL;
-    step->plocks[1].internal_param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE;
-    step->plocks[1].value = -20;
-
-    step->plocks[2].domain = SEQ_MODEL_PLOCK_INTERNAL;
-    step->plocks[2].internal_param = SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE;
-    step->plocks[2].value = 2;
-
-    step->plocks[3].domain = SEQ_MODEL_PLOCK_INTERNAL;
-    step->plocks[3].internal_param = SEQ_MODEL_PLOCK_PARAM_VELOCITY;
-    step->plocks[3].voice_index = 0U;
-    step->plocks[3].value = 90;
-
-    step->plocks[4].domain = SEQ_MODEL_PLOCK_CART;
-    step->plocks[4].parameter_id = 7U;
-    step->plocks[4].value = 55;
-#endif
 
     seq_model_step_recompute_flags(step);
 }
@@ -271,7 +245,6 @@ static void configure_voice_step(seq_model_step_t *step) {
 static void configure_automation_step(seq_model_step_t *step) {
     seq_model_step_make_neutral(step);
     seq_model_step_make_automation_only(step);
-#if SEQ_FEATURE_PLOCK_POOL
     uint16_t offset = 0U;
     int ok = seq_plock_pool_alloc(1U, &offset);
     assert(ok == 0);
@@ -282,12 +255,6 @@ static void configure_automation_step(seq_model_step_t *step) {
     entry->flags = 0U;
     step->pl_ref.offset = offset;
     step->pl_ref.count = 1U;
-#else
-    step->plock_count = 1U;
-    step->plocks[0].domain = SEQ_MODEL_PLOCK_CART;
-    step->plocks[0].parameter_id = 3U;
-    step->plocks[0].value = 99;
-#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -309,9 +276,7 @@ int main(void) {
 
     neutralise_track(track);
 
-#if SEQ_FEATURE_PLOCK_POOL
     seq_plock_pool_reset();
-#endif
 
     configure_voice_step(&track->steps[0]);
     configure_automation_step(&track->steps[1]);

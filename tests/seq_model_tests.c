@@ -8,9 +8,7 @@
 #include <string.h>
 
 #include "core/seq/seq_model.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
-#endif
 
 static void test_generation_helpers(void) {
     seq_model_gen_t gen_a;
@@ -85,69 +83,7 @@ static void test_step_state_helpers(void) {
         assert(voice->length == 1U);
     }
 
-    seq_model_step_make_automation_only(&step);
-    assert(!seq_model_step_has_playable_voice(&step));
-    assert(!seq_model_step_is_automation_only(&step));
-    assert(!seq_model_step_has_seq_plock(&step));
-    assert(!seq_model_step_has_cart_plock(&step));
-
-#if !SEQ_FEATURE_PLOCK_POOL
-    seq_model_plock_t plock = {
-        .domain = SEQ_MODEL_PLOCK_INTERNAL,
-        .voice_index = 0U,
-        .parameter_id = 0U,
-        .value = 64,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
-    };
-    assert(seq_model_step_add_plock(&step, &plock));
-    assert(seq_model_step_has_any_plock(&step));
-    assert(seq_model_step_has_seq_plock(&step));
-    assert(!seq_model_step_has_cart_plock(&step));
-    assert(!seq_model_step_is_automation_only(&step));
-
-    seq_model_plock_t cart = {
-        .domain = SEQ_MODEL_PLOCK_CART,
-        .voice_index = 0U,
-        .parameter_id = 1U,
-        .value = 32,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
-    };
-    assert(seq_model_step_add_plock(&step, &cart));
-    assert(seq_model_step_has_cart_plock(&step));
-    assert(!seq_model_step_is_automation_only(&step));
-
-    seq_model_step_init(&step);
-    seq_model_step_make_automation_only(&step);
-    assert(seq_model_step_add_plock(&step, &cart));
-    assert(!seq_model_step_has_seq_plock(&step));
-    assert(seq_model_step_has_cart_plock(&step));
-    assert(seq_model_step_is_automation_only(&step));
-#endif
 }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-static void test_plock_capacity_guard(void) {
-    seq_model_step_t step;
-    seq_model_plock_t plock;
-    size_t i;
-
-    seq_model_step_init(&step);
-    memset(&plock, 0, sizeof(plock));
-    plock.domain = SEQ_MODEL_PLOCK_INTERNAL;
-
-    for (i = 0U; i < SEQ_MODEL_MAX_PLOCKS_PER_STEP; ++i) {
-        plock.voice_index = 0U;
-        assert(seq_model_step_add_plock(&step, &plock));
-    }
-
-#if !SEQ_FEATURE_PLOCK_POOL
-    assert(step.plock_count == SEQ_MODEL_MAX_PLOCKS_PER_STEP);
-#endif
-
-    /* The next addition should be rejected because the buffer is full. */
-    assert(!seq_model_step_add_plock(&step, &plock));
-}
-#endif
 
 static void test_track_config_mutations(void) {
     seq_model_track_t track;
@@ -185,7 +121,6 @@ static void test_track_config_mutations(void) {
     assert(track.config.scale.mode == scale.mode);
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
 static void test_pool_automation_helpers(void) {
     seq_plock_pool_reset();
 
@@ -245,18 +180,13 @@ static void test_pool_automation_helpers(void) {
     assert(!seq_model_step_has_any_plock(&step));
     assert(!seq_model_step_is_automation_only(&step));
 }
-#endif
 
 int main(void) {
     test_generation_helpers();
     test_default_step_initialisation();
     test_step_state_helpers();
     test_track_config_mutations();
-#if SEQ_FEATURE_PLOCK_POOL
     test_pool_automation_helpers();
-#else
-    test_plock_capacity_guard();
-#endif
 
     printf("seq_model_tests: OK\n");
     return 0;

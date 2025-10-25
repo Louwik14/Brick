@@ -186,7 +186,7 @@ SEQ
 4. Les steps verts (actifs ou contenant des p-locks SEQ) conservent leur note et leur vélocité (`seq_model_step_make_neutral()`), les steps bleus (automation pure) ont vélocité voix1 = 0.
 5. Le “quick toggle” ne joue plus de pré-écoute MIDI : les notes ne sont émises qu'en playback.
 6. **Writers pooled** : QuickStep/Hold collecte pour chaque step ≤ `SEQ_MAX_PLOCKS_PER_STEP` triplets `{id,val,flags}` (dernier gagnant sur doublon) avant de lancer un unique `seq_model_step_set_plocks_pooled(...)`. En cas d’OOM, le snapshot du step est restauré, un warning est journalisé (stderr côté host) et le multi-hold reste best-effort (les steps appliqués conservent leur mutation, ceux en échec sont ignorés).
-7. **Reader pool-only** : quand `SEQ_FEATURE_PLOCK_POOL=1`, la LED bridge lit exclusivement le pool (`pl_ref`) pour refléter l’état p-locké (libellés inversés, multi-hold `—`, handlers All harmonisés). Les writers restent côté cold/UI ; Reader et Runner demeurent hot-only conformément au split défini dans la passe précédente. Le chemin legacy (`step->plocks[]`) n’est conservé qu’en build sans pool.
+7. **Reader pool-only** : la LED bridge lit désormais exclusivement le pool (`pl_ref`) pour refléter l’état p-locké (libellés inversés, multi-hold `—`, handlers All harmonisés). Les writers restent côté cold/UI ; Reader et Runner demeurent hot-only conformément au split défini dans la passe précédente. Les chemins legacy (`step->plocks[]`) ont été supprimés : aucune option de build ne réactive la voie historique.
 
 ### 4.3 Lecture et classification
 * `seq_led_bridge_publish()` agrège la track active et renseigne `seq_led_runtime_t.steps[]` : `active`, `automation`, `muted`.【F:apps/seq_led_bridge.c†L824-L889】
@@ -278,7 +278,7 @@ Aucun parseur V1/V2 n'est conservé : `SEQ_PROJECT_LEGACY_CODEC=0` coupe défini
 
 ### Activation par défaut (firmware F429)
 
-* Le pool packé est la configuration unique : `SEQ_FEATURE_PLOCK_POOL=1`, `SEQ_FEATURE_PLOCK_POOL_STORAGE=1` et `SEQ_PROJECT_LEGACY_CODEC=0` sont activés par défaut, supprimant toute voie legacy.
+* Le pool packé est désormais la configuration unique : les anciens flags `SEQ_FEATURE_PLOCK_POOL{,_STORAGE}` et `SEQ_PROJECT_LEGACY_CODEC` ont été retirés et le firmware construit toujours en mode pool-only.
 * La capacité est calculée à la construction (`SEQ_MAX_TRACKS * SEQ_STEPS_PER_TRACK * SEQ_MAX_PLOCKS_PER_STEP`) et bornée via un `_Static_assert` pour garantir des offsets 16-bit (≤ 65535).
 * Aucun mode rollback V1/V2 n'est maintenu : les sauvegardes doivent être re-générées dans ce format PLK2-only.
 * Aucun symbole n'est poussé en `.ram4`/CCMRAM : le gain RAM provient exclusivement du packing 3 octets par entrée (param/value/flags) et du header `(offset,count)` par step.

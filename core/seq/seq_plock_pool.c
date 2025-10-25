@@ -3,18 +3,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef SEQ_FEATURE_PLOCK_POOL
-#define SEQ_FEATURE_PLOCK_POOL 0
-#endif
-
-#ifndef SEQ_FEATURE_PLOCK_POOL_STORAGE
-#define SEQ_FEATURE_PLOCK_POOL_STORAGE 0   // firmware: 1 ; host: 0
-#endif
-
 // ---------- Sélection de capacité (sans casts dans les macros) ----------
-
-// 1) Firmware : stockage réel
-#if SEQ_FEATURE_PLOCK_POOL_STORAGE
 
 #ifndef SEQ_MAX_TRACKS
 #error "SEQ_MAX_TRACKS is undefined. Include seq_config.h before seq_plock_pool.c"
@@ -31,10 +20,7 @@
 
 _Static_assert(FW_POOL_CAPACITY <= 65535, "pool capacity exceeds 16-bit offset");
 
-#define PLOCK_POOL_CAPACITY   (FW_POOL_CAPACITY)
-
-// 2) Host tests : capacité injectée
-#elif defined(SEQ_PLOCK_POOL_CAPACITY_TEST)
+#if defined(SEQ_PLOCK_POOL_CAPACITY_TEST)
 
 #if (SEQ_PLOCK_POOL_CAPACITY_TEST > 65535)
 #error "SEQ_PLOCK_POOL_CAPACITY_TEST must fit into 16-bit offset"
@@ -42,9 +28,8 @@ _Static_assert(FW_POOL_CAPACITY <= 65535, "pool capacity exceeds 16-bit offset")
 
 #define PLOCK_POOL_CAPACITY   (SEQ_PLOCK_POOL_CAPACITY_TEST)
 
-// 3) Stub sans stockage
 #else
-#define PLOCK_POOL_CAPACITY   (0)
+#define PLOCK_POOL_CAPACITY   (FW_POOL_CAPACITY)
 #endif
 
 // ---------- Stockage & état ----------

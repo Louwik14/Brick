@@ -26,19 +26,11 @@ endif
 
 USE_COPT += $(WARNINGS_FLAGS)
 # P1/MP5 — handles flipped ON globally for apps/** (deprecated APIs now error).
-CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations $(EXTRA_CFLAGS)
+CFLAGS += -DSEQ_USE_HANDLES=1 -Werror=deprecated-declarations
 
-PFLAGS := -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=1 -DSEQ_PROJECT_LEGACY_CODEC=0
+.PHONY: fw-pooled
 
-.PHONY: fw-pooled fw-legacy
-
-fw-pooled:
-	@$(MAKE) clean
-	@$(MAKE) --no-print-directory all EXTRA_CFLAGS="$(EXTRA_CFLAGS) $(PFLAGS)"
-
-fw-legacy:
-	$(MAKE) BUILD_MODE=firmware \
-		CFLAGS+='-DSEQ_FEATURE_PLOCK_POOL=0 -DSEQ_FEATURE_PLOCK_POOL_STORAGE=0'
+fw-pooled: all
 
 ARM_CC ?= arm-none-eabi-gcc
 HAVE_ARM := $(shell which $(ARM_CC) >/dev/null 2>&1 && echo 1 || echo 0)
@@ -447,8 +439,8 @@ $(HOST_SEQ_PLOCK_POOL_TEST): tests/seq_plock_pool_tests.c core/seq/seq_plock_poo
 
 $(HOST_SEQ_PLOCK_WRITE_POOL_TEST): tests/seq_plock_write_pool_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_PLOCK_POOL_CAPACITY_TEST=64 -Itests/stubs -I. -Icore -Icart -Iboard \
-        tests/seq_plock_write_pool_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_PLOCK_POOL_CAPACITY_TEST=64 -Itests/stubs -I. -Icore -Icart -Iboard \
+	tests/seq_plock_write_pool_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c -o $@
 
 $(HOST_SEQ_HOLD_TEST): tests/seq_hold_runtime_tests.c apps/seq_led_bridge.c apps/seq_recorder.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_live_capture.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/seq_engine_runner_stub.c tests/stubs/ui_led_backend_stub.c apps/ui_keyboard_app.c apps/kbd_chords_dict.c board/board_flash.c cart/cart_registry.c
 	@mkdir -p $(HOST_TEST_DIR)
@@ -496,8 +488,8 @@ $(HOST_SEQ_READER_TEST): tests/seq_reader_tests.c core/seq/seq_model.c core/seq/
 
 $(HOST_SEQ_READER_PLOCK_ITER_TEST): tests/seq_reader_pl_iter_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 -Itests/stubs -I. -Icore -Icart -Iboard \
-        tests/seq_reader_pl_iter_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 -Itests/stubs -I. -Icore -Icart -Iboard \
+	tests/seq_reader_pl_iter_tests.c core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_project.c core/seq/seq_runtime.c $(HOST_SEQ_RUNTIME_SRCS) $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB) cart/cart_registry.c tests/stubs/board_flash_stub.c -o $@
 
 $(HOST_SEQ_RUNTIME_LAYOUT_TEST): tests/seq_runtime_layout_tests.c $(HOST_SEQ_RUNTIME_SRCS) core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c cart/cart_registry.c board/board_flash.c $(SEQ_LED_BRIDGE_HOLD_SLOTS_STUB)
 	@mkdir -p $(HOST_TEST_DIR)
@@ -574,13 +566,13 @@ $(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST): tests/seq_runner_plock_router_tests.c
         $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
         tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
-	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_FEATURE_PLOCK_POOL=1 -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 \
-                -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
-                tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
-                core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-                $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
-                tests/stubs/seq_led_bridge_hold_slots_stub.c \
-                -o $@
+	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 \
+	-Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
+	tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
+	core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
+	tests/stubs/seq_led_bridge_hold_slots_stub.c \
+	-o $@
 
 
 

@@ -12,15 +12,13 @@
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_plock_ids.h"
 typedef seq_step_plock_ref_t pl_ref_t;
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
+#if defined(__GNUC__)
 #pragma GCC poison plocks
 #pragma GCC poison plock_count
+#endif
 _Static_assert(sizeof(pl_ref_t) == 3, "pl_ref_t must be packed to 3 bytes");
 _Static_assert(SEQ_MAX_PLOCKS_PER_STEP <= 24, "cap exceeded");
-#else
-#error "seq_reader hot requires SEQ_FEATURE_PLOCK_POOL"
-#endif
 
 enum {
     k_seq_reader_plock_internal_flag = 0x8000U,

@@ -36,12 +36,10 @@ const seq_model_step_t k_seq_model_step_default = {
             .state = SEQ_MODEL_VOICE_DISABLED,
         },
     },
-#if SEQ_FEATURE_PLOCK_POOL
     .pl_ref = {
         .offset = 0U,
         .count = 0U,
     },
-#endif
     .offsets = {
         .velocity = 0,
         .transpose = 0,

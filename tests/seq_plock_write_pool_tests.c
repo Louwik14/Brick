@@ -91,29 +91,10 @@ static void test_live_capture_helper_success(void) {
 }
 
 static void test_helper_oom_fallback(void) {
-#if !SEQ_FEATURE_PLOCK_POOL
     seq_plock_pool_reset();
 
     seq_model_step_t step;
     seq_model_step_init(&step);
-
-    seq_model_plock_t note_plock = {
-        .domain = SEQ_MODEL_PLOCK_INTERNAL,
-        .voice_index = 0U,
-        .parameter_id = 0U,
-        .value = 64,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
-    };
-    seq_model_plock_t velocity_plock = {
-        .domain = SEQ_MODEL_PLOCK_INTERNAL,
-        .voice_index = 0U,
-        .parameter_id = 0U,
-        .value = 90,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_VELOCITY,
-    };
-
-    assert(seq_model_step_add_plock(&step, &note_plock));
-    assert(seq_model_step_add_plock(&step, &velocity_plock));
 
     const uint8_t requested = (uint8_t)(SEQ_PLOCK_POOL_CAPACITY_TEST + 1U);
     plk2_t entries[SEQ_PLOCK_POOL_CAPACITY_TEST + 1U];
@@ -128,23 +109,7 @@ static void test_helper_oom_fallback(void) {
     assert(step.pl_ref.count == 0U);
 
     seq_reader_pl_it_t it;
-    assert(seq_reader_pl_open(&it, &step) == 1);
-
-    uint8_t id = 0U;
-    uint8_t value = 0U;
-    uint8_t flag = 0U;
-
-    assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == (uint8_t)(PL_INT_NOTE_V0 + 0U));
-    assert(value == 64U);
-
-    assert(seq_reader_pl_next(&it, &id, &value, &flag) == 1);
-    assert(id == (uint8_t)(PL_INT_VEL_V0 + 0U));
-    assert(value == 90U);
-#else
-    /* Legacy per-step storage not available when pooled mode is enabled. */
-    seq_plock_pool_reset();
-#endif
+    assert(seq_reader_pl_open(&it, &step) == 0);
 }
 
 int main(void) {

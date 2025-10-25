@@ -5,12 +5,10 @@
 
 #include "seq_model.h"
 
-#if SEQ_FEATURE_PLOCK_POOL
 #include "seq_plock_pool.h"
 #include "seq_plock_ids.h"
-#endif
 
-#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#if defined(__GNUC__)
 #pragma GCC poison plock_count
 #pragma GCC poison plocks
 #endif
@@ -72,10 +70,8 @@ void seq_model_step_init(seq_model_step_t *step) {
     }
 
     *step = k_seq_model_step_default;
-#if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
-#endif
     step->flags.active = 0U;
     step->flags.automation = 0U;
 }
@@ -97,10 +93,8 @@ void seq_model_step_init_default(seq_model_step_t *step, uint8_t note) {
         }
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
-#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -142,7 +136,6 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
         return;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     const bool had_plocks = step->pl_ref.count > 0U;
 
     step->pl_ref.offset = 0U;
@@ -151,7 +144,6 @@ void seq_model_step_clear_plocks(seq_model_step_t *step) {
     if (had_plocks) {
         seq_model_step_recompute_flags(step);
     }
-#endif
 }
 
 void seq_model_step_set_offsets(seq_model_step_t *step, const seq_model_step_offsets_t *offsets) {
@@ -191,12 +183,7 @@ bool seq_model_step_has_any_plock(const seq_model_step_t *step) {
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     return step->pl_ref.count > 0U;
-#else
-    (void)step;
-    return false;
-#endif
 }
 
 bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
@@ -204,7 +191,6 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
         const plk2_t *entry = seq_model_step_get_plock(step, i);
         if ((entry != NULL) && !pl_is_cart(entry->param_id)) {
@@ -213,10 +199,6 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
     }
 
     return false;
-#else
-    (void)step;
-    return false;
-#endif
 }
 
 bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
@@ -224,7 +206,6 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
         const plk2_t *entry = seq_model_step_get_plock(step, i);
         if ((entry != NULL) && pl_is_cart(entry->param_id)) {
@@ -233,10 +214,6 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
     }
 
     return false;
-#else
-    (void)step;
-    return false;
-#endif
 }
 
 void seq_model_step_make_automation_only(seq_model_step_t *step) {
@@ -253,12 +230,8 @@ void seq_model_step_make_automation_only(seq_model_step_t *step) {
     }
 
     step->flags.active = 0U;
-#if SEQ_FEATURE_PLOCK_POOL
     const bool has_plock = step->pl_ref.count > 0U;
     step->flags.automation = has_plock ? 1U : 0U;
-#else
-    step->flags.automation = 0U;
-#endif
 }
 
 void seq_model_step_make_neutral(seq_model_step_t *step) {
@@ -282,10 +255,8 @@ void seq_model_step_make_neutral(seq_model_step_t *step) {
         }
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     step->pl_ref.offset = 0U;
     step->pl_ref.count = 0U;
-#endif
     seq_model_step_recompute_flags(step);
 }
 
@@ -351,17 +322,13 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
     }
 
     step->flags.active = has_voice;
-    bool has_plocks = false;
-#if SEQ_FEATURE_PLOCK_POOL
-    has_plocks = step->pl_ref.count > 0U;
-#endif
+    bool has_plocks = step->pl_ref.count > 0U;
     step->flags.automation = (uint8_t)((!has_voice && has_plocks) ? 1U : 0U);
 }
 
 int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
                                      const plk2_t *entries,
                                      uint8_t n) {
-#if SEQ_FEATURE_PLOCK_POOL
     if (step == NULL) {
         return -1;
     }
@@ -406,10 +373,4 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
         seq_model_step_recompute_flags(step);
     }
     return 0;
-#else
-    (void)step;
-    (void)entries;
-    (void)n;
-    return -1;
-#endif
 }

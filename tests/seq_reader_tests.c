@@ -9,6 +9,8 @@
 #include "core/seq/seq_runtime.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
+#include "core/seq/seq_plock_pool.h"
+#include "core/seq/seq_plock_ids.h"
 #include "cart/cart_registry.h"
 
 bool board_flash_init(void) { return true; }
@@ -74,6 +76,7 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out_id) {
 
 static void prepare_track(void) {
     seq_runtime_init();
+    seq_plock_pool_reset();
 
     seq_model_track_t *track = seq_runtime_access_track_mut(0U);
     assert(track != NULL);
@@ -89,14 +92,12 @@ static void prepare_track(void) {
     primary.state = SEQ_MODEL_VOICE_ENABLED;
     assert(seq_model_step_set_voice(step, 0U, &primary));
 
-    seq_model_plock_t plock = {
-        .domain = SEQ_MODEL_PLOCK_INTERNAL,
-        .voice_index = 0U,
-        .parameter_id = 0U,
-        .value = 42,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
+    const plk2_t plock = {
+        .param_id = PL_INT_NOTE_V0,
+        .value = 42U,
+        .flags = 0U,
     };
-    assert(seq_model_step_add_plock(step, &plock));
+    assert(seq_model_step_set_plocks_pooled(step, &plock, 1U) == 0);
 }
 
 static void test_reader_get_step(void) {
