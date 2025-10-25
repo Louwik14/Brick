@@ -4,7 +4,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "core/seq/seq_model.h"
 #include "core/seq/seq_project.h"
+#include "core/seq/seq_plock_pool.h"
+#include "core/seq/seq_plock_ids.h"
+#include "core/seq/reader/seq_reader.h"
 #include "cart/cart_bus.h"
 #include "cart/cart_registry.h"
 
@@ -68,12 +72,6 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out) {
     return false;
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
-int main(void) {
-    return 0;
-}
-#else
-
 static void populate_track(seq_model_track_t *track) {
     seq_model_track_init(track);
 
@@ -90,23 +88,20 @@ static void populate_track(seq_model_track_t *track) {
             seq_model_step_set_voice(s, v, &voice);
         }
 
-        seq_model_plock_t internal = {
-            .value = (int16_t)(step * 2),
-            .parameter_id = 0U,
-            .domain = SEQ_MODEL_PLOCK_INTERNAL,
-            .voice_index = 0U,
-            .internal_param = SEQ_MODEL_PLOCK_PARAM_LENGTH
+        const plk2_t entries[2] = {
+            {
+                .param_id = PL_INT_LEN_V0,
+                .value = pl_u8_from_s8((int8_t)(step / 2)),
+                .flags = (uint8_t)(SEQ_READER_PL_FLAG_SIGNED |
+                                   (0U << SEQ_READER_PL_FLAG_VOICE_SHIFT)),
+            },
+            {
+                .param_id = (uint8_t)(0x40U + ((step / 4U) & 0x1FU)),
+                .value = (uint8_t)(0x10U + step),
+                .flags = SEQ_READER_PL_FLAG_DOMAIN_CART,
+            },
         };
-        assert(seq_model_step_add_plock(s, &internal));
-
-        seq_model_plock_t cart = {
-            .value = (int16_t)(-step),
-            .parameter_id = (uint16_t)(step + 1U),
-            .domain = SEQ_MODEL_PLOCK_CART,
-            .voice_index = 1U,
-            .internal_param = 0U
-        };
-        assert(seq_model_step_add_plock(s, &cart));
+        assert(seq_model_step_set_plocks_pooled(s, entries, 2U) == 0);
     }
 }
 
@@ -117,15 +112,21 @@ static bool track_equals(const seq_model_track_t *lhs, const seq_model_track_t *
 static bool track_has_cart_plocks(const seq_model_track_t *track) {
     for (uint8_t s = 0U; s < SEQ_MODEL_STEPS_PER_TRACK; ++s) {
         const seq_model_step_t *step = &track->steps[s];
-#if !SEQ_FEATURE_PLOCK_POOL
-        for (uint8_t p = 0U; p < step->plock_count; ++p) {
-            if (step->plocks[p].domain == SEQ_MODEL_PLOCK_CART) {
+        seq_reader_pl_it_t it;
+        if (seq_reader_pl_open(&it, step) <= 0) {
+            continue;
+        }
+        uint8_t id = 0U;
+        uint8_t value = 0U;
+        uint8_t flags = 0U;
+        while (seq_reader_pl_next(&it, &id, &value, &flags) != 0) {
+            if ((flags & SEQ_READER_PL_FLAG_DOMAIN_CART) != 0U) {
+                return true;
+            }
+            if (pl_is_cart(id)) {
                 return true;
             }
         }
-#else
-        (void)step;
-#endif
     }
     return false;
 }
@@ -150,6 +151,7 @@ int main(void) {
     uint8_t buffer[SEQ_PROJECT_PATTERN_STORAGE_MAX];
     size_t written = 0U;
 
+    seq_plock_pool_reset();
     populate_track(&original);
 
     assert(seq_project_track_steps_encode(&original, buffer, sizeof(buffer), &written));
@@ -172,5 +174,3 @@ int main(void) {
 
     return 0;
 }
-
-#endif /* SEQ_FEATURE_PLOCK_POOL */

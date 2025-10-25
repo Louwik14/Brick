@@ -12,11 +12,9 @@
 #include "cart/cart_registry.h"
 #include "core/seq/runtime/seq_runtime_cold.h"
 #include "core/ram_audit.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
 #if !defined(__arm__) && !defined(__thumb__)
 #include <stdio.h>
-#endif
 #endif
 
 #define SEQ_PROJECT_DIRECTORY_MAGIC 0x4250524FU /* 'BPRO' */
@@ -112,7 +110,6 @@ static bool buffer_write(uint8_t **cursor, size_t *remaining, const void *src, s
     return true;
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
 typedef enum {
     PLK2_DECODE_NOT_FOUND = 0,
     PLK2_DECODE_OK,
@@ -233,42 +230,7 @@ static plk2_decode_result_t decode_plk2_chunk(seq_model_step_t *step,
     *remaining = left;
     return PLK2_DECODE_OK;
 }
-#else
-static void skip_plk2_chunk(const uint8_t **cursor, size_t *remaining) {
-    if ((cursor == NULL) || (remaining == NULL) || (*remaining < 4U)) {
-        return;
-    }
 
-    const uint8_t *chunk_start = *cursor;
-    if ((chunk_start[0] != 'P') || (chunk_start[1] != 'L') || (chunk_start[2] != 'K') || (chunk_start[3] != '2')) {
-        return;
-    }
-
-    size_t total_remaining = *remaining;
-    const uint8_t *ptr = chunk_start + 4U;
-    size_t left = total_remaining - 4U;
-
-    if (left < 1U) {
-        *cursor = chunk_start + total_remaining;
-        *remaining = 0U;
-        return;
-    }
-
-    const uint8_t count = *ptr++;
-    left -= 1U;
-    const size_t payload_len = (size_t)count * 3U;
-    if (payload_len > left) {
-        *cursor = chunk_start + total_remaining;
-        *remaining = 0U;
-        return;
-    }
-
-    left -= payload_len;
-    *cursor = ptr + payload_len;
-    *remaining = left;
-}
-#endif
-#if SEQ_FEATURE_PLOCK_POOL
 static bool encode_plk2_chunk(const seq_model_step_t *step,
                               uint8_t **cursor,
                               size_t *remaining,
@@ -313,7 +275,6 @@ static bool encode_plk2_chunk(const seq_model_step_t *step,
     *remaining -= payload_len;
     return true;
 }
-#endif
 
 static bool track_steps_encode_internal(const seq_model_track_t *track,
                                         uint8_t *buffer,
@@ -332,7 +293,6 @@ static bool track_steps_encode_internal(const seq_model_track_t *track,
         return true;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     if (!write_plk2) {
         *written = 0U;
         return true;
@@ -344,10 +304,6 @@ static bool track_steps_encode_internal(const seq_model_track_t *track,
             return false;
         }
     }
-#else
-    (void)track;
-    (void)write_plk2;
-#endif
 
     *written = buffer_size - remaining;
     return true;
@@ -381,7 +337,6 @@ static track_load_policy_t resolve_cart_policy(const seq_project_cart_ref_t *sav
     return TRACK_LOAD_ABSENT;
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
 static bool decode_track_steps_plk2(seq_model_track_t *track,
                                     const uint8_t *payload,
                                     uint32_t payload_size,
@@ -402,27 +357,12 @@ static bool decode_track_steps_plk2(seq_model_track_t *track,
 
     return true;
 }
-#else
-static bool decode_track_steps_plk2(seq_model_track_t *track,
-                                    const uint8_t *payload,
-                                    uint32_t payload_size,
-                                    track_load_policy_t policy) {
-    (void)track;
-    (void)payload;
-    (void)payload_size;
-    (void)policy;
-    return false;
-}
-#endif
 
 bool seq_project_track_steps_encode(const seq_model_track_t *track,
                                       uint8_t *buffer,
                                       size_t buffer_size,
                                       size_t *written) {
-    bool write_plk2 = false;
-#if SEQ_FEATURE_PLOCK_POOL
-    write_plk2 = true;
-#endif
+    bool write_plk2 = true;
     return track_steps_encode_internal(track, buffer, buffer_size, written, write_plk2);
 }
 
@@ -431,12 +371,7 @@ ssize_t seq_codec_write_track_with_plk2(uint8_t *dst,
                                         const seq_model_track_t *track,
                                         int enable_plk2) {
     size_t written = 0U;
-    bool write_plk2 = false;
-#if SEQ_FEATURE_PLOCK_POOL
-    write_plk2 = (enable_plk2 != 0);
-#else
-    (void)enable_plk2;
-#endif
+    bool write_plk2 = (enable_plk2 != 0);
     if (!track_steps_encode_internal(track, dst, cap, &written, write_plk2)) {
         return -1;
     }
@@ -467,16 +402,10 @@ bool seq_project_track_steps_decode(seq_model_track_t *track,
         return false;
     }
 
-#if SEQ_FEATURE_PLOCK_POOL
     if (version != SEQ_PROJECT_PATTERN_VERSION) {
         return false;
     }
     return decode_track_steps_plk2(track, buffer, (uint32_t)buffer_size, policy);
-#else
-    (void)version;
-    (void)policy;
-    return false;
-#endif
 }
 
 void seq_project_init(seq_project_t *project) {

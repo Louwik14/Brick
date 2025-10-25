@@ -48,3 +48,19 @@
 ## Effets attendus
 - Reader hot strictement pool-only tout en conservant l’ordre encode→read.
 - Protection compile-time contre les régressions legacy et alignement avec la migration PLK2 (Passe 2).
+
+---
+
+# Passe 6 – Flatten total pool-only
+
+## Changements réalisés
+- suppression des macros de features `SEQ_FEATURE_PLOCK_POOL{,_STORAGE}` et `SEQ_PROJECT_LEGACY_CODEC`, Makefile neutre (plus d’`EXTRA_CFLAGS`).
+- réécriture des modules (`seq_project`, `seq_model`, `seq_plock_pool`, LED bridge, live capture, reader) pour ne conserver que le chemin pool et supprimer les prototypes/fichiers legacy.
+- mise à jour des tests host pour utiliser systématiquement les triplets `{param_id,value,flags}` (`plk2_t`) et la piscine (`seq_model_step_set_plocks_pooled`).
+- codec track : encodeur/décodeur PLK2 unique, plus aucune trace des variantes V1/V2.
+- documentation (`ARCHITECTURE_FR.md`) alignée sur le mode pool-only inconditionnel.
+
+## Effets attendus
+- build monolithique pool-only, sans flags conditionnels ni chemins legacy cachés.
+- Makefile `fw-pooled` aligné sur `all`, sérialisation/Reader/tests couvrant uniquement PLK2.
+- future régression sur `plocks`/`plock_count` bloquée par les `#pragma GCC poison` restants.

@@ -8,9 +8,11 @@
 #endif
 
 #include "core/seq/seq_access.h"
+#include "core/seq/seq_plock_pool.h"
 
 static void seed_test_pattern(void) {
     seq_runtime_init();
+    seq_plock_pool_reset();
 
     seq_project_t *project = seq_runtime_access_project_mut();
     assert(project != NULL);
@@ -36,14 +38,12 @@ static void seed_test_pattern(void) {
 
     seq_model_step_t *step1 = &track->steps[1];
     seq_model_step_make_automation_only(step1);
-    seq_model_plock_t cart_plock = {
-        .value = 7,
-        .parameter_id = 1U,
-        .domain = SEQ_MODEL_PLOCK_CART,
-        .voice_index = 0U,
-        .internal_param = SEQ_MODEL_PLOCK_PARAM_NOTE,
+    const plk2_t cart_plock = {
+        .param_id = 0x41U,
+        .value = 7U,
+        .flags = 0x01U,
     };
-    assert(seq_model_step_add_plock(step1, &cart_plock));
+    assert(seq_model_step_set_plocks_pooled(step1, &cart_plock, 1U) == 0);
 }
 
 static void render_led_frame(uint8_t *dst, size_t n_steps) {

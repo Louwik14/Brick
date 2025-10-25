@@ -12,12 +12,11 @@
 
 #include "seq_config.h"
 
-#if SEQ_FEATURE_PLOCK_POOL && defined(__GNUC__)
+#if defined(__GNUC__)
 #pragma GCC poison plock_count
 #pragma GCC poison plocks
 #endif
 
-#if SEQ_FEATURE_PLOCK_POOL
 #include "seq_plock_pool.h"
 
 typedef seq_plock_entry_t plk2_t;
@@ -31,7 +30,6 @@ typedef pl_ref_t seq_step_plock_ref_t;
 
 _Static_assert(sizeof(pl_ref_t) == 3, "pl_ref_t must be 3 bytes (packed)");
 _Static_assert(SEQ_MAX_PLOCKS_PER_STEP == 24, "cap mismatch");
-#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -134,14 +132,11 @@ typedef struct {
 
 typedef struct seq_model_step_t {
     seq_model_voice_t voices[SEQ_MODEL_VOICES_PER_STEP]; /**< Voice data. */
-#if SEQ_FEATURE_PLOCK_POOL
     pl_ref_t pl_ref;  /**< Reference into the packed p-lock pool. */
-#endif
     seq_model_step_offsets_t offsets; /**< Per-step offsets. */
     seq_model_step_flags_t flags; /**< Cached step flags (playable / automation). */
 } seq_model_step_t;
 
-#if SEQ_FEATURE_PLOCK_POOL
 static inline uint8_t seq_model_step_plock_count(const seq_model_step_t *step) {
     return (step != NULL) ? step->pl_ref.count : 0U;
 }
@@ -156,7 +151,6 @@ static inline const plk2_t *seq_model_step_get_plock(const seq_model_step_t *ste
     }
     return seq_plock_pool_get(step->pl_ref.offset, index);
 }
-#endif
 
 /** Quantization configuration applied during live capture. */
 typedef struct {

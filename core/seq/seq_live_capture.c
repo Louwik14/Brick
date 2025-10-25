@@ -12,13 +12,11 @@
 
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_plock_pool.h"
-#if SEQ_FEATURE_PLOCK_POOL
+#if defined(__GNUC__)
 #pragma GCC poison plock_count
 #pragma GCC poison plocks
 _Static_assert(SEQ_MAX_PLOCKS_PER_STEP == 24, "cap must match UI/Reader");
 #endif
-
-_Static_assert(SEQ_FEATURE_PLOCK_POOL, "live capture requires pooled p-locks");
 
 #define MICRO_OFFSET_MIN   (-12)
 #define MICRO_OFFSET_MAX   (12)

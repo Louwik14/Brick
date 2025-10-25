@@ -23,10 +23,11 @@
 #include "ui_mute_backend.h"
 #include "ui_led_backend.h"
 #include "core/ram_audit.h"
-#if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_ids.h"
 #include "core/seq/seq_plock_pool.h"
-#pragma GCC poison plocks plock_count SEQ_MODEL_MAX_PLOCKS_PER_STEP
+#if defined(__GNUC__)
+#pragma GCC poison plocks plock_count
+#endif
 static inline uint8_t _pool_count(const seq_model_step_t *s) {
     return s->pl_ref.count;
 }
@@ -34,7 +35,6 @@ static inline uint8_t _pool_count(const seq_model_step_t *s) {
 static inline const plk2_t *_pool_entry(const seq_model_step_t *s, uint8_t i) {
     return seq_plock_pool_get(s->pl_ref.offset, i);
 }
-#endif
 
 #ifdef BRICK_DEBUG_PLOCK
 #include "chprintf.h"
@@ -94,7 +94,6 @@ typedef struct {
 
 static seq_led_bridge_cache_t g_cache;
 
-#if SEQ_FEATURE_PLOCK_POOL
 enum {
     k_seq_led_bridge_pl_flag_domain_cart = 0x01U,
     k_seq_led_bridge_pl_flag_signed = 0x02U,
@@ -177,7 +176,6 @@ static uint8_t _encode_unsigned_value(int16_t value, int16_t min_value, int16_t 
     return (uint8_t)(clamped & 0x00FF);
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
 static void _seq_led_bridge_collect_plocks(const seq_model_step_t *step,
                                            seq_led_bridge_plock_buffer_t *buffer) {
     if (buffer == NULL) {
@@ -435,7 +433,6 @@ static bool _seq_led_bridge_decode_cart(uint8_t id,
     *out_value = stored_value;
     return true;
 }
-#endif
 
 static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     if (step == NULL) {
@@ -446,8 +443,6 @@ static bool _seq_led_bridge_commit_plock_pool(seq_model_step_t *step) {
     _seq_led_bridge_collect_plocks(step, &buffer);
     return _seq_led_bridge_commit_plock_buffer(step, &buffer);
 }
-#endif
-#endif
 
 static void _cache_reset(void) {
     memset(&g_cache, 0, sizeof(g_cache));
@@ -709,7 +704,6 @@ static bool _hold_commit_slot(uint8_t local) {
     bool mutated = slot->mutated;
     seq_model_track_t *track = _seq_led_bridge_track();
     if ((track != NULL) && mutated && _valid_step_index(slot->absolute_index)) {
-#if SEQ_FEATURE_PLOCK_POOL
         seq_model_step_t snapshot = slot->staged;
         _seq_led_bridge_plock_clear_error();
         if (!_seq_led_bridge_commit_plock_pool(&slot->staged) && _seq_led_bridge_plock_has_error()) {
@@ -722,7 +716,6 @@ static bool _hold_commit_slot(uint8_t local) {
             memset(slot, 0, sizeof(*slot));
             return false;
         }
-#endif
         track->steps[slot->absolute_index] = slot->staged;
         seq_model_step_recompute_flags(&track->steps[slot->absolute_index]);
         const seq_model_voice_t *voice =
