@@ -336,13 +336,14 @@ HOST_SEQ_READER_PLOCK_ITER_TEST := $(HOST_TEST_DIR)/seq_reader_pl_iter_tests
 HOST_SEQ_PLK2_ROUNDTRIP_TEST := $(HOST_TEST_DIR)/plk2_roundtrip
 HOST_SEQ_PLK2_MINIFUZZ_TEST := $(HOST_TEST_DIR)/plk2_minifuzz
 HOST_SEQ_LIVE_REC_SANITY_TEST := $(HOST_TEST_DIR)/live_rec_sanity
+HOST_MIDI_ROUTING_TRACKS_TEST := $(HOST_TEST_DIR)/midi_routing_tracks
 
 CHECK_HOST_TARGETS := $(HOST_SEQ_MODEL_TEST) $(HOST_SEQ_PLOCK_IDS_TEST) $(HOST_SEQ_HOLD_TEST) $(HOST_UI_MODE_TEST) $(HOST_UI_EDGE_TEST) \
     $(HOST_UI_TRACK_PMUTE_TEST) $(HOST_SEQ_TRACK_CODEC_TEST) $(HOST_SEQ_READER_TEST) $(HOST_SEQ_READER_PLOCK_ITER_TEST) $(HOST_SEQ_RUNTIME_LAYOUT_TEST) \
     $(HOST_SEQ_RUNTIME_COLD_TEST) $(HOST_SEQ_RUNTIME_CART_META_TEST) $(HOST_SEQ_HOT_BUDGET_TEST) \
     $(HOST_SEQ_RUNTIME_HOLD_SLOTS_TEST) $(HOST_SEQ_RT_TIMING_TEST) $(HOST_SEQ_COLD_STATS_TEST) \
     $(HOST_SEQ_COLD_TICK_GUARD_TEST) $(HOST_SEQ_RT_PATH_SMOKE_TEST) $(HOST_SEQ_LED_SNAPSHOT_TEST) \
-    $(HOST_SEQ_RUNNER_SMOKE_TEST) $(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST) $(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST) \
+    $(HOST_SEQ_RUNNER_SMOKE_TEST) $(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST) $(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST) $(HOST_MIDI_ROUTING_TRACKS_TEST) \
     $(HOST_SEQ_16TRACKS_STRESS_TEST) $(HOST_SEQ_PLOCK_POOL_TEST) $(HOST_SEQ_PLOCK_WRITE_POOL_TEST) \
     $(HOST_SEQ_PLK2_ROUNDTRIP_TEST) $(HOST_SEQ_PLK2_MINIFUZZ_TEST) $(HOST_SEQ_LIVE_REC_SANITY_TEST)
 
@@ -428,6 +429,8 @@ check-host: $(CHECK_HOST_TARGETS)
 	$(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST)
 	@echo "Running runner p-lock router pool test"
 	$(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST)
+	@echo "Running MIDI track routing tests"
+	$(HOST_MIDI_ROUTING_TRACKS_TEST)
 	@echo "Running 16-track stress test"
 	$(HOST_SEQ_16TRACKS_STRESS_TEST)
 	$(RUN_SOAK_TEST)
@@ -591,22 +594,32 @@ $(HOST_SEQ_RUNNER_PLOCK_ROUTER_TEST): tests/seq_runner_plock_router_tests.c apps
 	        -o $@
 
 $(HOST_SEQ_RUNNER_PLOCK_ROUTER_POOL_TEST): tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
-	core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
-	tests/stubs/seq_led_bridge_hold_slots_stub.c
+        core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
+        tests/stubs/seq_led_bridge_hold_slots_stub.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_PLOCK_POOL_CAPACITY_TEST=256 \
-	-Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
-	tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
-	core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
-	$(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
-	tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	-o $@
+        -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
+        tests/seq_runner_plock_router_tests.c apps/seq_engine_runner.c \
+        core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c \
+        tests/stubs/seq_led_bridge_hold_slots_stub.c \
+        -o $@
+
+$(HOST_MIDI_ROUTING_TRACKS_TEST): tests/midi_routing_tracks.c apps/seq_engine_runner.c \
+        core/seq/seq_midi_routing.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c
+	@mkdir -p $(HOST_TEST_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -Itests/stubs -Iapps -Icore -Icart -Iboard -Iui -I. \
+        tests/midi_routing_tracks.c apps/seq_engine_runner.c \
+        core/seq/seq_midi_routing.c core/seq/seq_runtime.c core/seq/seq_project.c core/seq/seq_model.c core/seq/seq_model_consts.c \
+        $(HOST_SEQ_RUNTIME_SRCS) tests/stubs/ch.c tests/stubs/board_flash_stub.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
+        -o $@
 
 
 
 $(HOST_SEQ_16TRACKS_STRESS_TEST): tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c tests/stubs/seq_led_bridge_hold_slots_stub.c \
-	core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_plock_pool.c
+        core/seq/seq_model.c core/seq/seq_model_consts.c core/seq/seq_plock_pool.c
 	@mkdir -p $(HOST_TEST_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -DSEQ_RT_QUEUE_MONITORING=1 -Itests/stubs -Itests/support -Icore -I. \
 	tests/seq_16tracks_stress_tests.c tests/support/rt_blackbox.c tests/support/rt_timing.c tests/support/rt_queues.c tests/stubs/ch.c \

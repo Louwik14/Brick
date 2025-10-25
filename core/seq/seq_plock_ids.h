@@ -19,6 +19,7 @@ enum {
   PL_INT_ALL_VEL    = 0x01,   // s8 (offset)
   PL_INT_ALL_LEN    = 0x02,   // s8 (offset)
   PL_INT_ALL_MIC    = 0x03,   // s8
+  PL_INT_MIDI_CHANNEL = 0x04, // legacy MIDI channel override (ignored, routing is track-bound)
 
   // Paramètres par voix (temp : base + index voix 0..3)
   PL_INT_NOTE_V0 = 0x08, PL_INT_NOTE_V1 = 0x09, PL_INT_NOTE_V2 = 0x0A, PL_INT_NOTE_V3 = 0x0B,
