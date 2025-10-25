@@ -25,6 +25,19 @@
 
 ---
 
+# seq_model.{h,c} – purge storage per-step
+
+## Changements réalisés
+- suppression des champs `plocks[]` / `plock_count` dans `seq_model_step_t` au profit du seul `pl_ref` packé (3 octets).
+- bascule de l’API modèle vers des triplets pool-only (`plk2_t`) avec helper `seq_model_step_get_plock()` et `seq_model_step_set_plocks_pooled()` unique.
+- nettoyage des helpers (clear/clone/reset) pour ne toucher qu’au `pl_ref` et ajout des verrous compile (`_Static_assert`, `#pragma GCC poison`).
+
+## Effets attendus
+- modèle séquenceur aligné sur la référence `pl_ref` partagée par Reader/Writer.
+- suppression définitive de tout stockage legacy par step, compilation bloquée sur `plocks`/`plock_count`.
+
+---
+
 # seq_reader.c – Purge legacy Reader hot
 
 ## Changements réalisés

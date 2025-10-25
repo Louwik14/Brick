@@ -206,7 +206,7 @@ bool seq_model_step_has_seq_plock(const seq_model_step_t *step) {
 
 #if SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
-        const seq_plock_entry_t *entry = seq_plock_pool_get(step->pl_ref.offset, i);
+        const plk2_t *entry = seq_model_step_get_plock(step, i);
         if ((entry != NULL) && !pl_is_cart(entry->param_id)) {
             return true;
         }
@@ -226,7 +226,7 @@ bool seq_model_step_has_cart_plock(const seq_model_step_t *step) {
 
 #if SEQ_FEATURE_PLOCK_POOL
     for (uint8_t i = 0U; i < step->pl_ref.count; ++i) {
-        const seq_plock_entry_t *entry = seq_plock_pool_get(step->pl_ref.offset, i);
+        const plk2_t *entry = seq_model_step_get_plock(step, i);
         if ((entry != NULL) && pl_is_cart(entry->param_id)) {
             return true;
         }
@@ -359,9 +359,7 @@ void seq_model_step_recompute_flags(seq_model_step_t *step) {
 }
 
 int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
-                                     const uint8_t *ids,
-                                     const uint8_t *vals,
-                                     const uint8_t *flags,
+                                     const plk2_t *entries,
                                      uint8_t n) {
 #if SEQ_FEATURE_PLOCK_POOL
     if (step == NULL) {
@@ -379,7 +377,7 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
         return 0;
     }
 
-    if ((ids == NULL) || (vals == NULL) || (flags == NULL)) {
+    if (entries == NULL) {
         return -1;
     }
 
@@ -397,9 +395,9 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
         if (entry == NULL) {
             return -1;
         }
-        entry->param_id = ids[i];
-        entry->value = vals[i];
-        entry->flags = flags[i];
+        entry->param_id = entries[i].param_id;
+        entry->value = entries[i].value;
+        entry->flags = entries[i].flags;
     }
 
     step->pl_ref.offset = offset;
@@ -410,9 +408,7 @@ int seq_model_step_set_plocks_pooled(seq_model_step_t *step,
     return 0;
 #else
     (void)step;
-    (void)ids;
-    (void)vals;
-    (void)flags;
+    (void)entries;
     (void)n;
     return -1;
 #endif
