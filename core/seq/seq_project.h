@@ -14,6 +14,7 @@
 #include "seq_model.h"
 #include "board/board_flash.h"
 #include "core/brick_config.h"
+#include "core/seq/seq_project_access.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -132,7 +133,7 @@ bool seq_project_set_active_track(seq_project_t *project, uint8_t track_index);
 uint8_t seq_project_get_active_track_index(const seq_project_t *project);
 seq_model_track_t *seq_project_get_active_track(seq_project_t *project);
 const seq_model_track_t *seq_project_get_active_track_const(const seq_project_t *project);
-uint8_t seq_project_get_track_count(const seq_project_t *project);
+uint16_t seq_project_get_track_count(const seq_project_t *project);
 void seq_project_clear_track(seq_project_t *project, uint8_t track_index);
 void seq_project_bump_generation(seq_project_t *project);
 const seq_model_gen_t *seq_project_get_generation(const seq_project_t *project);

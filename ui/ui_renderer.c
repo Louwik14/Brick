@@ -32,6 +32,8 @@
 #include "ui_backend.h"   /* ui_backend_get_mode_label() */
 #include "ui_overlay.h"
 #include "seq_led_bridge.h"
+#include "core/seq/seq_project_access.h"
+#include "core/seq/seq_config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -157,29 +159,63 @@ static void _copy_project_name(const seq_project_t *project, char *dst, size_t d
 
 static void _draw_track_mode_placeholder(const seq_project_t *project,
                                          const ui_mode_context_t *ctx) {
-    const uint8_t project_tracks = (project != NULL)
-                                       ? seq_project_get_track_count(project)
-                                       : 0U;
-    for (int slot = 0; slot < 4; ++slot) {
+    const uint16_t total_tracks = (project != NULL)
+                                      ? seq_project_get_track_count(project)
+                                      : 0U;
+    const uint8_t layout_slots = (uint8_t)(sizeof(k_param_frame_x_offsets) /
+                                           sizeof(k_param_frame_x_offsets[0]));
+
+    uint8_t cart_count = 0U;
+    if (project != NULL) {
+        cart_count = seq_project_get_cart_count(project);
+    }
+    if (cart_count == 0U) {
+        cart_count = (SEQ_CARTS_ACTIVE <= layout_slots) ? SEQ_CARTS_ACTIVE : layout_slots;
+    }
+    if (cart_count > layout_slots) {
+        cart_count = layout_slots;
+    }
+
+    for (uint8_t slot = 0U; slot < cart_count; ++slot) {
         int x = k_param_frame_x_offsets[slot];
         int y = k_param_frame_y;
         draw_rect_open_corners(x, y, k_param_frame_width, k_param_frame_height);
 
-        char label[12];
-        (void)snprintf(label, sizeof(label), "CART%d", slot + 1);
-        int tw_label = text_width_px(&FONT_4X6, label);
+        const char *resolved_name = (project != NULL) ? seq_project_get_cart_name(project, slot) : NULL;
+        char fallback_name[12];
+        if ((resolved_name == NULL) || (resolved_name[0] == '\0')) {
+            (void)snprintf(fallback_name, sizeof(fallback_name), "CART%u", (unsigned)(slot + 1U));
+            resolved_name = fallback_name;
+        }
+        int tw_label = text_width_px(&FONT_4X6, resolved_name);
         drv_display_draw_text_with_font(&FONT_4X6,
                                         (uint8_t)(x + (k_param_frame_width - tw_label) / 2),
                                         (uint8_t)(y + 3),
-                                        label);
+                                        resolved_name);
 
-        for (int row = 0; row < 4; ++row) {
-            uint8_t track_idx = (uint8_t)(slot * 4 + row);
+        uint16_t span_start = 0U;
+        uint16_t span_count = 0U;
+        bool has_span = false;
+        if (project != NULL) {
+            has_span = seq_project_get_cart_track_span(project, slot, &span_start, &span_count);
+        }
+        if (!has_span) {
+            span_count = XVA1_TRACKS_PER_CART;
+            span_start = (uint16_t)slot * span_count;
+        }
+        if (span_count > XVA1_TRACKS_PER_CART) {
+            span_count = XVA1_TRACKS_PER_CART;
+        }
+
+        for (uint16_t row = 0U; row < span_count; ++row) {
+            const uint16_t track_idx = span_start + row;
+            const bool track_in_range = (track_idx < total_tracks);
             const seq_model_track_t *track_model =
-                (project != NULL) ? seq_project_get_track_const(project, track_idx) : NULL;
-            const bool track_in_range = (track_idx < project_tracks);
+                (project != NULL && track_in_range)
+                    ? seq_project_get_track_const(project, (uint8_t)track_idx)
+                    : NULL;
             const bool present = track_in_range && (track_model != NULL);
-            const bool active = present && ctx && (track_idx == ctx->seq.track_index);
+            const bool active = present && ctx && (track_idx == (uint16_t)ctx->seq.track_index);
 
             char line[12];
             if (!track_in_range) {
@@ -192,7 +228,7 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
                                (unsigned)(track_idx + 1U));
             }
 
-        int y_line = y + 10 + row * (FONT_4X6.height + 1);
+            const int y_line = y + 10 + (int)row * (FONT_4X6.height + 1);
             if (!track_in_range) {
                 continue;
             }
@@ -212,10 +248,13 @@ static void _draw_track_mode_placeholder(const seq_project_t *project,
             }
         }
 
-        char bs_hint[12];
+        const uint16_t span_end = (span_count == 0U)
+                                       ? span_start
+                                       : (uint16_t)(span_start + span_count - 1U);
+        char bs_hint[16];
         (void)snprintf(bs_hint, sizeof(bs_hint), "BS%u-%u",
-                       (unsigned)(slot * 4U + 1U),
-                       (unsigned)(slot * 4U + 4U));
+                       (unsigned)(span_start + 1U),
+                       (unsigned)(span_end + 1U));
         int tw_hint = text_width_px(&FONT_4X6, bs_hint);
         int hint_y = y + k_param_frame_height - (FONT_4X6.height + 2);
         if (hint_y < y + 20) {

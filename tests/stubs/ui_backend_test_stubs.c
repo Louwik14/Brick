@@ -9,6 +9,7 @@
 #include "apps/ui_arp_menu.h"
 #include "cart/cart_bus.h"
 #include "cart/cart_registry.h"
+#include "core/cart/cart_registry_access.h"
 #include "core/cart_link.h"
 #include "clock_manager.h"
 #include "midi/midi.h"
@@ -155,6 +156,15 @@ bool cart_registry_find_by_uid(uint32_t uid, cart_id_t *out_id)
         *out_id = 0;
     }
     return false;
+}
+
+bool cart_registry_cart_name(uint8_t cart_index, char *out, uint8_t out_len)
+{
+    if ((out == NULL) || (out_len == 0U)) {
+        return false;
+    }
+    (void)snprintf(out, out_len, "CART%u", (unsigned)(cart_index + 1U));
+    return true;
 }
 
 /* -------------------------------------------------------------------------- */

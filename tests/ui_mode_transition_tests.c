@@ -135,14 +135,16 @@ static void test_track_select_focus_updates(void)
     assert(seq_led_bridge_select_track(0U) == true);
     assert(g_stub_track_focus == 0U);
 
-    if (seq_led_bridge_get_track_count() > 1U) {
+    const uint16_t total_tracks = seq_led_bridge_get_track_count();
+    if (total_tracks > 1U) {
         assert(seq_led_bridge_select_track(1U) == true);
         assert(g_stub_track_focus == 1U);
     }
 
     /* Out of range selection leaves focus unchanged. */
-    assert(seq_led_bridge_select_track(15U) == false);
-    if (seq_led_bridge_get_track_count() > 1U) {
+    const uint8_t invalid_index = (total_tracks > 0U) ? (uint8_t)total_tracks : 0U;
+    assert(seq_led_bridge_select_track(invalid_index) == false);
+    if (total_tracks > 1U) {
         assert(g_stub_track_focus == 1U);
     } else {
         assert(g_stub_track_focus == 0U);

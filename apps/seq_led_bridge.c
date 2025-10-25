@@ -13,10 +13,12 @@
 
 #include "apps/rtos_shim.h"
 #include "brick_config.h"
+#include "cart/cart_bus.h"
 
 #include "core/seq/reader/seq_reader.h"
 #include "core/seq/runtime/seq_sections.h"
 #include "core/seq/seq_access.h"
+#include "core/seq/seq_project_access.h"
 #include "seq_led_bridge.h"
 #include "seq_recorder.h"
 #include "ui_mute_backend.h"
@@ -78,7 +80,7 @@ typedef struct {
     uint16_t             total_span;    /**< Track span exposed to LEDs (pages × 16). */
     uint8_t              last_note;     /**< Last armed note used for quick steps. */
     uint8_t              track_index;   /**< Currently bound track (for future multi-track). */
-    uint8_t              track_count;   /**< Active track count (project view). */
+    uint16_t             track_count;   /**< Active track count (project view). */
     seq_led_bridge_hold_view_t hold;    /**< Aggregated hold/tweak snapshot. */
 } seq_led_bridge_state_t;
 
@@ -1248,26 +1250,36 @@ static void _publish_runtime(void) {
     _rebuild_runtime_from_track();
     _hold_refresh_if_active();
     {
-        uint8_t per_slot[4] = {0, 0, 0, 0};
+        const uint16_t total_tracks = seq_project_get_track_count(project);
         for (uint8_t track = 0U; track < SEQ_PROJECT_MAX_TRACKS; ++track) {
             bool present = false;
-            if (project != NULL) {
+            if ((project != NULL) && ((uint16_t)track < total_tracks)) {
                 const seq_model_track_t *tp =
                     seq_project_get_track_const(project, track);
                 present = (tp != NULL);
             }
             ui_led_backend_set_track_present(track, present);
-            const uint8_t slot = (uint8_t)(track / 4U);
-            const uint8_t pos  = (uint8_t)(track % 4U);
-            if (present && slot < 4U) {
-                uint8_t span = (uint8_t)(pos + 1U);
-                if (per_slot[slot] < span) {
-                    per_slot[slot] = span;
+        }
+
+        const uint8_t configured_carts =
+            (SEQ_CARTS_ACTIVE <= CART_COUNT) ? SEQ_CARTS_ACTIVE : (uint8_t)CART_COUNT;
+        const uint8_t cart_count = (project != NULL) ? seq_project_get_cart_count(project) : 0U;
+        for (uint8_t slot = 0U; slot < configured_carts; ++slot) {
+            uint16_t span_start = 0U;
+            uint16_t span_count = 0U;
+            if ((project != NULL) && (slot < cart_count) &&
+                seq_project_get_cart_track_span(project, slot, &span_start, &span_count)) {
+                uint16_t clamped = span_count;
+                if (clamped > (uint16_t)UINT8_MAX) {
+                    clamped = (uint16_t)UINT8_MAX;
                 }
+                ui_led_backend_set_cart_track_count(slot, (uint8_t)clamped);
+            } else {
+                ui_led_backend_set_cart_track_count(slot, 0U);
             }
         }
-        for (uint8_t slot = 0U; slot < 4U; ++slot) {
-            ui_led_backend_set_cart_track_count(slot, per_slot[slot]);
+        for (uint8_t slot = configured_carts; slot < (uint8_t)CART_COUNT; ++slot) {
+            ui_led_backend_set_cart_track_count(slot, 0U);
         }
         ui_led_backend_set_track_focus(g.track_index);
     }
@@ -1922,7 +1934,7 @@ uint8_t seq_led_bridge_get_track_index(void) {
     return g.track_index;
 }
 
-uint8_t seq_led_bridge_get_track_count(void) {
+uint16_t seq_led_bridge_get_track_count(void) {
     return g.track_count;
 }
 

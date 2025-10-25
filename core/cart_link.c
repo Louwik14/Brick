@@ -32,7 +32,7 @@
 /** Registres shadow : un tableau par cartouche. */
 static uint8_t g_shadow_params[CART_COUNT][CART_LINK_MAX_DEST_ID];
 
-enum { CART_LINK_TRACKS_PER_CART = 4U };
+enum { CART_LINK_TRACKS_PER_CART = XVA1_TRACKS_PER_CART };
 
 static void _cart_link_assign_tracks(void) {
 #if defined(__GNUC__)
@@ -47,17 +47,17 @@ static void _cart_link_assign_tracks(void) {
         return;
     }
 
-    const uint8_t total_tracks = seq_project_get_track_count(project);
+    const uint16_t total_tracks = seq_project_get_track_count(project);
     if (total_tracks == 0U) {
         return;
     }
 
     const uint8_t tracks_per_cart = CART_LINK_TRACKS_PER_CART;
-    const uint8_t max_tracks = (uint8_t)(CART_COUNT * tracks_per_cart);
-    const uint8_t assignable = (total_tracks < max_tracks) ? total_tracks : max_tracks;
+    const uint16_t max_tracks = (uint16_t)CART_COUNT * (uint16_t)tracks_per_cart;
+    const uint16_t assignable = (total_tracks < max_tracks) ? total_tracks : max_tracks;
 
-    for (uint8_t idx = 0U; idx < assignable; ++idx) {
-        seq_model_track_t *track = seq_project_get_track(project, idx);
+    for (uint16_t idx = 0U; idx < assignable; ++idx) {
+        seq_model_track_t *track = seq_project_get_track(project, (uint8_t)idx);
         if (track == NULL) {
             continue;
         }

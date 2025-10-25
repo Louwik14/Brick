@@ -154,7 +154,7 @@ static void _update_seq_runtime_from_bridge(void) {
     s_mode_ctx.seq.page_count = seq_led_bridge_get_max_pages();
     s_mode_ctx.seq.page_index = seq_led_bridge_get_visible_page();
     s_mode_ctx.seq.track_index = seq_led_bridge_get_track_index();
-    s_mode_ctx.seq.track_count = seq_led_bridge_get_track_count();
+    s_mode_ctx.seq.track_count = (uint8_t)seq_led_bridge_get_track_count();
 
     if (s_mode_ctx.seq.track_index != previous_track) {
         s_mode_ctx.seq.held_mask = 0U;

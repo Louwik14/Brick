@@ -91,7 +91,7 @@ const seq_model_gen_t *seq_led_bridge_get_generation(void);
 seq_project_t *seq_led_bridge_get_project(void);
 const seq_project_t *seq_led_bridge_get_project_const(void);
 uint8_t seq_led_bridge_get_track_index(void);
-uint8_t seq_led_bridge_get_track_count(void);
+uint16_t seq_led_bridge_get_track_count(void);
 bool seq_led_bridge_select_track(uint8_t track);
 
 #ifdef __cplusplus
