@@ -20,6 +20,7 @@
 #include "cart_link.h"
 #include "cart_registry.h"
 #include "core/seq/seq_access.h"
+#include "core/seq/seq_midi_routing.h"
 #include "core/seq/seq_plock_ids.h"
 #include "ui_mute_backend.h"
 
@@ -237,10 +238,11 @@ static void _runner_handle_step(uint8_t track,
                                 uint8_t step_idx,
                                 seq_track_handle_t handle,
                                 cart_id_t cart) {
+    const uint8_t midi_ch = seq_midi_channel_for_track(track);
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
         if (state->active && (step_abs >= state->off_step)) {
-            _runner_queue_event((uint8_t)(track + 1U), state->note, 0U, false);
+            _runner_queue_event(midi_ch, state->note, 0U, false);
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
@@ -251,7 +253,7 @@ static void _runner_handle_step(uint8_t track,
         for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
             seq_engine_runner_note_state_t *state = &s_note_state[track][slot];
             if (state->active) {
-                _runner_queue_event((uint8_t)(track + 1U), state->note, 0U, false);
+                _runner_queue_event(midi_ch, state->note, 0U, false);
                 state->active = false;
                 state->note = 0U;
                 state->off_step = 0U;
@@ -369,6 +371,9 @@ static void _runner_apply_midi_plock(seq_engine_runner_step_ctx_t *ctx, uint8_t 
         case PL_INT_ALL_MIC:
             ctx->all_micro = pl_s8_from_u8(value);
             return;
+        case PL_INT_MIDI_CHANNEL:
+            /* Routing is enforced by track index; ignore legacy channel override. */
+            return;
         default:
             break;
     }
@@ -453,6 +458,7 @@ static void _runner_step_ctx_schedule(seq_engine_runner_step_ctx_t *ctx) {
         return;
     }
 
+    const uint8_t midi_ch = seq_midi_channel_for_track(ctx->track_index);
     for (uint8_t slot = 0U; slot < SEQ_MODEL_VOICES_PER_STEP; ++slot) {
         seq_engine_runner_voice_ctx_t *voice = &ctx->voices[slot];
         if (!voice->active) {
@@ -487,13 +493,13 @@ static void _runner_step_ctx_schedule(seq_engine_runner_step_ctx_t *ctx) {
 
         seq_engine_runner_note_state_t *state = &s_note_state[ctx->track_index][slot];
         if (state->active) {
-            _runner_queue_event((uint8_t)(ctx->track_index + 1U), state->note, 0U, false);
+            _runner_queue_event(midi_ch, state->note, 0U, false);
             state->active = false;
             state->note = 0U;
             state->off_step = 0U;
         }
 
-        _runner_queue_event((uint8_t)(ctx->track_index + 1U), final_note, final_velocity, true);
+        _runner_queue_event(midi_ch, final_note, final_velocity, true);
 
         state->active = true;
         state->note = final_note;
@@ -544,11 +550,11 @@ static uint8_t _runner_clamp_u8(int32_t value) {
 
 /* UNUSED: retained for potential diagnostic hooks. */
 static void _runner_send_note_on(uint8_t track, uint8_t note, uint8_t velocity) {
-    midi_note_on((uint8_t)(track + 1U), note, velocity);
+    midi_note_on(seq_midi_channel_for_track(track), note, velocity);
 }
 
 static void _runner_send_note_off(uint8_t track, uint8_t note) {
-    midi_note_off((uint8_t)(track + 1U), note, 0U);
+    midi_note_off(seq_midi_channel_for_track(track), note, 0U);
 }
 
 static seq_engine_runner_plock_state_t *_runner_plock_find(cart_id_t cart, uint16_t param_id) {
