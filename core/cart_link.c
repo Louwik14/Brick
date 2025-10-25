@@ -12,6 +12,8 @@
 
 #include "cart_link.h"
 #include "cart_registry.h"   // pour connaître la cartouche active
+#include "core/seq/seq_project.h"
+#include "core/seq/seq_runtime.h"
 #include <string.h>
 
 /* =======================================================================
@@ -30,6 +32,48 @@
 /** Registres shadow : un tableau par cartouche. */
 static uint8_t g_shadow_params[CART_COUNT][CART_LINK_MAX_DEST_ID];
 
+enum { CART_LINK_TRACKS_PER_CART = 4U };
+
+static void _cart_link_assign_tracks(void) {
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+    seq_project_t *project = seq_runtime_access_project_mut();
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+    if (project == NULL) {
+        return;
+    }
+
+    const uint8_t total_tracks = seq_project_get_track_count(project);
+    if (total_tracks == 0U) {
+        return;
+    }
+
+    const uint8_t tracks_per_cart = CART_LINK_TRACKS_PER_CART;
+    const uint8_t max_tracks = (uint8_t)(CART_COUNT * tracks_per_cart);
+    const uint8_t assignable = (total_tracks < max_tracks) ? total_tracks : max_tracks;
+
+    for (uint8_t idx = 0U; idx < assignable; ++idx) {
+        seq_model_track_t *track = seq_project_get_track(project, idx);
+        if (track == NULL) {
+            continue;
+        }
+
+        const uint8_t slot = (uint8_t)(idx / tracks_per_cart);
+        seq_project_cart_ref_t cart_ref = {
+            .cart_id = cart_registry_get_uid((cart_id_t)slot),
+            .slot_id = slot,
+            .capabilities = SEQ_PROJECT_CART_CAP_NONE,
+            .flags = SEQ_PROJECT_CART_FLAG_NONE,
+            .reserved = 0U,
+        };
+        seq_project_set_track_cart(project, idx, &cart_ref);
+    }
+}
+
 /* =======================================================================
  *   Initialisation
  * ======================================================================= */
@@ -41,6 +85,7 @@ static uint8_t g_shadow_params[CART_COUNT][CART_LINK_MAX_DEST_ID];
  */
 void cart_link_init(void) {
     memset(g_shadow_params, 0, sizeof(g_shadow_params));
+    _cart_link_assign_tracks();
 }
 
 /* =======================================================================

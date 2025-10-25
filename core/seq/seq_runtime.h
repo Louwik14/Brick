@@ -7,6 +7,7 @@
 #define BRICK_SEQ_RUNTIME_H
 
 #include <stdint.h>
+#include "seq_config.h"
 
 #ifdef __cplusplus
 extern "C" {
