@@ -10,8 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ch.h"
-
 #include "clock_manager.h"
 #include "seq_model.h"
 

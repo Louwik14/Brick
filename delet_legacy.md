@@ -12,6 +12,19 @@
 
 ---
 
+# seq_live_capture.c – Purge Live Rec legacy
+
+## Changements réalisés
+- suppression de toutes les branches `#if !SEQ_FEATURE_PLOCK_POOL` et des accès directs `step->plocks[]` / `plock_count`.
+- bufferisation des triplets `{param_id, value, flags}` (cap 24) avec déduplication “dernier gagnant” et flush unique via `seq_model_step_set_plocks_pooled()`.
+- gestion des erreurs (collect/commit) via `_seq_live_capture_flush_buffer()` : snapshot du step, rollback en cas d’OOM et warning UI existant.
+
+## Effets attendus
+- capture Live désormais 100 % pool-only, alignée sur la migration PLK2.
+- rollback propre en cas d’erreur d’allocation tout en conservant le feedback UI et les invariants NOTE_OFF/STOP.
+
+---
+
 # seq_reader.c – Purge legacy Reader hot
 
 ## Changements réalisés
