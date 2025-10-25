@@ -11,10 +11,15 @@
 #include "core/seq/seq_project.h"
 #include "core/seq/seq_model.h"
 #include "core/seq/seq_plock_ids.h"
+typedef seq_step_plock_ref_t pl_ref_t;
 #if SEQ_FEATURE_PLOCK_POOL
 #include "core/seq/seq_plock_pool.h"
 #pragma GCC poison plocks
 #pragma GCC poison plock_count
+_Static_assert(sizeof(pl_ref_t) == 3, "pl_ref_t must be packed to 3 bytes");
+_Static_assert(SEQ_MAX_PLOCKS_PER_STEP <= 24, "cap exceeded");
+#else
+#error "seq_reader hot requires SEQ_FEATURE_PLOCK_POOL"
 #endif
 
 enum {
@@ -22,7 +27,6 @@ enum {
     k_seq_reader_plock_internal_voice_shift = 8U,
 };
 
-#if SEQ_FEATURE_PLOCK_POOL
 typedef struct {
     uint16_t base;
     uint8_t count;
@@ -34,19 +38,8 @@ typedef struct {
     uint8_t value;
     uint8_t flags;
 } seq_reader_plock_item_t;
-#endif
-
-#if !SEQ_FEATURE_PLOCK_POOL
-typedef struct {
-    const seq_model_plock_t *plocks;
-    uint8_t count;
-    uint8_t index;
-} seq_reader_plock_iter_state_t;
-#endif  /* !SEQ_FEATURE_PLOCK_POOL */
 
 static seq_reader_plock_iter_state_t s_plock_iter_state;
-
-#if SEQ_FEATURE_PLOCK_POOL
 static seq_model_plock_internal_param_t _pool_internal_param_from_id(uint8_t id) {
     if ((id >= PL_INT_NOTE_V0) && (id <= PL_INT_NOTE_V3)) {
         return SEQ_MODEL_PLOCK_PARAM_NOTE;
@@ -122,146 +115,6 @@ static inline void reader_pack_from_pool(const seq_plock_entry_t *entry,
     out->value = entry->value;
     out->flags = entry->flags;
 }
-
-#endif  /* SEQ_FEATURE_PLOCK_POOL */
-
-#if !SEQ_FEATURE_PLOCK_POOL
-static int16_t _clamp_i16(int16_t value, int16_t min_value, int16_t max_value) {
-    if (value < min_value) {
-        return min_value;
-    }
-    if (value > max_value) {
-        return max_value;
-    }
-    return value;
-}
-
-static uint8_t _legacy_encode_internal_id(const seq_model_plock_t *plock) {
-    if (plock == NULL) {
-        return 0U;
-    }
-
-    switch (plock->internal_param) {
-        case SEQ_MODEL_PLOCK_PARAM_NOTE:
-            return (uint8_t)(PL_INT_NOTE_V0 + (plock->voice_index & 0x03U));
-        case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
-            return (uint8_t)(PL_INT_VEL_V0 + (plock->voice_index & 0x03U));
-        case SEQ_MODEL_PLOCK_PARAM_LENGTH:
-            return (uint8_t)(PL_INT_LEN_V0 + (plock->voice_index & 0x03U));
-        case SEQ_MODEL_PLOCK_PARAM_MICRO:
-            return (uint8_t)(PL_INT_MIC_V0 + (plock->voice_index & 0x03U));
-        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
-            return PL_INT_ALL_TRANSP;
-        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
-            return PL_INT_ALL_VEL;
-        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
-            return PL_INT_ALL_LEN;
-        case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
-            return PL_INT_ALL_MIC;
-        default:
-            break;
-    }
-
-    return 0U;
-}
-
-static uint8_t _encode_signed_value(int16_t value, uint8_t *flags) {
-    if (flags != NULL) {
-        *flags = (uint8_t)(*flags | SEQ_READER_PL_FLAG_SIGNED);
-    }
-    int16_t clamped = _clamp_i16(value, -128, 127);
-    return pl_u8_from_s8((int8_t)clamped);
-}
-
-static uint8_t _encode_unsigned_value(int16_t value, int16_t min_value, int16_t max_value) {
-    int16_t clamped = _clamp_i16(value, min_value, max_value);
-    if (clamped < 0) {
-        clamped = 0;
-    }
-    return (uint8_t)(clamped & 0x00FF);
-}
-
-static void _legacy_extract_plock_payload(const seq_model_plock_t *plock,
-                                          uint8_t *out_id,
-                                          uint8_t *out_val,
-                                          uint8_t *out_flags) {
-    uint8_t id = 0U;
-    uint8_t value = 0U;
-    uint8_t flags = 0U;
-
-    if (plock == NULL) {
-        if (out_id != NULL) {
-            *out_id = 0U;
-        }
-        if (out_val != NULL) {
-            *out_val = 0U;
-        }
-        if (out_flags != NULL) {
-            *out_flags = 0U;
-        }
-        return;
-    }
-
-    if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-        id = (uint8_t)(plock->parameter_id & 0x00FFU);
-        value = _encode_unsigned_value(plock->value, 0, 255);
-        flags |= SEQ_READER_PL_FLAG_DOMAIN_CART;
-    } else {
-        id = _legacy_encode_internal_id(plock);
-        switch (plock->internal_param) {
-            case SEQ_MODEL_PLOCK_PARAM_NOTE:
-                value = _encode_unsigned_value(plock->value, 0, 127);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
-                break;
-            case SEQ_MODEL_PLOCK_PARAM_VELOCITY:
-                value = _encode_unsigned_value(plock->value, 0, 127);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
-                break;
-            case SEQ_MODEL_PLOCK_PARAM_LENGTH:
-                value = _encode_unsigned_value(plock->value, 0, 255);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
-                break;
-            case SEQ_MODEL_PLOCK_PARAM_MICRO:
-                value = _encode_signed_value(plock->value, &flags);
-                flags = (uint8_t)(flags | ((plock->voice_index & 0x03U) << SEQ_READER_PL_FLAG_VOICE_SHIFT));
-                break;
-            case SEQ_MODEL_PLOCK_PARAM_GLOBAL_TR:
-            case SEQ_MODEL_PLOCK_PARAM_GLOBAL_VE:
-            case SEQ_MODEL_PLOCK_PARAM_GLOBAL_LE:
-            case SEQ_MODEL_PLOCK_PARAM_GLOBAL_MI:
-                value = _encode_signed_value(plock->value, &flags);
-                break;
-            default:
-                value = _encode_unsigned_value(plock->value, 0, 255);
-                break;
-        }
-    }
-
-    if (out_id != NULL) {
-        *out_id = id;
-    }
-    if (out_val != NULL) {
-        *out_val = value;
-    }
-    if (out_flags != NULL) {
-        *out_flags = flags;
-    }
-}
-
-static uint16_t _encode_plock_id(const seq_model_plock_t *plock) {
-    if (plock == NULL) {
-        return 0U;
-    }
-
-    if (plock->domain == SEQ_MODEL_PLOCK_CART) {
-        return plock->parameter_id;
-    }
-
-    const uint16_t voice = ((uint16_t)(plock->voice_index & 0x03U)) << k_seq_reader_plock_internal_voice_shift;
-    const uint16_t param = (uint16_t)plock->internal_param & 0x00FFU;
-    return (uint16_t)(k_seq_reader_plock_internal_flag | voice | param);
-}
-#endif  /* !SEQ_FEATURE_PLOCK_POOL */
 
 static const seq_model_track_t *_resolve_legacy_track(seq_track_handle_t handle) {
     if ((handle.bank >= SEQ_PROJECT_BANK_COUNT) ||
@@ -409,7 +262,6 @@ bool seq_reader_count_step_voices(seq_track_handle_t h, uint8_t step, uint8_t *o
     return true;
 }
 
-#if SEQ_FEATURE_PLOCK_POOL
 bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
     if (it == NULL) {
         return false;
@@ -459,74 +311,26 @@ bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_
     }
     return true;
 }
-#endif  /* SEQ_FEATURE_PLOCK_POOL */
 
-#if !SEQ_FEATURE_PLOCK_POOL
-bool seq_reader_plock_iter_open(seq_track_handle_t h, uint8_t step, seq_plock_iter_t *it) {
-    if (it == NULL) {
-        return false;
-    }
-
-    const seq_model_track_t *track = _resolve_legacy_track(h);
-    if ((track == NULL) || (step >= SEQ_MODEL_STEPS_PER_TRACK)) {
-        it->_opaque = NULL;
-        return false;
-    }
-
-    const seq_model_step_t *legacy_step = &track->steps[step];
-    s_plock_iter_state.plocks = legacy_step->plocks;
-    s_plock_iter_state.count = legacy_step->plock_count;
-    s_plock_iter_state.index = 0U;
-    it->_opaque = &s_plock_iter_state;
-    return true;
-}
-
-bool seq_reader_plock_iter_next(seq_plock_iter_t *it, uint16_t *param_id, int32_t *value) {
-    if ((it == NULL) || (it->_opaque == NULL)) {
-        return false;
-    }
-
-    seq_reader_plock_iter_state_t *state = (seq_reader_plock_iter_state_t *)it->_opaque;
-    if ((state->plocks == NULL) || (state->index >= state->count)) {
-        return false;
-    }
-
-    const seq_model_plock_t *plock = &state->plocks[state->index];
-    state->index++;
-
-    if (param_id != NULL) {
-        *param_id = _encode_plock_id(plock);
-    }
-    if (value != NULL) {
-        *value = (int32_t)plock->value;
-    }
-
-    return true;
-}
-#endif  /* !SEQ_FEATURE_PLOCK_POOL */
-
-#if SEQ_FEATURE_PLOCK_POOL
 int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
     if ((it == NULL) || (step == NULL)) {
         return 0;
     }
 
-    it->step = NULL;
-    it->i = 0U;
-    it->off = step->pl_ref.offset;
-    it->n = step->pl_ref.count;
-    it->use_pool = (uint8_t)((it->n > 0U) ? 1U : 0U);
-    return (it->n > 0U) ? 1 : 0;
+    it->offset = step->pl_ref.offset;
+    it->count = step->pl_ref.count;
+    it->index = 0U;
+    return (it->count > 0U) ? 1 : 0;
 }
 
 int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags) {
-    if ((it == NULL) || (it->i >= it->n)) {
+    if ((it == NULL) || (it->index >= it->count)) {
         return 0;
     }
 
-    const uint16_t absolute = (uint16_t)(it->off + it->i);
+    const uint16_t absolute = (uint16_t)(it->offset + it->index);
     const seq_plock_entry_t *entry = seq_plock_pool_get(absolute, 0U);
-    it->i++;
+    it->index++;
     if (entry == NULL) {
         return 0;
     }
@@ -545,38 +349,6 @@ int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val
     }
     return 1;
 }
-#endif  /* SEQ_FEATURE_PLOCK_POOL */
-
-#if !SEQ_FEATURE_PLOCK_POOL
-int seq_reader_pl_open(seq_reader_pl_it_t *it, const seq_model_step_t *step) {
-    if ((it == NULL) || (step == NULL)) {
-        return 0;
-    }
-
-    it->step = step;
-    it->i = 0U;
-    it->off = 0U;
-    it->n = 0U;
-    it->use_pool = 0U;
-    it->n = step->plock_count;
-    return (it->n > 0U) ? 1 : 0;
-}
-
-int seq_reader_pl_next(seq_reader_pl_it_t *it, uint8_t *out_id, uint8_t *out_val, uint8_t *out_flags) {
-    if ((it == NULL) || (it->i >= it->n)) {
-        return 0;
-    }
-
-    if ((it->step == NULL) || (it->i >= it->n)) {
-        return 0;
-    }
-
-    const seq_model_plock_t *plock = &it->step->plocks[it->i];
-    it->i++;
-    _legacy_extract_plock_payload(plock, out_id, out_val, out_flags);
-    return 1;
-}
-#endif  /* !SEQ_FEATURE_PLOCK_POOL */
 
 const seq_model_step_t *seq_reader_peek_step(seq_track_handle_t h, uint8_t step) {
     const seq_model_track_t *track = _resolve_legacy_track(h);

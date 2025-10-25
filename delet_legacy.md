@@ -9,3 +9,16 @@
 ## Effets attendus
 - build cold/UI désormais strictement PLK2 pool-only.
 - invariants UI (Hold, multi-hold, preview, Live Rec) conservés tout en évitant le stockage legacy.
+
+---
+
+# seq_reader.c – Purge legacy Reader hot
+
+## Changements réalisés
+- suppression des branches duales `seq_reader_plock_iter_*` / `seq_reader_pl_*` dépendantes de `step->plocks[]` et `plock_count`.
+- itération unique sur `pl_ref {offset,count}` via `seq_plock_pool_get()` avec empaquetage `{param_id,value,flags}` partagé.
+- verrouillage compile via `_Static_assert` et `#pragma GCC poison` pour empêcher toute réintroduction du chemin legacy.
+
+## Effets attendus
+- Reader hot strictement pool-only tout en conservant l’ordre encode→read.
+- Protection compile-time contre les régressions legacy et alignement avec la migration PLK2 (Passe 2).
