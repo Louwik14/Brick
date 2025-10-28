@@ -257,3 +257,150 @@ Questions ouvertes
     Existe-t-il un mécanisme externe (hors code analysé) qui reset le pool (ex. reboot) avant saturation ? Si oui, à quelle fréquence ?
 
     Souhaitez-vous une stratégie spécifique pour synchroniser les écritures UI (ex. double-buffering des steps) ou un lock léger suffit-il dans ce contexte temps réel ?
+
+
+    Table des dépendances (UI / apps / core / cart)
+Couche	Fichier(s) représentatifs	Dépend de	Preuve
+UI	ui/ui_backend.c	Pont LED & runner (seq_led_bridge.h, seq_engine_runner.h), lien cart (cart_link.h), gestion MIDI/UI locales	#include en tête de fichier.
+Apps (LED bridge)	apps/seq_led_bridge.c	Lecteur hot (seq_reader.h), accès modèle/projet, pool p-lock	Inclusions directes vers core/seq/*.
+Apps (runner)	apps/seq_engine_runner.c	Cart link, registres cart, accès reader & IDs p-lock	Inclusions croisées vers cart_link.h, core/seq/*.
+Core / Reader	core/seq/reader/seq_reader.c	Runtime/projet séquenceur, pool p-lock	Inclusions vers seq_runtime.h, seq_project.h, seq_plock_pool.h.
+Cart	core/cart_link.c	Registre cart, runtime/projet séquenceur	Inclusions vers cart_registry.h, seq_project.h, seq_runtime.h.
+Graphes Mermaid
+(a) Inclusions majeures
+
+graph TD
+  UIBackend["ui_backend.c"] --> SeqLedBridge["apps/seq_led_bridge.c"]
+  UIBackend --> Runner["apps/seq_engine_runner.c"]
+  SeqLedBridge --> SeqReader["core/seq/reader/seq_reader.c"]
+  SeqLedBridge --> SeqModel["core/seq/seq_model.c"]
+  SeqLedBridge --> PlockPool["core/seq/seq_plock_pool.c"]
+  Runner --> SeqReader
+  Runner --> CartLink["core/cart_link.c"]
+  SeqReader --> SeqProject["core/seq/seq_project.h"]
+  SeqReader --> SeqRuntime["core/seq/seq_runtime.h"]
+  CartLink --> SeqProject
+  CartLink --> SeqRuntime
+
+(b) Appels haut niveau
+
+graph LR
+  UIHold["UI hold (ui_backend)"] --> BridgeApply["seq_led_bridge_apply_*"]
+  BridgeApply --> ModelCommit["seq_model_step_set_plocks_pooled"]
+  ModelCommit --> PoolAlloc["seq_plock_pool_alloc"]
+  RunnerTick["Tick runner"] --> ReaderPeek["seq_reader_peek_step / pl_next"]
+  ReaderPeek --> RunnerCart["runner cart plock"]
+  RunnerCart --> CartDispatch["cart_link_param_changed"]
+
+Preuves localisées des risques P0
+1. Encodage cart tronqué à 8 bits (bridge → reader → runner → cart link)
+
+    L’UI tronque l’ID cartouche à 8 bits (0x40 + ID & 0xFF, clamp 0xFF) avant de le stocker dans le pool.
+
+Lors de la lecture, le reader réémet le même octet (cart domain → param_id = id) vers le runner.
+
+Le runner transfère ce même uint16_t param_id (issu de l’octet tronqué) à cart_link_param_changed.
+
+cart_link_param_changed attend pourtant un ID < CART_LINK_MAX_DEST_ID (512) et pilote un shadow à 512 entrées.
+
+    La spec cart XVA1 publie des IDs ≥285 (ex. SawTune=285), donc >255 et incompatibles avec l’encodage 8 bits.
+
+Conclusion : toute valeur ≥256 est rabattue sur 0xFF avant envoi → perte d’ID cart 16 bits (P0 confirmé).
+2. Itérateur p-locks global non réentrant
+
+    L’état d’itération est un unique static seq_reader_plock_iter_state_t s_plock_iter_state.
+
+    seq_reader_plock_iter_open réinitialise ce global puis retourne son adresse dans l’itérateur utilisateur.
+
+    seq_reader_plock_iter_next caste _opaque vers ce même objet global.
+
+Conclusion : un seul itérateur peut être actif ; un second appel simultané écraserait l’état (P0 confirmé).
+3. Mutation concurrente des steps par l’UI pendant la lecture runner
+
+    En mode hold, l’UI récupère un pointeur direct sur track->steps[...] via _step_from_page() (alias g.track).
+
+    seq_led_bridge_apply_plock_param édite en place offsets, voix et p-locks, puis commit dans le pool.
+
+    seq_led_bridge_apply_cart_param suit la même voie pour les p-locks cart.
+
+    Le runner, dans _runner_step_ctx_prepare, capture simultanément un pointeur constant sur le même step via seq_reader_peek_step.
+
+    Aucun verrouillage ni copie : lecture et écriture se font sur la même structure pendant le tick.
+
+Conclusion : course UI ↔ runner sur les steps actifs (P0 confirmé).
+4. Pool p-lock monotone sans reset/GC
+
+    L’allocation est strictement monotone : s_used += n, jamais décrémenté.
+
+seq_model_step_set_plocks_pooled n’alloue un nouveau bloc qu’en cas de variation de count, sans jamais libérer l’ancien.
+
+Aucun seq_plock_pool_reset n’est invoqué côté firmware (core/, apps/, ui/) — seules les cibles de test l’appellent.
+
+Conclusion : le pool se remplit irréversiblement en usage réel → risque d’OOM bloquant (P0 confirmé).
+Checklists d’invariants à valider à l’exécution
+
+    pl_ref.count <= SEQ_MAX_PLOCKS_PER_STEP et offset+count <= pool_used : contrôler juste après seq_model_step_set_plocks_pooled (usage UI/runner). SEQ_MAX_PLOCKS_PER_STEP vaut 24.
+
+Vérifier avant encodage cart : parameter_id < CART_LINK_MAX_DEST_ID et propager l’ID complet (instrumentation possible dans seq_led_bridge_apply_cart_param).
+
+    S’assurer qu’un seul itérateur seq_reader_plock_iter_* est ouvert pendant le tick (_opaque = &s_plock_iter_state).
+
+    Surveiller qu’aucune écriture de step ne survient durant seq_engine_runner_on_clock_step (UI hold actif). Contrôler via instrumentation autour des accès g.track->steps et seq_reader_peek_step.
+
+Mesures (BSS et tailles critiques)
+
+    Mesures directes (sizeof) :
+    – seq_model_step_t = 32 o (→ 64 steps ≈ 2 048 o)
+    – seq_model_track_t = 2 064 o
+    – seq_project_t = 73 128 o
+    – seq_plock_entry_t = 3 o
+    – SEQ_MAX_TRACKS = 16, SEQ_STEPS_PER_TRACK = 64, SEQ_MAX_PLOCKS_PER_STEP = 24
+
+Pool p-lock : 16×64×24 = 24 576 entrées → ~73 728 o. Avec 8 tracks actives, le besoin tombe à 12 288 entrées (~36 864 o).
+
+Runtime séquenceur (g_seq_runtime) : seq_project_t (73 128 o) + 16 × seq_model_track_t (33 024 o) ≈ 106 152 o en .bss pour 16 tracks. En configuration 8 tracks, la part « track » tombe à ~16 512 o (total ≈ 89 640 o).
+
+    Un step individuel : 32 o → à surveiller pour snapshots/temp buffers.
+
+Expériences de reproduction (sans code)
+
+    Épuisement du pool
+
+        Enchaîner des holds multi-steps et alterner entre 0, 1, puis plusieurs p-locks sur chaque step (variation de count → nouvelles allocations).
+
+        Charger/supprimer des patterns pour remplir des segments morts.
+
+        Observer SEQ_LED_BRIDGE_WARN("p-lock commit failed…") et seq_plock_pool_used() via logs debug.
+
+    Conflit d’itérateur
+
+        Déclencher une lecture p-lock côté UI (ex. future LED snapshot utilisant seq_reader_plock_iter_*) pendant que le runner tourne.
+
+        Forcer une double ouverture (UI + tâche debug) pour vérifier corruption _opaque.
+
+    Lecture pendant mutation
+
+        Maintenir un step en hold, lancer le séquenceur (PLAY), puis tweaker rapidement note/offset (UI hold) pendant le passage du playhead.
+
+        Tracer seq_led_bridge_apply_plock_param et _runner_step_ctx_process_plocks pour capturer états intermédiaires incohérents.
+
+Priorisation finale & critères d’acceptation
+Priorité	Risque	Critère observable attendu
+P0	IDs cart tronqués	cart_link_param_changed reçoit l’ID 16 bits exact (logs ou shadow), et les params >255 sont correctement rejoués.
+P0	Itérateur global non réentrant	Garantir un itérateur réentrant (ex. instance locale) ou prouver qu’un seul appelant peut s’exécuter (assert/runtime check).
+P0	Mutation concurrente steps	Bloquer/ordonner les mutations (hot/cold séparé) ou fournir un mécanisme de snapshot atomique ; vérifier que le runner voit un état cohérent lors de tweaks.
+P0	Pool monotone sans reset	Introduire reset/GC (clear track/pattern/load) ou recycle d’anciens blocs. Accepter quand seq_plock_pool_used() reste borné après cycles d’édition.
+P1	Monitoring insuffisant pool/IDs	Ajouter compteurs/logs runtime (pool watermarks, ID invalides). Acceptance : visibilité dans logs UI (sans freeze).
+P2	Conventions UI/cart (shadow)	Documentation/alertes pour UI shadow si hold actif. Acceptance : warning clair côté UI sans impact temps réel.
+Mini-checklist (actions préliminaires)
+
+    IDs cart >255 confirmés : SawTune=285, Drift=260, etc.
+
+    Logs à surveiller : SEQ_LED_BRIDGE_WARN(...commit failed...) pour OOM, BRICK_DEBUG_PLOCK_LOG("cart", param_id, …) pour suivre l’ID réellement envoyé.
+
+    Points UI ↔ tick : ui_backend_param_changed et ui_backend_handle_ui déclenchent seq_led_bridge_apply_* en plein hold, côté runner lecture dans _runner_step_ctx_prepare/_process_plocks.
+
+    Itérateur p-locks : unique site global (seq_reader_plock_iter_*). Vérifier toute nouvelle utilisation.
+
+Aucun test automatisé exécuté (audit statique uniquement).
+
